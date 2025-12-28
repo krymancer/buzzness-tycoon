@@ -31,6 +31,7 @@ pub const Game = struct {
     textures: Textures,
     resources: Resources,
     ui: UI,
+    metrics: Metrics,
     
     // ECS World
     world: World,
@@ -39,6 +40,11 @@ pub const Game = struct {
     cameraOffset: rl.Vector2,
     isDragging: bool,
     lastMousePos: rl.Vector2,
+    
+    // Beehive upgrades
+    beehiveUpgradeCost: f32,
+    cachedBeeCount: usize,
+    cachedFlowerCount: usize,
     
     // Window management
     width: f32,
@@ -75,7 +81,7 @@ The initialization phase sets up:
 - Serves as the pollen deposit point for honey conversion
 
 **Initial Bee Spawning:**
-- Spawns 10 bees at random positions within grid bounds
+- Spawns 100 bees at random positions within grid bounds
 - Creates entity with: Position, Sprite, BeeAI, Lifespan, PollenCollector, ScaleSync components
 - Bees have 60-140 second initial lifespan
 - Bee AI initialized with random wander angle
@@ -115,10 +121,15 @@ The update phase runs ECS systems in this order:
 6. **Honey Conversion**
    - Checks all bees for completed pollen deposits
    - Converts pollen to honey when `!carryingPollen && pollenCollected > 0`
+   - Honey amount multiplied by beehive's `honeyConversionFactor`
    - Resets pollen counter after conversion
 
 7. **Entity Cleanup**
    - Processes destroy queue to remove dead entities
+
+8. **Metrics Logging**
+   - Logs FPS, frame time, bee count, and flower count
+   - Outputs to console when performance drops or periodically
 
 ### Render Phase (`draw`)
 
@@ -129,8 +140,9 @@ The render phase uses the render system:
 3. **Render System** - Draws all entities with sprites:
    - Flowers at grid positions with growth-based colors
    - Bees at world positions with yellow tint when carrying pollen
-4. **UI** - Displays honey counter, bee count, and purchase button
-5. **Debug Info** - Shows FPS counter
+   - Frustum culling skips off-screen bees
+4. **UI** - Displays honey counter, bee count, beehive factor, purchase buttons (raygui)
+5. **Debug Info** - Shows FPS counter and frame time in milliseconds
 
 ## ECS Systems
 
@@ -146,11 +158,11 @@ try scale_sync_system.update(&self.world, self.grid.scale);
 
 ### Component Queries
 
-The World provides query methods:
-- `queryEntitiesWithLifespan()` - All mortal entities
-- `queryEntitiesWithFlowerGrowth()` - All flowers
-- `queryEntitiesWithBeeAI()` - All bees
-- `queryEntitiesWithScaleSync()` - All zoom-synced entities
+The World provides query methods and direct iterators:
+- `iterateBees()` - Fast, allocation-free bee iteration
+- `iterateFlowers()` - Fast, allocation-free flower iteration
+- `getFlowerTargetCount(entity)` - O(1) bee density check
+- `hasFlowerAtGrid(x, y)` - O(1) spatial flower lookup
 
 ## Input System
 
@@ -239,6 +251,9 @@ The game uses careful memory management:
 const GRID_WIDTH = 17;           // Grid width in tiles (odd for center)
 const GRID_HEIGHT = 17;          // Grid height in tiles (odd for center)
 const FLOWER_SPAWN_CHANCE = 30;  // Percentage chance for initial flower spawn
+const INITIAL_BEE_COUNT = 100;   // Number of bees spawned at start
+const BEE_COST = 10.0;           // Honey cost per bee purchase
+const INITIAL_UPGRADE_COST = 20.0; // First beehive upgrade cost
 ```
 
 ## Future Improvements
@@ -246,17 +261,14 @@ const FLOWER_SPAWN_CHANCE = 30;  // Percentage chance for initial flower spawn
 ### Planned Features
 
 1. **Game Over Conditions** - Implement proper lose state when all bees die
-2. **Upgrade System** - Add bee and flower upgrades
-3. **Save System** - Persist game state between sessions
-4. **Audio System** - Add sound effects and music
-5. **Performance Optimization** - Spatial partitioning for large grids
+2. **Save System** - Persist game state between sessions
+3. **Audio System** - Add sound effects and music
+4. **More Upgrades** - Additional beehive and bee upgrades
 
 ### Technical Debt
 
-1. **Entity Component System** - Consider refactoring to ECS for better modularity
-2. **Event System** - The EventEmitter is unused and should be integrated or removed
-3. **Configuration System** - Move magic numbers to configuration files
-4. **Error Handling** - Improve error propagation and handling
+1. **Configuration System** - Move magic numbers to configuration files
+2. **Error Handling** - Improve error propagation and handling
 
 ## API Reference
 

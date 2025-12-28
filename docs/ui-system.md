@@ -2,7 +2,7 @@
 
 ## Overview
 
-The UI system (`ui.zig`) provides the game's user interface, displaying resource information and interactive elements. It's designed as a simple, functional system that can be easily extended as the game grows in complexity.
+The UI system (`ui.zig`) provides the game's user interface using **raygui** for interactive elements and Raylib for text rendering. It displays resource information and interactive buttons, styled with the Catppuccin Mocha theme.
 
 ## UI Structure
 
@@ -10,22 +10,18 @@ The UI system (`ui.zig`) provides the game's user interface, displaying resource
 
 ```zig
 pub const UI = struct {
-    // Currently stateless - no persistent UI state
-    // Future: could include UI state, animations, etc.
+    // Currently stateless - state managed elsewhere
+    // Theme applied during init()
 }
 ```
 
 ### Design Philosophy
 
-**Immediate Mode UI:**
-- UI elements are drawn fresh each frame
-- No persistent UI state management
-- Simple, direct approach to UI rendering
-
-**Functional API:**
-- `draw()` function returns user interaction results
+**Immediate Mode UI with raygui:**
+- UI elements rendered fresh each frame
+- Buttons managed by raygui library
+- Catppuccin Mocha theme applied at initialization
 - Clean separation between UI rendering and game logic
-- Easy to understand and modify
 
 ## Current UI Elements
 
@@ -45,55 +41,63 @@ pub const UI = struct {
 - Font size: 30 pixels
 - Color: White
 
-### Interactive Elements
+**Beehive Factor:**
+- Shows current honey conversion multiplier
+- Format: "Beehive Factor: [x]x"
+- Position: Below bee counter (10, 70)
+- Font size: 20 pixels
+- Color: Yellow
+
+### Interactive Elements (raygui)
 
 **Buy Bee Button:**
-- Rectangular button with text
+- raygui button with Catppuccin styling
 - Size: 220x40 pixels
-- Position: (10, 80)
+- Position: (10, 100)
 - Text: "Buy Bee (10 Honey)"
 - Cost: 10 honey per bee
+- Disabled state when insufficient honey
 
-**Button States:**
-- **Available:** Yellow background when honey >= 10
-- **Disabled:** Gray background when honey < 10
-- **Interactive:** Responds to mouse clicks when available
+**Upgrade Beehive Button:**
+- raygui button with Catppuccin styling
+- Size: 220x40 pixels
+- Position: (10, 150)
+- Text: "Upgrade Beehive ([cost])"
+- Cost doubles with each upgrade (starts at 20)
+- Disabled state when insufficient honey
 
 ## UI Rendering System
 
 ### Draw Function
 
 ```zig
-pub fn draw(self: UI, honey: f32, bees: usize) bool
+pub fn draw(self: UI, honey: f32, bees: usize, beehiveFactor: f32, upgradeCost: f32) struct { buyBee: bool, upgradeBeehive: bool }
 ```
 
 **Parameters:**
 - `honey`: Current honey amount to display
 - `bees`: Current bee count to display
+- `beehiveFactor`: Current honey conversion multiplier
+- `upgradeCost`: Current beehive upgrade cost
 
 **Returns:**
-- `true` if bee purchase button was clicked and affordable
-- `false` otherwise
+- `buyBee`: true if bee purchase button was clicked and affordable
+- `upgradeBeehive`: true if upgrade button was clicked and affordable
 
-### Button Implementation
+### Button Implementation (raygui)
 
-**Visual Elements:**
 ```zig
-const buttonRect = rl.Rectangle.init(10, 80, 220, 40);
-const buttonColor = if (canAfford) rl.Color.yellow else rl.Color.gray;
+const buyBeeRect = rl.Rectangle.init(10, 100, buttonWidth, buttonHeight);
+const canAffordBee = honey >= 10.0;
 
-rl.drawRectangleRec(buttonRect, buttonColor);           // Button background
-rl.drawRectangleLinesEx(buttonRect, 2, rl.Color.white); // Button border
-rl.drawText(buttonText, x, y, 20, rl.Color.black);     // Button text
-```
+if (!canAffordBee) {
+    rg.setState(@intFromEnum(rg.State.disabled));
+}
 
-**Interaction Logic:**
-```zig
-const mousePos = rl.getMousePosition();
-const mouseOnButton = rl.checkCollisionPointRec(mousePos, buttonRect);
+const buyBeePressed = rg.button(buyBeeRect, "Buy Bee (10 Honey)");
 
-if (mouseOnButton and rl.isMouseButtonReleased(rl.MouseButton.left) and canAfford) {
-    return true;  // Purchase requested
+if (!canAffordBee) {
+    rg.setState(@intFromEnum(rg.State.normal));
 }
 ```
 
@@ -291,14 +295,22 @@ Future debug tools could include:
 
 ## Styling and Theming
 
-### Current Theme
+### Catppuccin Mocha Theme
+
+The UI uses the Catppuccin Mocha dark theme, applied via `theme.zig`:
+
+```zig
+pub fn init() UI {
+    theme.applyCatppuccinMochaTheme();
+    return .{};
+}
+```
 
 **Color Scheme:**
 - Background: Dark theme (0x1e, 0x1e, 0x2e)
 - Text: White for readability
-- Button Available: Yellow for attention
-- Button Disabled: Gray for disabled state
-- Button Border: White for definition
+- Accent: Yellow for important info (beehive factor)
+- Buttons: Styled by raygui with theme colors
 
 ### Future Theming
 

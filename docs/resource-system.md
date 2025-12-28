@@ -63,10 +63,9 @@ pub const Resources = struct {
 ### Resource Initialization
 
 **Starting Resources:**
-- Players begin with 25 honey
-- Start with 10 bees
-- Requires careful early-game resource management
-- Forces strategic decisions about bee purchases
+- Players begin with 69,420 honey (generous starting amount for testing)
+- Start with 100 bees
+- Allows for experimentation with upgrades and bee purchases
 
 ## API Design
 
@@ -131,19 +130,18 @@ pub fn spendHoney(self: *Resources, amount: f32) bool {
 ### Current Balance
 
 **Starting Resources:**
-- 2,500 honey provides good starting buffer
-- Allows for 250 bee purchases initially
-- Balances early game progression
+- 69,420 honey provides generous testing buffer
+- 100 starting bees ensure active gameplay
 
 **Production Rates:**
-- 1 honey per pollen collected
-- Sustainable production with active bees
-- Scales with bee population size
+- Base: 1 honey per pollen collected
+- Multiplied by beehive's `honeyConversionFactor` (starts at 1.0x)
+- Scales with bee population and beehive upgrades
 
 **Spending Costs:**
 - 10 honey per bee purchase
-- Reasonable cost for expansion
-- Encourages strategic bee management
+- Beehive upgrades start at 20 honey, double each time
+- Encourages strategic upgrade decisions
 
 ### Economic Pressure
 
@@ -207,9 +205,9 @@ pub fn spendHoney(self: *Resources, amount: f32) bool {
 ## Configuration Values
 
 ```zig
-const STARTING_HONEY = 2500.0;    // Initial honey amount
+const STARTING_HONEY = 69420.0;   // Initial honey amount
 const BEE_COST = 10.0;            // Honey cost per bee
-const POLLEN_TO_HONEY_RATIO = 1.0; // Conversion rate
+const INITIAL_UPGRADE_COST = 20.0; // First beehive upgrade cost
 ```
 
 ## Error Handling
