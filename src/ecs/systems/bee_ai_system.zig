@@ -7,6 +7,15 @@ const Textures = @import("../../textures.zig").Textures;
 const Flowers = @import("../../textures.zig").Flowers;
 const utils = @import("../../utils.zig");
 
+// Helper to convert texture Flowers enum to component FlowerType
+fn flowersToFlowerType(flower: Flowers) components.FlowerType {
+    return switch (flower) {
+        .rose => .rose,
+        .tulip => .tulip,
+        .dandelion => .dandelion,
+    };
+}
+
 var pollinationTimer: f32 = 0;
 const POLLINATION_CHECK_INTERVAL: f32 = 0.5; // Only check pollination twice per second
 const SEARCH_COOLDOWN: f32 = 0.3; // Short cooldown since search is now cheap
@@ -150,7 +159,7 @@ pub fn update(world: *World, deltaTime: f32, gridOffset: rl.Vector2, gridScale: 
                                         beeAI.carryingPollen = true;
 
                                         if (world.getPollenCollector(entity)) |collector| {
-                                            collector.collect(1.0);
+                                            collector.collect(1.0 * targetFlower.pollenMultiplier);
                                         }
 
                                         // Make bee scatter away from flower for 2-4 seconds
@@ -341,7 +350,7 @@ fn handlePollination(world: *World, _: Entity, beeAI: anytype, position: anytype
             const flowerEntity = try world.createEntity();
             try world.addGridPosition(flowerEntity, components.GridPosition.init(gridXf, gridYf));
             try world.addSprite(flowerEntity, components.Sprite.init(flowerTexture, 32, 32, 2));
-            try world.addFlowerGrowth(flowerEntity, components.FlowerGrowth.init());
+            try world.addFlowerGrowth(flowerEntity, components.FlowerGrowth.init(flowersToFlowerType(flowerType)));
             try world.addLifespan(flowerEntity, components.Lifespan.init(@floatFromInt(rl.getRandomValue(60, 120))));
 
             // Register flower in spatial lookup

@@ -87,6 +87,8 @@ pub const BeeAI = struct {
     }
 };
 
+pub const FlowerType = enum { rose, tulip, dandelion };
+
 pub const FlowerGrowth = struct {
     state: f32,
     timeAlive: f32,
@@ -94,8 +96,10 @@ pub const FlowerGrowth = struct {
     growthThreshold: f32,
     hasPollen: bool,
     pollenCooldown: f32,
+    pollenMultiplier: f32,
+    flowerType: FlowerType,
 
-    pub fn init() @This() {
+    pub fn init(flowerType: FlowerType) @This() {
         const rl_module = @import("raylib");
         return .{
             .state = 0,
@@ -104,6 +108,8 @@ pub const FlowerGrowth = struct {
             .growthThreshold = 50,
             .hasPollen = false,
             .pollenCooldown = @floatFromInt(rl_module.getRandomValue(10, 50)),
+            .pollenMultiplier = 1.0,
+            .flowerType = flowerType,
         };
     }
 };

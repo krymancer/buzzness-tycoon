@@ -1,6 +1,19 @@
 const rl = @import("raylib");
+const std = @import("std");
 const World = @import("../world.zig").World;
 const utils = @import("../../utils.zig");
+
+const FlowerRenderData = struct {
+    entity: u32,
+    gridX: f32,
+    gridY: f32,
+    sortKey: f32, // x + y for isometric sorting
+};
+
+fn compareFlowers(context: void, a: FlowerRenderData, b: FlowerRenderData) bool {
+    _ = context;
+    return a.sortKey < b.sortKey;
+}
 
 pub fn draw(world: *World, gridOffset: rl.Vector2, gridScale: f32) !void {
     // Draw beehive first (so it's behind other entities)
@@ -22,43 +35,62 @@ pub fn draw(world: *World, gridOffset: rl.Vector2, gridScale: f32) !void {
         }
     }
 
+    // Collect flowers for sorting
+    var flowerList: [512]FlowerRenderData = undefined;
+    var flowerCount: usize = 0;
+
     var flowerIter = world.iterateFlowers();
     while (flowerIter.next()) |entity| {
-        if (world.getFlowerGrowth(entity)) |growth| {
-            if (world.getGridPosition(entity)) |gridPos| {
-                if (world.getSprite(entity)) |sprite| {
-                    if (world.getLifespan(entity)) |lifespan| {
-                        if (lifespan.isDead()) {
-                            continue;
-                        }
-                    }
+        if (world.getGridPosition(entity)) |gridPos| {
+            if (world.getLifespan(entity)) |lifespan| {
+                if (lifespan.isDead()) {
+                    continue;
+                }
+            }
+            if (flowerCount < flowerList.len) {
+                flowerList[flowerCount] = .{
+                    .entity = entity,
+                    .gridX = gridPos.x,
+                    .gridY = gridPos.y,
+                    .sortKey = gridPos.x + gridPos.y,
+                };
+                flowerCount += 1;
+            }
+        }
+    }
 
-                    const source = rl.Rectangle.init(growth.state * sprite.width, 0, sprite.width, sprite.height);
+    // Sort flowers by grid position (back to front for isometric)
+    std.mem.sort(FlowerRenderData, flowerList[0..flowerCount], {}, compareFlowers);
 
-                    if (growth.state == 4 and growth.hasPollen) {
-                        drawSpriteAtGridPosition(
-                            sprite.texture,
-                            gridPos.x,
-                            gridPos.y,
-                            source,
-                            sprite.scale + 0.1,
-                            rl.Color.init(255, 255, 100, 128),
-                            gridOffset,
-                            gridScale,
-                        );
-                    }
+    // Draw sorted flowers
+    for (flowerList[0..flowerCount]) |flowerData| {
+        if (world.getFlowerGrowth(flowerData.entity)) |growth| {
+            if (world.getSprite(flowerData.entity)) |sprite| {
+                const source = rl.Rectangle.init(growth.state * sprite.width, 0, sprite.width, sprite.height);
 
+                if (growth.state == 4 and growth.hasPollen) {
                     drawSpriteAtGridPosition(
                         sprite.texture,
-                        gridPos.x,
-                        gridPos.y,
+                        flowerData.gridX,
+                        flowerData.gridY,
                         source,
-                        sprite.scale,
-                        rl.Color.white,
+                        sprite.scale + 0.1,
+                        rl.Color.init(255, 255, 100, 128),
                         gridOffset,
                         gridScale,
                     );
                 }
+
+                drawSpriteAtGridPosition(
+                    sprite.texture,
+                    flowerData.gridX,
+                    flowerData.gridY,
+                    source,
+                    sprite.scale,
+                    rl.Color.white,
+                    gridOffset,
+                    gridScale,
+                );
             }
         }
     }
