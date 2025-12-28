@@ -34,9 +34,16 @@ pub fn update(world: *World, deltaTime: f32) !void {
                     }
                 }
 
-                // Cleanup for dying FLOWER: clear its target count entry
+                // Cleanup for dying FLOWER: clear its target count entry and unregister from grid
                 if (world.getFlowerGrowth(entity) != null) {
                     world.clearFlowerTargetCount(entity);
+
+                    // Unregister flower from spatial lookup
+                    if (world.getGridPosition(entity)) |gridPos| {
+                        const gridX: i32 = @intFromFloat(@floor(gridPos.x));
+                        const gridY: i32 = @intFromFloat(@floor(gridPos.y));
+                        world.unregisterFlowerAtGrid(gridX, gridY);
+                    }
                 }
 
                 try world.destroyEntity(entity);

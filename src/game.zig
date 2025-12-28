@@ -111,6 +111,9 @@ pub const Game = struct {
                     try world.addSprite(flowerEntity, components.Sprite.init(flowerTexture, 32, 32, 2));
                     try world.addFlowerGrowth(flowerEntity, components.FlowerGrowth.init());
                     try world.addLifespan(flowerEntity, components.Lifespan.init(@floatFromInt(rl.getRandomValue(60, 120))));
+
+                    // Register flower in spatial lookup
+                    world.registerFlowerAtGrid(@intCast(i), @intCast(j), flowerEntity);
                 }
             }
         }

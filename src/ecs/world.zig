@@ -7,6 +7,16 @@ const components = @import("components.zig");
 
 pub const ComponentIndex = usize;
 
+// Key for grid position lookups - packed i32 pair
+pub const GridKey = struct {
+    x: i32,
+    y: i32,
+
+    pub fn init(x: i32, y: i32) @This() {
+        return .{ .x = x, .y = y };
+    }
+};
+
 pub const World = struct {
     entityManager: EntityManager,
     allocator: std.mem.Allocator,
@@ -35,6 +45,9 @@ pub const World = struct {
 
     // Flower target count cache - tracks how many bees are targeting each flower
     flowerTargetCount: std.AutoHashMap(Entity, u32),
+
+    // Grid position to flower entity lookup - O(1) spatial queries
+    gridPosToFlower: std.AutoHashMap(GridKey, Entity),
 
     entitiesToDestroy: std.ArrayList(Entity),
 
@@ -67,6 +80,8 @@ pub const World = struct {
 
             .flowerTargetCount = std.AutoHashMap(Entity, u32).init(allocator),
 
+            .gridPosToFlower = std.AutoHashMap(GridKey, Entity).init(allocator),
+
             .entitiesToDestroy = .empty,
         };
     }
@@ -97,6 +112,8 @@ pub const World = struct {
         self.entityToBeehive.deinit();
 
         self.flowerTargetCount.deinit();
+
+        self.gridPosToFlower.deinit();
 
         self.entitiesToDestroy.deinit(self.allocator);
     }
@@ -398,6 +415,23 @@ pub const World = struct {
 
     pub fn clearFlowerTargetCount(self: *@This(), flowerEntity: Entity) void {
         _ = self.flowerTargetCount.remove(flowerEntity);
+    }
+
+    // Grid position to flower helpers - O(1) spatial lookup for flowers
+    pub fn registerFlowerAtGrid(self: *@This(), gridX: i32, gridY: i32, flowerEntity: Entity) void {
+        self.gridPosToFlower.put(GridKey.init(gridX, gridY), flowerEntity) catch {};
+    }
+
+    pub fn unregisterFlowerAtGrid(self: *@This(), gridX: i32, gridY: i32) void {
+        _ = self.gridPosToFlower.remove(GridKey.init(gridX, gridY));
+    }
+
+    pub fn getFlowerAtGrid(self: *@This(), gridX: i32, gridY: i32) ?Entity {
+        return self.gridPosToFlower.get(GridKey.init(gridX, gridY));
+    }
+
+    pub fn hasFlowerAtGrid(self: *@This(), gridX: i32, gridY: i32) bool {
+        return self.gridPosToFlower.contains(GridKey.init(gridX, gridY));
     }
 
     pub fn queryEntitiesWithPosition(self: *@This()) !QueryIterator {

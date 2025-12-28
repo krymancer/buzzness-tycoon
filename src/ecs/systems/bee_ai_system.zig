@@ -11,8 +11,9 @@ var pollinationTimer: f32 = 0;
 const POLLINATION_CHECK_INTERVAL: f32 = 0.5; // Only check pollination twice per second
 const SEARCH_COOLDOWN: f32 = 0.3; // Reduced cooldown since search is now cheap
 
-// Cached beehive entity - only lookup once
+// Cached beehive entity and position - only lookup once
 var cachedBeehiveEntity: ?Entity = null;
+var cachedBeehiveWorldPos: ?rl.Vector2 = null;
 var beehiveCacheInitialized: bool = false;
 
 // Cached available flowers - rebuilt once per frame
@@ -33,9 +34,14 @@ pub fn update(world: *World, deltaTime: f32, gridOffset: rl.Vector2, gridScale: 
         pollinationTimer = 0;
     }
 
-    // Cache beehive entity on first call
+    // Cache beehive entity and world position on first call
     if (!beehiveCacheInitialized) {
         cachedBeehiveEntity = findBeehive(world);
+        if (cachedBeehiveEntity) |beehiveEntity| {
+            if (world.getGridPosition(beehiveEntity)) |gridPos| {
+                cachedBeehiveWorldPos = getFlowerWorldPosition(gridPos.toVector2(), gridOffset, gridScale);
+            }
+        }
         beehiveCacheInitialized = true;
     }
 
@@ -78,27 +84,25 @@ pub fn update(world: *World, deltaTime: f32, gridOffset: rl.Vector2, gridScale: 
                         }
                     }
 
-                    if (beeAI.targetEntity) |targetEntity| {
-                        if (world.getGridPosition(targetEntity)) |targetGridPos| {
-                            const targetPos = getFlowerWorldPosition(targetGridPos.toVector2(), gridOffset, gridScale);
-                            const distance = rl.math.vector2Distance(position.toVector2(), targetPos);
-                            const arrivalThreshold: f32 = 30.0;
+                    // Use cached beehive world position - no recalculation needed
+                    if (cachedBeehiveWorldPos) |targetPos| {
+                        const distance = rl.math.vector2Distance(position.toVector2(), targetPos);
+                        const arrivalThreshold: f32 = 30.0;
 
-                            if (distance < arrivalThreshold) {
-                                // Deposit pollen at beehive
-                                if (world.getPollenCollector(entity)) |collector| {
-                                    if (collector.pollenCollected > 0) {
-                                        beeAI.carryingPollen = false;
-                                        beeAI.targetLocked = false;
-                                        beeAI.targetEntity = null;
-                                    }
+                        if (distance < arrivalThreshold) {
+                            // Deposit pollen at beehive
+                            if (world.getPollenCollector(entity)) |collector| {
+                                if (collector.pollenCollected > 0) {
+                                    beeAI.carryingPollen = false;
+                                    beeAI.targetLocked = false;
+                                    beeAI.targetEntity = null;
                                 }
-                            } else {
-                                // Move towards beehive
-                                const leapFactor: f32 = 2.0;
-                                position.x += (targetPos.x - position.x) * leapFactor * deltaTime;
-                                position.y += (targetPos.y - position.y) * leapFactor * deltaTime;
                             }
+                        } else {
+                            // Move towards beehive
+                            const leapFactor: f32 = 2.0;
+                            position.x += (targetPos.x - position.x) * leapFactor * deltaTime;
+                            position.y += (targetPos.y - position.y) * leapFactor * deltaTime;
                         }
                     }
                     continue;
@@ -303,21 +307,11 @@ fn handlePollination(world: *World, _: Entity, beeAI: anytype, position: anytype
         return;
     }
 
-    // Check if there's already a flower at this position
+    // Check if there's already a flower at this position - O(1) lookup
     const gridXf: f32 = @floatFromInt(gridX);
     const gridYf: f32 = @floatFromInt(gridY);
 
-    var hasFlower = false;
-    var flowerIter = world.iterateFlowers();
-
-    while (flowerIter.next()) |flowerEntity| {
-        if (world.getGridPosition(flowerEntity)) |flowerGridPos| {
-            if (@abs(flowerGridPos.x - gridXf) < 0.1 and @abs(flowerGridPos.y - gridYf) < 0.1) {
-                hasFlower = true;
-                break;
-            }
-        }
-    }
+    const hasFlower = world.hasFlowerAtGrid(gridX, gridY);
 
     // If no flower exists, 10% chance to spawn one
     if (!hasFlower) {
@@ -339,6 +333,9 @@ fn handlePollination(world: *World, _: Entity, beeAI: anytype, position: anytype
             try world.addSprite(flowerEntity, components.Sprite.init(flowerTexture, 32, 32, 2));
             try world.addFlowerGrowth(flowerEntity, components.FlowerGrowth.init());
             try world.addLifespan(flowerEntity, components.Lifespan.init(@floatFromInt(rl.getRandomValue(60, 120))));
+
+            // Register flower in spatial lookup
+            world.registerFlowerAtGrid(gridX, gridY, flowerEntity);
         }
     }
 }

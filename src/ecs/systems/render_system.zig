@@ -66,6 +66,16 @@ pub fn draw(world: *World, gridOffset: rl.Vector2, gridScale: f32) !void {
     var beeIter = world.iterateBees();
     while (beeIter.next()) |entity| {
         if (world.getPosition(entity)) |position| {
+            // Frustum culling - skip bees that are off-screen
+            const screenWidth: f32 = @floatFromInt(rl.getScreenWidth());
+            const screenHeight: f32 = @floatFromInt(rl.getScreenHeight());
+            const margin: f32 = 50.0; // Small margin to avoid popping
+            if (position.x < -margin or position.x > screenWidth + margin or
+                position.y < -margin or position.y > screenHeight + margin)
+            {
+                continue;
+            }
+
             if (world.getSprite(entity)) |sprite| {
                 if (world.getScaleSync(entity)) |scaleSync| {
                     if (world.getBeeAI(entity)) |beeAI| {
