@@ -3,9 +3,19 @@ const rl = @import("raylib");
 const World = @import("../world.zig").World;
 const components = @import("../components.zig");
 const utils = @import("../../utils.zig");
+const Flowers = @import("../../textures.zig").Flowers;
 
 var emptyCellTimer: f32 = 0;
 const EMPTY_CELL_CHECK_INTERVAL: f32 = 5.0; // Check every 5 seconds
+
+// Helper to convert texture Flowers enum to component FlowerType
+fn flowersToFlowerType(flower: Flowers) components.FlowerType {
+    return switch (flower) {
+        .rose => .rose,
+        .tulip => .tulip,
+        .dandelion => .dandelion,
+    };
+}
 
 pub fn update(
     world: *World,
@@ -74,7 +84,7 @@ fn trySpawnFlower(
                             sprite.texture = flowerTexture;
                         }
 
-                        growth.* = components.FlowerGrowth.init();
+                        growth.* = components.FlowerGrowth.init(flowersToFlowerType(flowerType));
                         lifespan.timeAlive = 0;
                         lifespan.totalTimeAlive = 0;
 
@@ -91,7 +101,7 @@ fn trySpawnFlower(
     const flowerEntity = try world.createEntity();
     try world.addGridPosition(flowerEntity, components.GridPosition.init(@as(f32, @floatFromInt(gridI)), @as(f32, @floatFromInt(gridJ))));
     try world.addSprite(flowerEntity, components.Sprite.init(flowerTexture, 32, 32, 2));
-    try world.addFlowerGrowth(flowerEntity, components.FlowerGrowth.init());
+    try world.addFlowerGrowth(flowerEntity, components.FlowerGrowth.init(flowersToFlowerType(flowerType)));
     try world.addLifespan(flowerEntity, components.Lifespan.init(@floatFromInt(rl.getRandomValue(60, 120))));
 
     // Register flower in spatial lookup
@@ -100,9 +110,8 @@ fn trySpawnFlower(
     return true;
 }
 
-fn getRandomFlowerType() @import("../../textures.zig").Flowers {
+fn getRandomFlowerType() Flowers {
     const rl_module = @import("raylib");
-    const Flowers = @import("../../textures.zig").Flowers;
     const x = rl_module.getRandomValue(1, 3);
     return switch (x) {
         1 => Flowers.rose,
@@ -139,7 +148,7 @@ fn trySpawnFlowerInEmptyCell(world: *World, gridWidth: usize, gridHeight: usize,
                 const flowerEntity = try world.createEntity();
                 try world.addGridPosition(flowerEntity, components.GridPosition.init(@as(f32, @floatFromInt(gridI)), @as(f32, @floatFromInt(gridJ))));
                 try world.addSprite(flowerEntity, components.Sprite.init(flowerTexture, 32, 32, 2));
-                try world.addFlowerGrowth(flowerEntity, components.FlowerGrowth.init());
+                try world.addFlowerGrowth(flowerEntity, components.FlowerGrowth.init(flowersToFlowerType(flowerType)));
                 try world.addLifespan(flowerEntity, components.Lifespan.init(@floatFromInt(rl.getRandomValue(60, 120))));
 
                 // Register flower in spatial lookup

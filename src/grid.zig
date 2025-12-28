@@ -103,4 +103,18 @@ pub const Grid = struct {
         const mousePosition = rl.getMousePosition();
         return utils.isPointInIsometricTile(mousePosition.x, mousePosition.y, x, y, self.tileWidth, self.tileHeight, self.offset.x, self.offset.y, self.scale);
     }
+
+    /// Returns the grid coordinates of the tile the mouse is currently hovering over, or null if not on any tile
+    pub fn getHoveredTile(self: @This()) ?struct { x: i32, y: i32 } {
+        for (0..self.width) |i| {
+            for (0..self.height) |j| {
+                const x: f32 = @floatFromInt(i);
+                const y: f32 = @floatFromInt(j);
+                if (self.isMouseHovering(x, y)) {
+                    return .{ .x = @intCast(i), .y = @intCast(j) };
+                }
+            }
+        }
+        return null;
+    }
 };
