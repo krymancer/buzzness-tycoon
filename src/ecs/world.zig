@@ -7,6 +7,16 @@ const components = @import("components.zig");
 
 pub const ComponentIndex = usize;
 
+// Key for grid position lookups - packed i32 pair
+pub const GridKey = struct {
+    x: i32,
+    y: i32,
+
+    pub fn init(x: i32, y: i32) @This() {
+        return .{ .x = x, .y = y };
+    }
+};
+
 pub const World = struct {
     entityManager: EntityManager,
     allocator: std.mem.Allocator,
@@ -32,6 +42,12 @@ pub const World = struct {
     entityToPollenCollector: std.AutoHashMap(Entity, ComponentIndex),
     entityToScaleSync: std.AutoHashMap(Entity, ComponentIndex),
     entityToBeehive: std.AutoHashMap(Entity, ComponentIndex),
+
+    // Flower target count cache - tracks how many bees are targeting each flower
+    flowerTargetCount: std.AutoHashMap(Entity, u32),
+
+    // Grid position to flower entity lookup - O(1) spatial queries
+    gridPosToFlower: std.AutoHashMap(GridKey, Entity),
 
     entitiesToDestroy: std.ArrayList(Entity),
 
@@ -62,6 +78,10 @@ pub const World = struct {
             .entityToScaleSync = std.AutoHashMap(Entity, ComponentIndex).init(allocator),
             .entityToBeehive = std.AutoHashMap(Entity, ComponentIndex).init(allocator),
 
+            .flowerTargetCount = std.AutoHashMap(Entity, u32).init(allocator),
+
+            .gridPosToFlower = std.AutoHashMap(GridKey, Entity).init(allocator),
+
             .entitiesToDestroy = .empty,
         };
     }
@@ -90,6 +110,10 @@ pub const World = struct {
         self.entityToPollenCollector.deinit();
         self.entityToScaleSync.deinit();
         self.entityToBeehive.deinit();
+
+        self.flowerTargetCount.deinit();
+
+        self.gridPosToFlower.deinit();
 
         self.entitiesToDestroy.deinit(self.allocator);
     }
@@ -334,6 +358,80 @@ pub const World = struct {
             .iter = self.entityToFlowerGrowth.keyIterator(),
             .world = self,
         };
+    }
+
+    // Direct iterator for entities with Lifespan - no allocation
+    pub const DirectLifespanIterator = struct {
+        iter: std.AutoHashMap(Entity, ComponentIndex).KeyIterator,
+
+        pub fn next(self: *@This()) ?Entity {
+            if (self.iter.next()) |entity| {
+                return entity.*;
+            }
+            return null;
+        }
+    };
+
+    pub fn iterateLifespans(self: *@This()) DirectLifespanIterator {
+        return .{
+            .iter = self.entityToLifespan.keyIterator(),
+        };
+    }
+
+    // Direct iterator for entities with ScaleSync - no allocation
+    pub const DirectScaleSyncIterator = struct {
+        iter: std.AutoHashMap(Entity, ComponentIndex).KeyIterator,
+
+        pub fn next(self: *@This()) ?Entity {
+            if (self.iter.next()) |entity| {
+                return entity.*;
+            }
+            return null;
+        }
+    };
+
+    pub fn iterateScaleSyncs(self: *@This()) DirectScaleSyncIterator {
+        return .{
+            .iter = self.entityToScaleSync.keyIterator(),
+        };
+    }
+
+    // Flower target count helpers - O(1) tracking of how many bees target each flower
+    pub fn incrementFlowerTarget(self: *@This(), flowerEntity: Entity) void {
+        const current = self.flowerTargetCount.get(flowerEntity) orelse 0;
+        self.flowerTargetCount.put(flowerEntity, current + 1) catch {};
+    }
+
+    pub fn decrementFlowerTarget(self: *@This(), flowerEntity: Entity) void {
+        const current = self.flowerTargetCount.get(flowerEntity) orelse 0;
+        if (current > 0) {
+            self.flowerTargetCount.put(flowerEntity, current - 1) catch {};
+        }
+    }
+
+    pub fn getFlowerTargetCount(self: *@This(), flowerEntity: Entity) u32 {
+        return self.flowerTargetCount.get(flowerEntity) orelse 0;
+    }
+
+    pub fn clearFlowerTargetCount(self: *@This(), flowerEntity: Entity) void {
+        _ = self.flowerTargetCount.remove(flowerEntity);
+    }
+
+    // Grid position to flower helpers - O(1) spatial lookup for flowers
+    pub fn registerFlowerAtGrid(self: *@This(), gridX: i32, gridY: i32, flowerEntity: Entity) void {
+        self.gridPosToFlower.put(GridKey.init(gridX, gridY), flowerEntity) catch {};
+    }
+
+    pub fn unregisterFlowerAtGrid(self: *@This(), gridX: i32, gridY: i32) void {
+        _ = self.gridPosToFlower.remove(GridKey.init(gridX, gridY));
+    }
+
+    pub fn getFlowerAtGrid(self: *@This(), gridX: i32, gridY: i32) ?Entity {
+        return self.gridPosToFlower.get(GridKey.init(gridX, gridY));
+    }
+
+    pub fn hasFlowerAtGrid(self: *@This(), gridX: i32, gridY: i32) bool {
+        return self.gridPosToFlower.contains(GridKey.init(gridX, gridY));
     }
 
     pub fn queryEntitiesWithPosition(self: *@This()) !QueryIterator {

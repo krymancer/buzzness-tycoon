@@ -94,6 +94,9 @@ fn trySpawnFlower(
     try world.addFlowerGrowth(flowerEntity, components.FlowerGrowth.init());
     try world.addLifespan(flowerEntity, components.Lifespan.init(@floatFromInt(rl.getRandomValue(60, 120))));
 
+    // Register flower in spatial lookup
+    world.registerFlowerAtGrid(@intCast(gridI), @intCast(gridJ), flowerEntity);
+
     return true;
 }
 
@@ -124,24 +127,8 @@ fn trySpawnFlowerInEmptyCell(world: *World, gridWidth: usize, gridHeight: usize,
             continue;
         }
 
-        // Check if this cell already has a flower
-        var hasFlower = false;
-        var iter = try world.queryEntitiesWithFlowerGrowth();
-        defer iter.deinit();
-
-        while (iter.next()) |entity| {
-            if (world.getGridPosition(entity)) |gridPos| {
-                if (world.getLifespan(entity)) |lifespan| {
-                    if (!lifespan.isDead() and
-                        @as(usize, @intFromFloat(gridPos.x)) == gridI and
-                        @as(usize, @intFromFloat(gridPos.y)) == gridJ)
-                    {
-                        hasFlower = true;
-                        break;
-                    }
-                }
-            }
-        }
+        // Check if this cell already has a flower - O(1) lookup
+        const hasFlower = world.hasFlowerAtGrid(@intCast(gridI), @intCast(gridJ));
 
         // If empty, 30% chance to spawn a flower
         if (!hasFlower) {
@@ -154,6 +141,9 @@ fn trySpawnFlowerInEmptyCell(world: *World, gridWidth: usize, gridHeight: usize,
                 try world.addSprite(flowerEntity, components.Sprite.init(flowerTexture, 32, 32, 2));
                 try world.addFlowerGrowth(flowerEntity, components.FlowerGrowth.init());
                 try world.addLifespan(flowerEntity, components.Lifespan.init(@floatFromInt(rl.getRandomValue(60, 120))));
+
+                // Register flower in spatial lookup
+                world.registerFlowerAtGrid(@intCast(gridI), @intCast(gridJ), flowerEntity);
                 return; // Successfully spawned
             }
         }
