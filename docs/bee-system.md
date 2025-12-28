@@ -8,25 +8,28 @@
 > - Components: `BeeAI`, `Position`, `PollenCollector`, `Lifespan` in `src/ecs/components.zig`
 > - System: `bee_ai_system.zig` for current bee behavior
 
-## Overview (Legacy OOP Implementation)
-
-The Bee system (`bee.zig` - REMOVED) implemented autonomous bee agents that collect pollen from flowers and convert it to honey. Each bee had its own AI state machine, lifecycle, and visual representation.
-
-**Current ECS Implementation:**
-- Bees are entities with `BeeAI`, `Position`, `PollenCollector`, `Lifespan`, `Sprite`, and `ScaleSync` components
-- Behavior handled by `bee_ai_system.zig`
-- Key features: scatter behavior, density limiting, pollination, life extension, beehive targeting
-
 ## Current ECS Bee Behavior
+
+### Overview
+Bees are entities with `BeeAI`, `Position`, `PollenCollector`, `Lifespan`, `Sprite`, and `ScaleSync` components. All behavior is handled by `bee_ai_system.zig`.
+
+### Key Features
+- **Per-frame flower caching** - Available flowers cached once per frame for O(1) lookups
+- **Scatter behavior** - Bees scatter for 2-4 seconds after collecting pollen
+- **Density limiting** - Maximum 2 bees per flower target
+- **Beehive targeting** - Bees return to deposit pollen at the central beehive
+- **Life extension** - +50% lifespan when carrying pollen at death
+- **Pollination** - 10% chance to spawn flowers when flying over empty cells
+- **Search cooldown** - Prevents excessive flower searching when none available
 
 ### Pollen Collection and Deposit Flow
 
-1. **Flower Targeting**: Bees seek flowers with pollen (state 4)
-2. **Pollen Collection**: When close to flower, collect pollen and enter scatter mode
-3. **Scatter**: Bees wander for 2-4 seconds after collection to disperse
-4. **Beehive Targeting**: Bees carrying pollen target the central beehive
+1. **Flower Targeting**: Bees seek flowers with pollen (state 4) using cached flower list
+2. **Pollen Collection**: When close to flower (5px), collect pollen and enter scatter mode
+3. **Scatter**: Bees wander randomly for 2-4 seconds after collection to disperse
+4. **Beehive Targeting**: Bees carrying pollen target the cached beehive entity
 5. **Deposit**: When within 30 pixels of beehive, pollen is deposited
-6. **Honey Conversion**: Deposited pollen is converted to honey resource
+6. **Honey Conversion**: Deposited pollen is converted to honey (multiplied by beehive factor)
 
 ### Beehive System
 
@@ -34,15 +37,45 @@ The Bee system (`bee.zig` - REMOVED) implemented autonomous bee agents that coll
 - Beehive is spawned at grid center (8, 8) on 17x17 grid
 - Marked with `Beehive` component for easy identification
 - Has `GridPosition` and `Sprite` components
+- Can be upgraded to increase honey conversion factor
 
 **Pollen Deposit Mechanics:**
 - Bees with `carryingPollen = true` automatically target beehive
-- Uses `findBeehive()` function to locate beehive entity
-- Movement uses same interpolation as flower targeting
-- Deposit occurs within 30-pixel radius (larger than flower threshold)
+- Beehive entity and position are cached on first lookup (never changes)
+- Movement uses exponential ease-out interpolation (leapFactor = 2.0)
+- Deposit occurs within 30-pixel radius
 - After deposit, bee resets and can target flowers again
 
-## Bee Structure (Legacy)
+### Performance Optimizations
+
+The bee AI system includes several optimizations for handling 1000+ bees:
+
+1. **Per-frame flower cache** - `availableFlowers[]` array rebuilt once per frame
+2. **Flower target count HashMap** - O(1) density checks
+3. **Cached beehive entity and position** - Eliminates repeated lookups
+4. **Search cooldown** - Reduces unnecessary searches
+5. **Direct iterators** - `world.iterateBees()` avoids allocations
+
+### Configuration Values (Current)
+
+```zig
+const POLLINATION_CHECK_INTERVAL = 0.5;  // Check pollination twice per second
+const SEARCH_COOLDOWN = 0.3;             // Cooldown between flower searches
+const MAX_AVAILABLE_FLOWERS = 256;       // Max flowers in per-frame cache
+const ARRIVAL_THRESHOLD = 5.0;           // Distance for flower arrival
+const BEEHIVE_ARRIVAL_THRESHOLD = 30.0;  // Distance for beehive arrival
+const LEAP_FACTOR = 2.0;                 // Movement interpolation speed
+const SCATTER_TIME_MIN = 2.0;            // Minimum scatter duration
+const SCATTER_TIME_MAX = 4.0;            // Maximum scatter duration
+const LIFESPAN_MIN = 60.0;               // Minimum bee lifespan (seconds)
+const LIFESPAN_MAX = 140.0;              // Maximum bee lifespan (seconds)
+```
+
+---
+
+## Legacy OOP Implementation (Removed)
+
+The sections below describe the old `bee.zig` implementation that was removed during the ECS refactor. Kept for historical reference.
 
 ### Core Properties
 

@@ -1,12 +1,9 @@
 const rl = @import("raylib");
 const std = @import("std");
 
-// TODO
-// The point of this file is to manage the games resources
-// Currently we are using honey that can be spent
-// To create new bees
-// This file should be the only API to interact with the resources
-
+/// Resource management for the game economy.
+/// Currently manages honey which can be spent to create new bees
+/// or upgrade the beehive.
 pub const Resources = struct {
     honey: f32,
 

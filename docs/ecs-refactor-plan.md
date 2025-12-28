@@ -1,7 +1,7 @@
 # ECS Architecture Documentation
 
 > **✅ REFACTOR COMPLETED**  
-> This document describes the completed ECS migration. The game now runs on a full Entity Component System architecture.
+> This document describes the completed ECS migration. The game now runs on a full Entity Component System architecture with performance optimizations.
 
 ## Overview
 
@@ -10,7 +10,9 @@ Successfully migrated from traditional object-oriented architecture to Entity Co
 - ✅ Pollination mechanics (bees spawn flowers)
 - ✅ Automatic flower spawning in empty cells
 - ✅ Pollen-based life extension for bees
-- ✅ Dynamic honey generation
+- ✅ Dynamic honey generation with beehive upgrades
+- ✅ Performance optimizations for 1000+ bees (48-53 FPS)
+- ✅ Metrics and performance logging system
 - Future: Boost totems, new entity types, status effects
 
 ## Previous Architecture (Removed)
@@ -70,6 +72,7 @@ BeeAI {
     lastGridX: i32,
     lastGridY: i32,
     scatterTimer: f32,
+    searchCooldown: f32,     // Cooldown between flower searches
 }
 
 FlowerGrowth {
@@ -96,7 +99,7 @@ ScaleSync {
 }
 
 Beehive { 
-    // Marker component for the central beehive entity
+    honeyConversionFactor: f32,  // Multiplier for honey generation (upgradeable)
 }
 ```
 
@@ -107,9 +110,13 @@ All systems implemented in `src/ecs/systems/`:
 1. **LifespanSystem** ✅ - Tracks entity age, marks entities as dead, handles pollen life extension
 2. **FlowerGrowthSystem** ✅ - Updates flower growth states (0→4), handles pollen regeneration
 3. **BeeAISystem** ✅ - Target finding with density limiting, movement, scatter behavior, pollination
+   - Optimized with per-frame flower caching
+   - Cached beehive entity and position
+   - O(1) flower target count lookups
 4. **FlowerSpawningSystem** ✅ - Spawns flowers in empty cells every 5 seconds (30% chance)
 5. **ScaleSyncSystem** ✅ - Updates entity scales based on grid zoom level
 6. **RenderSystem** ✅ - Draws all entities with Position/GridPosition + Sprite components
+   - Includes frustum culling for off-screen bees
 
 ### World Structure
 
@@ -141,6 +148,10 @@ World {
     entityToPollenCollector: AutoHashMap(Entity, usize),
     entityToScaleSync: AutoHashMap(Entity, usize),
     entityToBeehive: AutoHashMap(Entity, usize),
+    
+    // Performance optimization: O(1) flower lookups
+    flowerTargetCount: AutoHashMap(Entity, usize),  // Bees targeting each flower
+    gridPosToFlower: AutoHashMap(u64, Entity),      // Grid position to flower entity
     
     // Destroy queue for deferred entity removal
     entitiesToDestroy: ArrayList(Entity),

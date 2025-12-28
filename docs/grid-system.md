@@ -11,8 +11,8 @@ The Grid system (`grid.zig`) provides the foundation for the isometric game worl
 ```zig
 pub const Grid = struct {
     // Dimensions
-    width: usize,            // Grid width in tiles (16)
-    height: usize,           // Grid height in tiles (16)
+    width: usize,            // Grid width in tiles (17)
+    height: usize,           // Grid height in tiles (17)
     
     // Tile properties
     tileTexture: rl.Texture, // Grass cube texture
@@ -185,7 +185,8 @@ pub fn getRandomPositionInBounds(self: Grid) rl.Vector2
 ### Scalability
 
 **Grid Size:**
-- Current 16x16 grid (256 tiles)
+- Current 17x17 grid (289 tiles)
+- Odd dimensions ensure center tile for beehive
 - Could be expanded for larger worlds
 - Performance scales linearly with grid size
 
@@ -199,8 +200,6 @@ const TILE_HEIGHT = 32.0;       // Tile height in pixels
 const BASE_SCALE = 3.0;         // Default zoom level
 const MIN_SCALE = 1.0;          // Minimum zoom
 const MAX_SCALE = 6.0;          // Maximum zoom
-const VIEWPORT_WIDTH = 1080.0;  // Screen width
-const VIEWPORT_HEIGHT = 1080.0; // Screen height
 ```
 
 ## Future Improvements
