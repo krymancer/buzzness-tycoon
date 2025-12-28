@@ -9,6 +9,7 @@ const utils = @import("utils.zig");
 
 const Resources = @import("resources.zig").Resources;
 const UI = @import("ui.zig").UI;
+const Metrics = @import("metrics.zig").Metrics;
 
 const World = @import("ecs/world.zig").World;
 const Entity = @import("ecs/entity.zig").Entity;
@@ -45,6 +46,9 @@ pub const Game = struct {
 
     beehiveUpgradeCost: f32,
     cachedBeeCount: usize,
+    cachedFlowerCount: usize,
+
+    metrics: Metrics,
 
     allocator: std.mem.Allocator,
 
@@ -111,7 +115,7 @@ pub const Game = struct {
             }
         }
 
-        for (0..10) |_| {
+        for (0..100) |_| {
             const randomPos = grid.getRandomPositionInBounds();
 
             const beeEntity = try world.createEntity();
@@ -137,13 +141,15 @@ pub const Game = struct {
 
             .resources = Resources.init(),
             .ui = UI.init(),
+            .metrics = Metrics.init(),
 
             .cameraOffset = rl.Vector2.init(0, 0),
             .isDragging = false,
             .lastMousePos = rl.Vector2.init(0, 0),
 
             .beehiveUpgradeCost = 20.0,
-            .cachedBeeCount = 10,
+            .cachedBeeCount = 0,
+            .cachedFlowerCount = 0,
 
             .width = width,
             .height = height,
@@ -155,6 +161,7 @@ pub const Game = struct {
         self.textures.deinit();
         self.ui.deinit();
         self.world.deinit();
+        self.metrics.deinit();
 
         rl.closeWindow();
         rl.unloadImage(self.windowIcon);
@@ -213,7 +220,7 @@ pub const Game = struct {
         try flower_growth_system.update(&self.world, deltaTime);
         try bee_ai_system.update(&self.world, deltaTime, self.grid.offset, self.grid.scale, GRID_WIDTH, GRID_HEIGHT, self.textures);
         try flower_spawning_system.update(&self.world, deltaTime, self.grid.offset, self.grid.scale, GRID_WIDTH, GRID_HEIGHT, self.textures);
-        try scale_sync_system.update(&self.world, self.grid.scale);
+        scale_sync_system.update(&self.world, self.grid.scale);
 
         // Get beehive honey conversion factor
         var honeyFactor: f32 = 1.0;
@@ -240,6 +247,13 @@ pub const Game = struct {
                     }
                 }
             }
+        }
+
+        // Count flowers
+        self.cachedFlowerCount = 0;
+        var flowerIter = self.world.iterateFlowers();
+        while (flowerIter.next()) |_| {
+            self.cachedFlowerCount += 1;
         }
 
         try self.world.processDestroyQueue();
@@ -301,5 +315,13 @@ pub const Game = struct {
         }
 
         rl.drawFPS(@as(i32, @intFromFloat(self.width - 100)), 10);
+
+        // Draw frame time
+        const frameTime = rl.getFrameTime() * 1000.0; // Convert to milliseconds
+        rl.drawText(rl.textFormat("%.2f ms", .{frameTime}), @as(i32, @intFromFloat(self.width - 100)), 30, 20, rl.Color.white);
+
+        // Log metrics
+        const fps: f32 = @floatFromInt(rl.getFPS());
+        self.metrics.log(fps, frameTime, self.cachedBeeCount, self.cachedFlowerCount);
     }
 };

@@ -1,8 +1,7 @@
 const World = @import("../world.zig").World;
 
-pub fn update(world: *World, gridScale: f32) !void {
-    var iter = try world.queryEntitiesWithScaleSync();
-    defer iter.deinit();
+pub fn update(world: *World, gridScale: f32) void {
+    var iter = world.iterateScaleSyncs();
 
     while (iter.next()) |entity| {
         if (world.getScaleSync(entity)) |scaleSync| {

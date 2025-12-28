@@ -33,6 +33,9 @@ pub const World = struct {
     entityToScaleSync: std.AutoHashMap(Entity, ComponentIndex),
     entityToBeehive: std.AutoHashMap(Entity, ComponentIndex),
 
+    // Flower target count cache - tracks how many bees are targeting each flower
+    flowerTargetCount: std.AutoHashMap(Entity, u32),
+
     entitiesToDestroy: std.ArrayList(Entity),
 
     pub fn init(allocator: std.mem.Allocator) @This() {
@@ -62,6 +65,8 @@ pub const World = struct {
             .entityToScaleSync = std.AutoHashMap(Entity, ComponentIndex).init(allocator),
             .entityToBeehive = std.AutoHashMap(Entity, ComponentIndex).init(allocator),
 
+            .flowerTargetCount = std.AutoHashMap(Entity, u32).init(allocator),
+
             .entitiesToDestroy = .empty,
         };
     }
@@ -90,6 +95,8 @@ pub const World = struct {
         self.entityToPollenCollector.deinit();
         self.entityToScaleSync.deinit();
         self.entityToBeehive.deinit();
+
+        self.flowerTargetCount.deinit();
 
         self.entitiesToDestroy.deinit(self.allocator);
     }
@@ -334,6 +341,63 @@ pub const World = struct {
             .iter = self.entityToFlowerGrowth.keyIterator(),
             .world = self,
         };
+    }
+
+    // Direct iterator for entities with Lifespan - no allocation
+    pub const DirectLifespanIterator = struct {
+        iter: std.AutoHashMap(Entity, ComponentIndex).KeyIterator,
+
+        pub fn next(self: *@This()) ?Entity {
+            if (self.iter.next()) |entity| {
+                return entity.*;
+            }
+            return null;
+        }
+    };
+
+    pub fn iterateLifespans(self: *@This()) DirectLifespanIterator {
+        return .{
+            .iter = self.entityToLifespan.keyIterator(),
+        };
+    }
+
+    // Direct iterator for entities with ScaleSync - no allocation
+    pub const DirectScaleSyncIterator = struct {
+        iter: std.AutoHashMap(Entity, ComponentIndex).KeyIterator,
+
+        pub fn next(self: *@This()) ?Entity {
+            if (self.iter.next()) |entity| {
+                return entity.*;
+            }
+            return null;
+        }
+    };
+
+    pub fn iterateScaleSyncs(self: *@This()) DirectScaleSyncIterator {
+        return .{
+            .iter = self.entityToScaleSync.keyIterator(),
+        };
+    }
+
+    // Flower target count helpers - O(1) tracking of how many bees target each flower
+    pub fn incrementFlowerTarget(self: *@This(), flowerEntity: Entity) void {
+        const current = self.flowerTargetCount.get(flowerEntity) orelse 0;
+        self.flowerTargetCount.put(flowerEntity, current + 1) catch {};
+    }
+
+    pub fn decrementFlowerTarget(self: *@This(), flowerEntity: Entity) void {
+        const current = self.flowerTargetCount.get(flowerEntity) orelse 0;
+        if (current > 0) {
+            self.flowerTargetCount.put(flowerEntity, current - 1) catch {};
+        }
+    }
+
+    pub fn getFlowerTargetCount(self: *@This(), flowerEntity: Entity) u32 {
+        return self.flowerTargetCount.get(flowerEntity) orelse 0;
+    }
+
+    pub fn clearFlowerTargetCount(self: *@This(), flowerEntity: Entity) void {
+        _ = self.flowerTargetCount.remove(flowerEntity);
     }
 
     pub fn queryEntitiesWithPosition(self: *@This()) !QueryIterator {

@@ -69,6 +69,7 @@ pub const BeeAI = struct {
     lastGridX: i32,
     lastGridY: i32,
     scatterTimer: f32,
+    searchCooldown: f32, // Cooldown before searching for flowers again
 
     pub fn init() @This() {
         const rl_module = @import("raylib");
@@ -81,6 +82,7 @@ pub const BeeAI = struct {
             .lastGridX = -1,
             .lastGridY = -1,
             .scatterTimer = 0,
+            .searchCooldown = 0,
         };
     }
 };
