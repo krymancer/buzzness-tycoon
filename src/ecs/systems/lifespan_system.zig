@@ -12,7 +12,12 @@ pub fn update(world: *World, deltaTime: f32) !void {
                 // Cleanup for dying BEE: decrement flower target count
                 if (world.getBeeAI(entity)) |beeAI| {
                     if (beeAI.targetLocked and beeAI.targetEntity != null) {
-                        // Only decrement if targeting a flower (not beehive)
+                        // Only decrement if targeting a flower (not beehive).
+                        // Beehive targets don't need cleanup since they're never added
+                        // to flowerTargetCount - only flowers are tracked there.
+                        // Note: If the flower was already destroyed, getFlowerGrowth returns null
+                        // and we skip decrement, which is correct since the flower's death
+                        // already cleared its entry via clearFlowerTargetCount.
                         if (world.getFlowerGrowth(beeAI.targetEntity.?) != null) {
                             world.decrementFlowerTarget(beeAI.targetEntity.?);
                         }

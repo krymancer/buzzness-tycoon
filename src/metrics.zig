@@ -1,13 +1,17 @@
 const std = @import("std");
 const rl = @import("raylib");
 
+fn isLeapYear(year: u64) bool {
+    return (year % 4 == 0 and year % 100 != 0) or (year % 400 == 0);
+}
+
 pub const Metrics = struct {
     file: ?std.fs.File,
     frameCounter: u32,
     lastLogTime: f64,
 
     const LOG_INTERVAL_SECONDS: f64 = 1.0;
-    const SPIKE_THRESHOLD_MS: f32 = 33.0; // Below 30 FPS
+    const SPIKE_THRESHOLD_MS: f32 = 33.0; // At or below 30 FPS
 
     pub fn init() @This() {
         // Create logs directory if it doesn't exist
@@ -39,10 +43,10 @@ pub const Metrics = struct {
         const minutes = (timeOfDay % secondsPerHour) / secondsPerMinute;
         const seconds = timeOfDay % secondsPerMinute;
 
-        // Calculate year, month, day (simplified - not accounting for leap years perfectly)
+        // Calculate year, month, day
         var year: u64 = 2000;
         while (true) {
-            const daysInYear: u64 = if (year % 4 == 0) 366 else 365;
+            const daysInYear: u64 = if (isLeapYear(year)) 366 else 365;
             if (days < daysInYear) break;
             days -= daysInYear;
             year += 1;
@@ -52,7 +56,7 @@ pub const Metrics = struct {
         var month: u64 = 1;
         for (daysInMonths) |daysInMonth| {
             var dim = daysInMonth;
-            if (month == 2 and year % 4 == 0) dim = 29;
+            if (month == 2 and isLeapYear(year)) dim = 29;
             if (days < dim) break;
             days -= dim;
             month += 1;
@@ -122,9 +126,8 @@ pub const Metrics = struct {
 
             _ = self.file.?.write(line) catch {};
 
-            if (!isSpike) {
-                self.lastLogTime = currentTime;
-            }
+            // Always update lastLogTime after logging to prevent excessive logging after spikes
+            self.lastLogTime = currentTime;
         }
     }
 };

@@ -9,14 +9,20 @@ const utils = @import("../../utils.zig");
 
 var pollinationTimer: f32 = 0;
 const POLLINATION_CHECK_INTERVAL: f32 = 0.5; // Only check pollination twice per second
-const SEARCH_COOLDOWN: f32 = 0.3; // Reduced cooldown since search is now cheap
+const SEARCH_COOLDOWN: f32 = 0.3; // Short cooldown since search is now cheap
 
 // Cached beehive entity and position - only lookup once
+// NOTE: This cache is never invalidated. In this game, the beehive is permanent
+// and never destroyed, so this is safe. If beehive destruction is added later,
+// this cache would need to be invalidated when the beehive dies.
 var cachedBeehiveEntity: ?Entity = null;
 var cachedBeehiveWorldPos: ?rl.Vector2 = null;
 var beehiveCacheInitialized: bool = false;
 
 // Cached available flowers - rebuilt once per frame
+// NOTE: Fixed size array limits to 256 flowers. This is sufficient for current
+// gameplay as the grid rarely has more than ~200 flowers with pollen at once.
+// If game scale increases significantly, consider using dynamic allocation.
 const MAX_AVAILABLE_FLOWERS: usize = 256;
 var availableFlowers: [MAX_AVAILABLE_FLOWERS]AvailableFlower = undefined;
 var availableFlowerCount: usize = 0;
@@ -99,7 +105,9 @@ pub fn update(world: *World, deltaTime: f32, gridOffset: rl.Vector2, gridScale: 
                                 }
                             }
                         } else {
-                            // Move towards beehive
+                            // Move towards beehive using exponential ease-out interpolation
+                            // leapFactor of 2.0 means bee covers ~86% of remaining distance per second
+                            // This is safe from oscillation since we multiply by deltaTime (typically 0.016)
                             const leapFactor: f32 = 2.0;
                             position.x += (targetPos.x - position.x) * leapFactor * deltaTime;
                             position.y += (targetPos.y - position.y) * leapFactor * deltaTime;
@@ -154,7 +162,9 @@ pub fn update(world: *World, deltaTime: f32, gridOffset: rl.Vector2, gridScale: 
                                     beeAI.targetLocked = false;
                                     beeAI.targetEntity = null;
                                 } else {
-                                    // Move towards flower
+                                    // Move towards flower using exponential ease-out interpolation
+                                    // leapFactor of 2.0 means bee covers ~86% of remaining distance per second
+                                    // This is safe from oscillation since we multiply by deltaTime (typically 0.016)
                                     const leapFactor: f32 = 2.0;
                                     position.x += (targetPos.x - position.x) * leapFactor * deltaTime;
                                     position.y += (targetPos.y - position.y) * leapFactor * deltaTime;
