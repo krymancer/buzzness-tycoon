@@ -95,6 +95,9 @@ pub const Game = struct {
 
         rl.initWindow(screenWidth, screenHeight, "Buzzness Tycoon");
         rl.toggleFullscreen();
+        // Clear window_topmost flag to allow alt-tab on Windows
+        // See: https://github.com/raysan5/raylib/issues/3865
+        rl.clearWindowState(.{ .window_topmost = true });
         const windowIcon = try assets.loadImageFromMemory(assets.bee_png);
         rl.setWindowIcon(windowIcon);
 
@@ -221,6 +224,8 @@ pub const Game = struct {
     pub fn input(self: *@This()) void {
         if (rl.isKeyPressed(rl.KeyboardKey.enter) and rl.isKeyDown(rl.KeyboardKey.left_alt)) {
             rl.toggleFullscreen();
+            // Clear window_topmost flag to allow alt-tab on Windows
+            rl.clearWindowState(.{ .window_topmost = true });
         }
 
         // Close popup with Escape
