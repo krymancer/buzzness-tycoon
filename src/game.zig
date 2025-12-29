@@ -73,6 +73,7 @@ pub const Game = struct {
 
         rl.initWindow(screenWidth, screenHeight, "Buzzness Tycoon");
         rl.setExitKey(rl.KeyboardKey.null); // Disable default ESC closing the window
+        rl.setWindowState(.{ .window_resizable = true });
         rl.toggleFullscreen();
         const windowIcon = try assets.loadImageFromMemory(assets.bee_png);
         rl.setWindowIcon(windowIcon);
@@ -184,7 +185,25 @@ pub const Game = struct {
         if (currentWidth != self.width or currentHeight != self.height) {
             self.width = currentWidth;
             self.height = currentHeight;
+
+            // Save old offset before updating viewport
+            const oldOffset = self.grid.offset;
             self.grid.updateViewport(self.width, self.height);
+
+            // Calculate how much the grid offset changed
+            const offsetDelta = rl.Vector2{
+                .x = self.grid.offset.x - oldOffset.x,
+                .y = self.grid.offset.y - oldOffset.y,
+            };
+
+            // Update all bee positions by the offset delta so they stay relative to the grid
+            var beeIter = self.world.iterateBees();
+            while (beeIter.next()) |entity| {
+                if (self.world.getPosition(entity)) |pos| {
+                    pos.x += offsetDelta.x;
+                    pos.y += offsetDelta.y;
+                }
+            }
         }
 
         // Handle Escape key - close popups first, then show/hide pause menu
