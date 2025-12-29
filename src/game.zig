@@ -105,7 +105,7 @@ pub const Game = struct {
         }
 
         // Spawn initial bees
-        for (0..100) |_| {
+        for (0..10000) |_| {
             _ = try spawners.spawnBee(&world, &grid, &textures);
         }
 
@@ -289,29 +289,28 @@ pub const Game = struct {
         // Get beehive honey conversion factor
         const honeyFactor = self.getBeehiveHoneyFactor();
 
-        // Count bees and convert honey in single pass
-        self.cachedBeeCount = 0;
-        var beeIter = self.world.iterateBees();
-        while (beeIter.next()) |entity| {
-            self.cachedBeeCount += 1;
+        // Get counts directly from HashMap sizes - O(1) instead of O(n) iteration
+        self.cachedBeeCount = self.world.entityToBeeAI.count();
+        self.cachedFlowerCount = self.world.entityToFlowerGrowth.count();
 
-            if (self.world.getPollenCollector(entity)) |collector| {
+        // Convert pollen to honey - iterate only pollenCollectors
+        // This is necessary for honey conversion but we've reduced per-entity work
+        var iter = self.world.entityToPollenCollector.iterator();
+        while (iter.next()) |entry| {
+            const entity = entry.key_ptr.*;
+            const index = entry.value_ptr.*;
+            const collector = &self.world.pollenCollectors.items[index];
+
+            if (collector.pollenCollected > 0) {
+                // Check if bee is not carrying pollen (has deposited)
                 if (self.world.getBeeAI(entity)) |beeAI| {
-                    // Convert pollen to honey when bee has deposited (not carrying anymore)
-                    if (!beeAI.carryingPollen and collector.pollenCollected > 0) {
+                    if (!beeAI.carryingPollen) {
                         const newHoney = collector.pollenCollected * honeyFactor;
                         self.resources.addHoney(newHoney);
                         collector.pollenCollected = 0;
                     }
                 }
             }
-        }
-
-        // Count flowers
-        self.cachedFlowerCount = 0;
-        var flowerIter = self.world.iterateFlowers();
-        while (flowerIter.next()) |_| {
-            self.cachedFlowerCount += 1;
         }
 
         try self.world.processDestroyQueue();

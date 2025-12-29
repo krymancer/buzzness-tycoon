@@ -11,6 +11,7 @@ const components = @import("ecs/components.zig");
 const Textures = @import("textures.zig").Textures;
 const Flowers = @import("textures.zig").Flowers;
 const Grid = @import("grid.zig").Grid;
+const scale_sync_system = @import("ecs/systems/scale_sync_system.zig");
 
 /// Flower costs for planting
 pub const FLOWER_COSTS = struct {
@@ -55,6 +56,9 @@ pub fn spawnBee(world: *World, grid: *const Grid, textures: *const Textures) !u3
     if (world.getScaleSync(beeEntity)) |scaleSync| {
         scaleSync.updateFromGrid(1, grid.scale);
     }
+
+    // Mark scale sync system dirty to ensure new entity gets updated
+    scale_sync_system.markDirty();
 
     return beeEntity;
 }

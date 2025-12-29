@@ -52,6 +52,32 @@ pub const World = struct {
     entitiesToDestroy: std.ArrayList(Entity),
 
     pub fn init(allocator: std.mem.Allocator) @This() {
+        // Pre-allocate capacity for 16k entities (bees + flowers + beehive)
+        var entityToPosition = std.AutoHashMap(Entity, ComponentIndex).init(allocator);
+        var entityToGridPosition = std.AutoHashMap(Entity, ComponentIndex).init(allocator);
+        var entityToSprite = std.AutoHashMap(Entity, ComponentIndex).init(allocator);
+        const entityToVelocity = std.AutoHashMap(Entity, ComponentIndex).init(allocator);
+        var entityToBeeAI = std.AutoHashMap(Entity, ComponentIndex).init(allocator);
+        var entityToFlowerGrowth = std.AutoHashMap(Entity, ComponentIndex).init(allocator);
+        var entityToLifespan = std.AutoHashMap(Entity, ComponentIndex).init(allocator);
+        var entityToPollenCollector = std.AutoHashMap(Entity, ComponentIndex).init(allocator);
+        var entityToScaleSync = std.AutoHashMap(Entity, ComponentIndex).init(allocator);
+        const entityToBeehive = std.AutoHashMap(Entity, ComponentIndex).init(allocator);
+        var flowerTargetCount_ = std.AutoHashMap(Entity, u32).init(allocator);
+        var gridPosToFlower_ = std.AutoHashMap(GridKey, Entity).init(allocator);
+
+        // Pre-allocate for expected capacity to avoid runtime resizing
+        entityToPosition.ensureTotalCapacity(16384) catch {};
+        entityToBeeAI.ensureTotalCapacity(16384) catch {};
+        entityToSprite.ensureTotalCapacity(16384) catch {};
+        entityToLifespan.ensureTotalCapacity(16384) catch {};
+        entityToPollenCollector.ensureTotalCapacity(16384) catch {};
+        entityToScaleSync.ensureTotalCapacity(16384) catch {};
+        entityToGridPosition.ensureTotalCapacity(512) catch {};
+        entityToFlowerGrowth.ensureTotalCapacity(512) catch {};
+        flowerTargetCount_.ensureTotalCapacity(512) catch {};
+        gridPosToFlower_.ensureTotalCapacity(512) catch {};
+
         return .{
             .entityManager = EntityManager.init(allocator),
             .allocator = allocator,
@@ -67,20 +93,20 @@ pub const World = struct {
             .scaleSync = .empty,
             .beehives = .empty,
 
-            .entityToPosition = std.AutoHashMap(Entity, ComponentIndex).init(allocator),
-            .entityToGridPosition = std.AutoHashMap(Entity, ComponentIndex).init(allocator),
-            .entityToSprite = std.AutoHashMap(Entity, ComponentIndex).init(allocator),
-            .entityToVelocity = std.AutoHashMap(Entity, ComponentIndex).init(allocator),
-            .entityToBeeAI = std.AutoHashMap(Entity, ComponentIndex).init(allocator),
-            .entityToFlowerGrowth = std.AutoHashMap(Entity, ComponentIndex).init(allocator),
-            .entityToLifespan = std.AutoHashMap(Entity, ComponentIndex).init(allocator),
-            .entityToPollenCollector = std.AutoHashMap(Entity, ComponentIndex).init(allocator),
-            .entityToScaleSync = std.AutoHashMap(Entity, ComponentIndex).init(allocator),
-            .entityToBeehive = std.AutoHashMap(Entity, ComponentIndex).init(allocator),
+            .entityToPosition = entityToPosition,
+            .entityToGridPosition = entityToGridPosition,
+            .entityToSprite = entityToSprite,
+            .entityToVelocity = entityToVelocity,
+            .entityToBeeAI = entityToBeeAI,
+            .entityToFlowerGrowth = entityToFlowerGrowth,
+            .entityToLifespan = entityToLifespan,
+            .entityToPollenCollector = entityToPollenCollector,
+            .entityToScaleSync = entityToScaleSync,
+            .entityToBeehive = entityToBeehive,
 
-            .flowerTargetCount = std.AutoHashMap(Entity, u32).init(allocator),
+            .flowerTargetCount = flowerTargetCount_,
 
-            .gridPosToFlower = std.AutoHashMap(GridKey, Entity).init(allocator),
+            .gridPosToFlower = gridPosToFlower_,
 
             .entitiesToDestroy = .empty,
         };

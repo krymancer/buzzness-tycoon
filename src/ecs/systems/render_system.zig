@@ -15,7 +15,27 @@ fn compareFlowers(context: void, a: FlowerRenderData, b: FlowerRenderData) bool 
     return a.sortKey < b.sortKey;
 }
 
+// Pre-allocated bee render data to avoid per-frame allocations
+const MAX_BEES: usize = 16384;
+const BeeRenderData = struct {
+    x: f32,
+    y: f32,
+    scale: f32,
+    carryingPollen: bool,
+};
+var beeRenderList: [MAX_BEES]BeeRenderData = undefined;
+var beeRenderCount: usize = 0;
+
+// Cached screen dimensions for frustum culling
+var cachedScreenWidth: f32 = 0;
+var cachedScreenHeight: f32 = 0;
+const FRUSTUM_MARGIN: f32 = 50.0;
+
 pub fn draw(world: *World, gridOffset: rl.Vector2, gridScale: f32) !void {
+    // Update cached screen dimensions
+    cachedScreenWidth = @floatFromInt(rl.getScreenWidth());
+    cachedScreenHeight = @floatFromInt(rl.getScreenHeight());
+
     var beehiveIter = world.entityToBeehive.keyIterator();
     while (beehiveIter.next()) |entity| {
         if (world.getGridPosition(entity.*)) |gridPos| {
@@ -62,28 +82,56 @@ pub fn draw(world: *World, gridOffset: rl.Vector2, gridScale: f32) !void {
         }
     }
 
+    // Build bee render list with frustum culling
+    buildBeeRenderList(world);
+
+    // Get bee texture once for all bees (they all use the same texture)
+    var beeTexture: ?rl.Texture = null;
+    var beeIter = world.iterateBees();
+    if (beeIter.next()) |firstBee| {
+        if (world.getSprite(firstBee)) |sprite| {
+            beeTexture = sprite.texture;
+        }
+    }
+
+    // Batch draw all bees - same texture, minimizes state changes
+    if (beeTexture) |texture| {
+        for (0..beeRenderCount) |i| {
+            const bee = beeRenderList[i];
+            const color = if (bee.carryingPollen) rl.Color.yellow else rl.Color.white;
+            rl.drawTextureEx(texture, rl.Vector2.init(bee.x, bee.y), 0, bee.scale, color);
+        }
+    }
+}
+
+fn buildBeeRenderList(world: *World) void {
+    beeRenderCount = 0;
+
     var beeIter = world.iterateBees();
     while (beeIter.next()) |entity| {
+        if (beeRenderCount >= MAX_BEES) break;
+
         if (world.getPosition(entity)) |position| {
-            const screenWidth: f32 = @floatFromInt(rl.getScreenWidth());
-            const screenHeight: f32 = @floatFromInt(rl.getScreenHeight());
-            const margin: f32 = 50.0;
-            if (position.x < -margin or position.x > screenWidth + margin or
-                position.y < -margin or position.y > screenHeight + margin)
+            // Frustum culling - skip bees outside screen
+            if (position.x < -FRUSTUM_MARGIN or position.x > cachedScreenWidth + FRUSTUM_MARGIN or
+                position.y < -FRUSTUM_MARGIN or position.y > cachedScreenHeight + FRUSTUM_MARGIN)
             {
                 continue;
             }
 
-            if (world.getSprite(entity)) |sprite| {
-                if (world.getScaleSync(entity)) |scaleSync| {
-                    if (world.getBeeAI(entity)) |beeAI| {
-                        if (world.getLifespan(entity)) |lifespan| {
-                            if (lifespan.isDead()) continue;
-                        }
-
-                        const color = if (beeAI.carryingPollen) rl.Color.yellow else rl.Color.white;
-                        rl.drawTextureEx(sprite.texture, position.toVector2(), 0, scaleSync.effectiveScale, color);
+            if (world.getScaleSync(entity)) |scaleSync| {
+                if (world.getBeeAI(entity)) |beeAI| {
+                    if (world.getLifespan(entity)) |lifespan| {
+                        if (lifespan.isDead()) continue;
                     }
+
+                    beeRenderList[beeRenderCount] = .{
+                        .x = position.x,
+                        .y = position.y,
+                        .scale = scaleSync.effectiveScale,
+                        .carryingPollen = beeAI.carryingPollen,
+                    };
+                    beeRenderCount += 1;
                 }
             }
         }
