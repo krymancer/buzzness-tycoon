@@ -3,35 +3,24 @@ const rl = @import("raylib");
 const World = @import("../world.zig").World;
 const Entity = @import("../entity.zig").Entity;
 const components = @import("../components.zig");
-const Textures = @import("../../textures.zig").Textures;
-const Flowers = @import("../../textures.zig").Flowers;
+const textures = @import("../../textures.zig");
+const Textures = textures.Textures;
+const Flowers = textures.Flowers;
 const utils = @import("../../utils.zig");
 
-// Helper to convert texture Flowers enum to component FlowerType
-fn flowersToFlowerType(flower: Flowers) components.FlowerType {
-    return switch (flower) {
-        .rose => .rose,
-        .tulip => .tulip,
-        .dandelion => .dandelion,
-    };
-}
-
 var pollinationTimer: f32 = 0;
-const POLLINATION_CHECK_INTERVAL: f32 = 0.5; // Only check pollination twice per second
-const SEARCH_COOLDOWN: f32 = 0.3; // Short cooldown since search is now cheap
+const POLLINATION_CHECK_INTERVAL: f32 = 0.5;
+const SEARCH_COOLDOWN: f32 = 0.3;
+const MOVEMENT_LEAP_FACTOR: f32 = 2.0;
 
 // Cached beehive entity and position - only lookup once
-// NOTE: This cache is never invalidated. In this game, the beehive is permanent
-// and never destroyed, so this is safe. If beehive destruction is added later,
-// this cache would need to be invalidated when the beehive dies.
+// NOTE: This cache is never invalidated. The beehive is permanent and never destroyed.
 var cachedBeehiveEntity: ?Entity = null;
 var cachedBeehiveWorldPos: ?rl.Vector2 = null;
 var beehiveCacheInitialized: bool = false;
 
 // Cached available flowers - rebuilt once per frame
-// NOTE: Fixed size array limits to 256 flowers. This is sufficient for current
-// gameplay as the grid rarely has more than ~200 flowers with pollen at once.
-// If game scale increases significantly, consider using dynamic allocation.
+// NOTE: Fixed size array limits to 256 flowers, sufficient for current gameplay.
 const MAX_AVAILABLE_FLOWERS: usize = 256;
 var availableFlowers: [MAX_AVAILABLE_FLOWERS]AvailableFlower = undefined;
 var availableFlowerCount: usize = 0;
@@ -41,15 +30,13 @@ const AvailableFlower = struct {
     worldPos: rl.Vector2,
 };
 
-pub fn update(world: *World, deltaTime: f32, gridOffset: rl.Vector2, gridScale: f32, gridWidth: usize, gridHeight: usize, textures: Textures) !void {
-    // Update pollination timer
+pub fn update(world: *World, deltaTime: f32, gridOffset: rl.Vector2, gridScale: f32, gridWidth: usize, gridHeight: usize, texturesRef: Textures) !void {
     pollinationTimer += deltaTime;
     const checkPollination = pollinationTimer >= POLLINATION_CHECK_INTERVAL;
     if (checkPollination) {
         pollinationTimer = 0;
     }
 
-    // Cache beehive entity and world position on first call
     if (!beehiveCacheInitialized) {
         cachedBeehiveEntity = findBeehive(world);
         if (cachedBeehiveEntity) |beehiveEntity| {
@@ -60,7 +47,6 @@ pub fn update(world: *World, deltaTime: f32, gridOffset: rl.Vector2, gridScale: 
         beehiveCacheInitialized = true;
     }
 
-    // Build available flowers cache ONCE per frame (instead of per-bee)
     buildAvailableFlowersCache(world, gridOffset, gridScale);
 
     var iter = world.iterateBees();
@@ -68,29 +54,23 @@ pub fn update(world: *World, deltaTime: f32, gridOffset: rl.Vector2, gridScale: 
         if (world.getBeeAI(entity)) |beeAI| {
             if (world.getPosition(entity)) |position| {
                 if (world.getLifespan(entity)) |lifespan| {
-                    if (lifespan.isDead()) {
-                        continue;
-                    }
+                    if (lifespan.isDead()) continue;
                 }
 
-                // Update search cooldown
                 if (beeAI.searchCooldown > 0) {
                     beeAI.searchCooldown -= deltaTime;
                 }
 
-                // Handle scatter timer - force bees to wander after collecting pollen
                 if (beeAI.scatterTimer > 0) {
                     beeAI.scatterTimer -= deltaTime;
                     performRandomWalk(beeAI, position, deltaTime);
-                    continue; // Skip targeting while scattering
+                    continue;
                 }
 
-                // Pollination mechanic: Only check periodically to reduce overhead
                 if (checkPollination and beeAI.carryingPollen) {
-                    try handlePollination(world, entity, beeAI, position, gridOffset, gridScale, gridWidth, gridHeight, textures);
+                    try handlePollination(world, beeAI, position, gridOffset, gridScale, gridWidth, gridHeight, texturesRef);
                 }
 
-                // If carrying pollen, find and go to beehive
                 if (beeAI.carryingPollen) {
                     if (!beeAI.targetLocked) {
                         beeAI.targetEntity = cachedBeehiveEntity;
@@ -99,13 +79,9 @@ pub fn update(world: *World, deltaTime: f32, gridOffset: rl.Vector2, gridScale: 
                         }
                     }
 
-                    // Use cached beehive world position - no recalculation needed
                     if (cachedBeehiveWorldPos) |targetPos| {
                         const distance = rl.math.vector2Distance(position.toVector2(), targetPos);
-                        const arrivalThreshold: f32 = 30.0;
-
-                        if (distance < arrivalThreshold) {
-                            // Deposit pollen at beehive
+                        if (distance < 30.0) {
                             if (world.getPollenCollector(entity)) |collector| {
                                 if (collector.pollenCollected > 0) {
                                     beeAI.carryingPollen = false;
@@ -114,46 +90,34 @@ pub fn update(world: *World, deltaTime: f32, gridOffset: rl.Vector2, gridScale: 
                                 }
                             }
                         } else {
-                            // Move towards beehive using exponential ease-out interpolation
-                            // leapFactor of 2.0 means bee covers ~86% of remaining distance per second
-                            // This is safe from oscillation since we multiply by deltaTime (typically 0.016)
-                            const leapFactor: f32 = 2.0;
-                            position.x += (targetPos.x - position.x) * leapFactor * deltaTime;
-                            position.y += (targetPos.y - position.y) * leapFactor * deltaTime;
+                            moveTowards(position, targetPos, deltaTime);
                         }
                     }
                     continue;
                 }
 
-                // Not carrying pollen - look for flowers
                 if (!beeAI.targetLocked) {
-                    // Only search if cooldown expired
                     if (beeAI.searchCooldown <= 0) {
-                        // Use fast cached search instead of iterating all flowers
                         beeAI.targetEntity = findNearestFlowerFromCache(world, position.toVector2());
                         if (beeAI.targetEntity != null) {
                             beeAI.targetLocked = true;
                             world.incrementFlowerTarget(beeAI.targetEntity.?);
                         } else {
-                            // No target found, set cooldown and wander
                             beeAI.searchCooldown = SEARCH_COOLDOWN;
                         }
                     }
 
-                    // Wander while searching or on cooldown
                     if (!beeAI.targetLocked) {
                         performRandomWalk(beeAI, position, deltaTime);
                     }
                 } else {
-                    // Has a locked target - move towards it
                     if (beeAI.targetEntity) |targetEntity| {
                         if (world.getGridPosition(targetEntity)) |targetGridPos| {
                             if (world.getFlowerGrowth(targetEntity)) |targetFlower| {
                                 const targetPos = getFlowerWorldPosition(targetGridPos.toVector2(), gridOffset, gridScale);
                                 const distance = rl.math.vector2Distance(position.toVector2(), targetPos);
-                                const arrivalThreshold: f32 = 5.0;
 
-                                if (distance < arrivalThreshold) {
+                                if (distance < 5.0) {
                                     if (targetFlower.state == 4 and targetFlower.hasPollen) {
                                         targetFlower.hasPollen = false;
                                         beeAI.carryingPollen = true;
@@ -162,30 +126,21 @@ pub fn update(world: *World, deltaTime: f32, gridOffset: rl.Vector2, gridScale: 
                                             collector.collect(1.0 * targetFlower.pollenMultiplier);
                                         }
 
-                                        // Make bee scatter away from flower for 2-4 seconds
                                         beeAI.scatterTimer = @as(f32, @floatFromInt(rl.getRandomValue(20, 40))) / 10.0;
                                     }
 
-                                    // Decrement flower target count before unlocking
                                     world.decrementFlowerTarget(targetEntity);
                                     beeAI.targetLocked = false;
                                     beeAI.targetEntity = null;
                                 } else {
-                                    // Move towards flower using exponential ease-out interpolation
-                                    // leapFactor of 2.0 means bee covers ~86% of remaining distance per second
-                                    // This is safe from oscillation since we multiply by deltaTime (typically 0.016)
-                                    const leapFactor: f32 = 2.0;
-                                    position.x += (targetPos.x - position.x) * leapFactor * deltaTime;
-                                    position.y += (targetPos.y - position.y) * leapFactor * deltaTime;
+                                    moveTowards(position, targetPos, deltaTime);
                                 }
                             } else {
-                                // Flower growth missing - unlock and search again
                                 world.decrementFlowerTarget(targetEntity);
                                 beeAI.targetLocked = false;
                                 beeAI.targetEntity = null;
                             }
                         } else {
-                            // Grid position missing - unlock and search again
                             world.decrementFlowerTarget(targetEntity);
                             beeAI.targetLocked = false;
                             beeAI.targetEntity = null;
@@ -199,7 +154,11 @@ pub fn update(world: *World, deltaTime: f32, gridOffset: rl.Vector2, gridScale: 
     }
 }
 
-// Build available flowers cache once per frame - O(flowers) instead of O(bees * flowers)
+fn moveTowards(position: anytype, target: rl.Vector2, deltaTime: f32) void {
+    position.x += (target.x - position.x) * MOVEMENT_LEAP_FACTOR * deltaTime;
+    position.y += (target.y - position.y) * MOVEMENT_LEAP_FACTOR * deltaTime;
+}
+
 fn buildAvailableFlowersCache(world: *World, gridOffset: rl.Vector2, gridScale: f32) void {
     availableFlowerCount = 0;
 
@@ -208,22 +167,19 @@ fn buildAvailableFlowersCache(world: *World, gridOffset: rl.Vector2, gridScale: 
         if (availableFlowerCount >= MAX_AVAILABLE_FLOWERS) break;
 
         if (world.getFlowerGrowth(entity)) |growth| {
-            // Only consider flowers with pollen ready
             if (growth.state != 4 or !growth.hasPollen) continue;
 
-            // Check bee density using O(1) cached count
             const beesNearFlower = world.getFlowerTargetCount(entity);
-            if (beesNearFlower >= 2) continue; // Skip overcrowded flowers
+            if (beesNearFlower >= 2) continue;
 
             if (world.getGridPosition(entity)) |gridPos| {
                 if (world.getLifespan(entity)) |lifespan| {
                     if (lifespan.isDead()) continue;
                 }
 
-                const worldPos = getFlowerWorldPosition(gridPos.toVector2(), gridOffset, gridScale);
                 availableFlowers[availableFlowerCount] = .{
                     .entity = entity,
-                    .worldPos = worldPos,
+                    .worldPos = getFlowerWorldPosition(gridPos.toVector2(), gridOffset, gridScale),
                 };
                 availableFlowerCount += 1;
             }
@@ -231,7 +187,6 @@ fn buildAvailableFlowersCache(world: *World, gridOffset: rl.Vector2, gridScale: 
     }
 }
 
-// Fast flower lookup using pre-built cache - O(cached flowers) instead of O(all flowers)
 fn findNearestFlowerFromCache(world: *World, beePosition: rl.Vector2) ?Entity {
     var minimumDistanceSoFar = std.math.floatMax(f32);
     var nearestFlowerEntity: ?Entity = null;
@@ -239,7 +194,6 @@ fn findNearestFlowerFromCache(world: *World, beePosition: rl.Vector2) ?Entity {
     for (0..availableFlowerCount) |i| {
         const flower = availableFlowers[i];
 
-        // Re-check overcrowding (may have changed since cache was built)
         const beesNearFlower = world.getFlowerTargetCount(flower.entity);
         if (beesNearFlower >= 2) continue;
 
@@ -274,10 +228,10 @@ fn getFlowerWorldPosition(gridPos: rl.Vector2, offset: rl.Vector2, gridScale: f3
     const tileTotalWidth = 32 * gridScale;
     const tileTotalHeight = 32 * gridScale;
 
-    const centeredX = tilePosition.x + (tileTotalWidth - flowerWidth * effectiveScale) / 2.0;
-    const centeredY = tilePosition.y + (tileTotalHeight * 0.25) - (flowerHeight * effectiveScale);
-
-    return rl.Vector2.init(centeredX, centeredY);
+    return rl.Vector2.init(
+        tilePosition.x + (tileTotalWidth - flowerWidth * effectiveScale) / 2.0,
+        tilePosition.y + (tileTotalHeight * 0.25) - (flowerHeight * effectiveScale),
+    );
 }
 
 fn performRandomWalk(beeAI: anytype, position: anytype, deltaTime: f32) void {
@@ -292,68 +246,44 @@ fn performRandomWalk(beeAI: anytype, position: anytype, deltaTime: f32) void {
         beeAI.wanderChangeTimer = 0;
     }
 
-    const moveX = @cos(beeAI.wanderAngle) * wanderSpeed * deltaTime;
-    const moveY = @sin(beeAI.wanderAngle) * wanderSpeed * deltaTime;
-
-    position.x += moveX;
-    position.y += moveY;
+    position.x += @cos(beeAI.wanderAngle) * wanderSpeed * deltaTime;
+    position.y += @sin(beeAI.wanderAngle) * wanderSpeed * deltaTime;
 }
 
-fn handlePollination(world: *World, _: Entity, beeAI: anytype, position: anytype, gridOffset: rl.Vector2, gridScale: f32, gridWidth: usize, gridHeight: usize, textures: Textures) !void {
-    // Convert bee's world position to grid coordinates
+fn handlePollination(world: *World, beeAI: anytype, position: anytype, gridOffset: rl.Vector2, gridScale: f32, gridWidth: usize, gridHeight: usize, texturesRef: Textures) !void {
     const gridPos = utils.worldToGrid(position.toVector2(), gridOffset, gridScale);
     const gridX: i32 = @intFromFloat(@floor(gridPos.x));
     const gridY: i32 = @intFromFloat(@floor(gridPos.y));
 
-    // Check if we've moved to a new grid cell
-    if (gridX == beeAI.lastGridX and gridY == beeAI.lastGridY) {
-        return; // Still in same cell, don't check again
-    }
+    if (gridX == beeAI.lastGridX and gridY == beeAI.lastGridY) return;
 
-    // Update last grid position
     beeAI.lastGridX = gridX;
     beeAI.lastGridY = gridY;
 
-    // Check if position is within grid bounds
-    if (gridX < 0 or gridY < 0 or gridX >= @as(i32, @intCast(gridWidth)) or gridY >= @as(i32, @intCast(gridHeight))) {
-        return;
-    }
+    if (gridX < 0 or gridY < 0 or gridX >= @as(i32, @intCast(gridWidth)) or gridY >= @as(i32, @intCast(gridHeight))) return;
 
-    // Skip beehive tile
     const centerX: i32 = @intCast((gridWidth - 1) / 2);
     const centerY: i32 = @intCast((gridHeight - 1) / 2);
-    if (gridX == centerX and gridY == centerY) {
-        return;
-    }
+    if (gridX == centerX and gridY == centerY) return;
 
-    // Check if there's already a flower at this position - O(1) lookup
-    const gridXf: f32 = @floatFromInt(gridX);
-    const gridYf: f32 = @floatFromInt(gridY);
-
-    const hasFlower = world.hasFlowerAtGrid(gridX, gridY);
-
-    // If no flower exists, 10% chance to spawn one
-    if (!hasFlower) {
-        const spawnChance = rl.getRandomValue(1, 100);
-        if (spawnChance <= 10) {
-            // Spawn a random flower type
-            const flowerTypeRoll = rl.getRandomValue(1, 3);
-            const flowerType = switch (flowerTypeRoll) {
+    if (!world.hasFlowerAtGrid(gridX, gridY)) {
+        if (rl.getRandomValue(1, 100) <= 10) {
+            const flowerType = switch (rl.getRandomValue(1, 3)) {
                 1 => Flowers.rose,
                 2 => Flowers.dandelion,
                 3 => Flowers.tulip,
                 else => Flowers.rose,
             };
 
-            const flowerTexture = textures.getFlowerTexture(flowerType);
+            const flowerTexture = texturesRef.getFlowerTexture(flowerType);
+            const gridXf: f32 = @floatFromInt(gridX);
+            const gridYf: f32 = @floatFromInt(gridY);
 
             const flowerEntity = try world.createEntity();
             try world.addGridPosition(flowerEntity, components.GridPosition.init(gridXf, gridYf));
             try world.addSprite(flowerEntity, components.Sprite.init(flowerTexture, 32, 32, 2));
-            try world.addFlowerGrowth(flowerEntity, components.FlowerGrowth.init(flowersToFlowerType(flowerType)));
+            try world.addFlowerGrowth(flowerEntity, components.FlowerGrowth.init(textures.flowersToFlowerType(flowerType)));
             try world.addLifespan(flowerEntity, components.Lifespan.init(@floatFromInt(rl.getRandomValue(60, 120))));
-
-            // Register flower in spatial lookup
             world.registerFlowerAtGrid(gridX, gridY, flowerEntity);
         }
     }

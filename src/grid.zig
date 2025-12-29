@@ -92,15 +92,8 @@ pub const Grid = struct {
                 const y: f32 = @floatFromInt(j);
                 const position = utils.isoToXY(x, y, self.tileWidth, self.tileHeight, self.offset.x, self.offset.y, self.scale);
 
-                if (self.debug) {
-                    if (self.isMouseHovering(x, y)) {
-                        rl.drawTextureEx(self.tileTexture, position, 0, self.scale, rl.Color.red);
-                    } else {
-                        rl.drawTextureEx(self.tileTexture, position, 0, self.scale, rl.Color.white);
-                    }
-                } else {
-                    rl.drawTextureEx(self.tileTexture, position, 0, self.scale, rl.Color.white);
-                }
+                const color = if (self.debug and self.isMouseHovering(x, y)) rl.Color.red else rl.Color.white;
+                rl.drawTextureEx(self.tileTexture, position, 0, self.scale, color);
             }
         }
     }

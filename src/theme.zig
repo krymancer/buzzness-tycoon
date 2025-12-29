@@ -1,7 +1,5 @@
 const rg = @import("raygui");
 
-// Catppuccin Mocha Color Palette (only colors actually used)
-// https://github.com/catppuccin/catppuccin
 pub const CatppuccinMocha = struct {
     pub const yellow: u32 = 0xf9e2afff;
     pub const peach: u32 = 0xfab387ff;
@@ -14,15 +12,12 @@ pub const CatppuccinMocha = struct {
 };
 
 pub fn applyCatppuccinMochaTheme() void {
-    // Load the default raygui style first
     rg.loadStyleDefault();
 
-    // Set global background
     rg.setStyle(rg.Control.default, .{ .default = rg.DefaultProperty.background_color }, @bitCast(@as(i32, @bitCast(CatppuccinMocha.base))));
     rg.setStyle(rg.Control.default, .{ .default = rg.DefaultProperty.text_size }, 16);
     rg.setStyle(rg.Control.default, .{ .default = rg.DefaultProperty.text_spacing }, 1);
 
-    // Button styling with Yellow theme
     rg.setStyle(rg.Control.button, .{ .control = rg.ControlProperty.base_color_normal }, @bitCast(@as(i32, @bitCast(CatppuccinMocha.yellow))));
     rg.setStyle(rg.Control.button, .{ .control = rg.ControlProperty.base_color_focused }, @bitCast(@as(i32, @bitCast(CatppuccinMocha.peach))));
     rg.setStyle(rg.Control.button, .{ .control = rg.ControlProperty.base_color_pressed }, @bitCast(@as(i32, @bitCast(CatppuccinMocha.peach))));
@@ -37,12 +32,10 @@ pub fn applyCatppuccinMochaTheme() void {
     rg.setStyle(rg.Control.button, .{ .control = rg.ControlProperty.border_color_disabled }, @bitCast(@as(i32, @bitCast(CatppuccinMocha.surface0))));
     rg.setStyle(rg.Control.button, .{ .control = rg.ControlProperty.border_width }, 1);
 
-    // Label styling
     rg.setStyle(rg.Control.label, .{ .control = rg.ControlProperty.text_color_normal }, @bitCast(@as(i32, @bitCast(CatppuccinMocha.text))));
     rg.setStyle(rg.Control.label, .{ .control = rg.ControlProperty.text_color_focused }, @bitCast(@as(i32, @bitCast(CatppuccinMocha.text))));
     rg.setStyle(rg.Control.label, .{ .control = rg.ControlProperty.text_color_pressed }, @bitCast(@as(i32, @bitCast(CatppuccinMocha.text))));
 
-    // Panel styling
     rg.setStyle(rg.Control.default, .{ .control = rg.ControlProperty.base_color_normal }, @bitCast(@as(i32, @bitCast(CatppuccinMocha.surface0))));
     rg.setStyle(rg.Control.default, .{ .control = rg.ControlProperty.border_color_normal }, @bitCast(@as(i32, @bitCast(CatppuccinMocha.surface1))));
     rg.setStyle(rg.Control.default, .{ .control = rg.ControlProperty.text_color_normal }, @bitCast(@as(i32, @bitCast(CatppuccinMocha.text))));

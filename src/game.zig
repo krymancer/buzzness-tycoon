@@ -152,8 +152,6 @@ pub const Game = struct {
 
         rl.closeWindow();
         rl.unloadImage(self.windowIcon);
-
-        self.resources.deinit();
     }
 
     pub fn run(self: *@This()) !void {
