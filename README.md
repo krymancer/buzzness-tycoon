@@ -1,6 +1,6 @@
-# Buzziness Tycoon
+# Buzzness Tycoon
 
-Buzziness Tycoon is a simple game that I'm working on to learn zig and have a excuse to use raylib.
+Buzzness Tycoon is a simple game that I'm working on to learn Zig and have an excuse to use raylib.
 
 ## Concept
 
@@ -8,9 +8,7 @@ The game revolves around an isometric grid where flowers grow and potentially wi
 
 ## Screenshot
 
-The current state of the game (or at least when I remember to update the screenshot) so you don't have to run the code
-
-![Image](https://raw.githubusercontent.com/Krymancer/buzzness-tycoon/main/.github/game.png)
+![Buzzness Tycoon Screenshot](.github/game.png)
 
 ## Build
 
