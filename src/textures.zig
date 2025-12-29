@@ -3,7 +3,17 @@ const std = @import("std");
 
 const assets = @import("assets.zig");
 
+const components = @import("ecs/components.zig");
+
 pub const Flowers = enum { rose, tulip, dandelion };
+
+pub fn flowersToFlowerType(flower: Flowers) components.FlowerType {
+    return switch (flower) {
+        .rose => .rose,
+        .tulip => .tulip,
+        .dandelion => .dandelion,
+    };
+}
 
 pub const Textures = struct {
     bee: rl.Texture,
