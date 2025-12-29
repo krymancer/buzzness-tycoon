@@ -83,6 +83,11 @@ pub const Game = struct {
     selectedTileY: i32,
     clickStartPos: rl.Vector2,
 
+    // Pause menu state
+    showPauseMenu: bool,
+    isPaused: bool,
+    shouldExit: bool,
+
     allocator: std.mem.Allocator,
 
     pub fn init(allocator: std.mem.Allocator) !@This() {
@@ -94,6 +99,7 @@ pub const Game = struct {
         const screenHeight = rl.getMonitorHeight(monitor);
 
         rl.initWindow(screenWidth, screenHeight, "Buzzness Tycoon");
+        rl.setExitKey(rl.KeyboardKey.null); // Disable default ESC closing the window
         rl.toggleFullscreen();
         const windowIcon = try assets.loadImageFromMemory(assets.bee_png);
         rl.setWindowIcon(windowIcon);
@@ -192,6 +198,10 @@ pub const Game = struct {
             .selectedTileY = 0,
             .clickStartPos = rl.Vector2.init(0, 0),
 
+            .showPauseMenu = false,
+            .isPaused = false,
+            .shouldExit = false,
+
             .width = width,
             .height = height,
         };
@@ -211,7 +221,7 @@ pub const Game = struct {
     }
 
     pub fn run(self: *@This()) !void {
-        while (!rl.windowShouldClose()) {
+        while (!rl.windowShouldClose() and !self.shouldExit) {
             self.input();
             try self.update();
             try self.draw();
@@ -233,14 +243,24 @@ pub const Game = struct {
             self.grid.updateViewport(self.width, self.height);
         }
 
-        // Close popup with Escape
-        if (self.showPlantPopup and rl.isKeyPressed(rl.KeyboardKey.escape)) {
-            self.showPlantPopup = false;
-            return;
+        // Handle Escape key - close popups first, then show/hide pause menu
+        if (rl.isKeyPressed(rl.KeyboardKey.escape)) {
+            if (self.showPlantPopup) {
+                self.showPlantPopup = false;
+                return;
+            } else if (self.showPauseMenu) {
+                self.showPauseMenu = false;
+                self.isPaused = false;
+                return;
+            } else {
+                self.showPauseMenu = true;
+                self.isPaused = true;
+                return;
+            }
         }
 
-        // Block input when popup is open
-        if (self.showPlantPopup) {
+        // Block input when popup or pause menu is open
+        if (self.showPlantPopup or self.showPauseMenu) {
             return;
         }
 
@@ -289,6 +309,11 @@ pub const Game = struct {
     }
 
     pub fn update(self: *@This()) !void {
+        // Skip game updates when paused
+        if (self.isPaused) {
+            return;
+        }
+
         const deltaTime = rl.getFrameTime();
 
         try lifespan_system.update(&self.world, deltaTime);
@@ -353,41 +378,7 @@ pub const Game = struct {
             }
         }
 
-        const uiActions = self.ui.draw(self.resources.honey, self.cachedBeeCount, honeyFactor, self.beehiveUpgradeCost);
-
-        // Handle buy bee button
-        if (uiActions.buyBee) {
-            if (self.resources.spendHoney(10.0)) {
-                const randomPos = self.grid.getRandomPositionInBounds();
-
-                const beeEntity = try self.world.createEntity();
-                try self.world.addPosition(beeEntity, components.Position.init(randomPos.x, randomPos.y));
-                try self.world.addSprite(beeEntity, components.Sprite.init(self.textures.bee, 32, 32, 1));
-                try self.world.addBeeAI(beeEntity, components.BeeAI.init());
-                try self.world.addLifespan(beeEntity, components.Lifespan.init(@floatFromInt(rl.getRandomValue(60, 140))));
-                try self.world.addPollenCollector(beeEntity, components.PollenCollector.init());
-                try self.world.addScaleSync(beeEntity, components.ScaleSync.init(1));
-
-                if (self.world.getScaleSync(beeEntity)) |scaleSync| {
-                    scaleSync.updateFromGrid(1, self.grid.scale);
-                }
-
-                self.cachedBeeCount += 1; // Update cache
-            }
-        }
-
-        // Handle upgrade beehive button
-        if (uiActions.upgradeBeehive) {
-            if (self.resources.spendHoney(self.beehiveUpgradeCost)) {
-                var beehiveIter2 = self.world.entityToBeehive.keyIterator();
-                if (beehiveIter2.next()) |beehiveEntity| {
-                    if (self.world.getBeehive(beehiveEntity.*)) |beehive| {
-                        beehive.honeyConversionFactor *= 2.0;
-                        self.beehiveUpgradeCost *= 2.0;
-                    }
-                }
-            }
-        }
+        self.ui.draw(self.resources.honey, self.cachedBeeCount, honeyFactor);
 
         rl.drawFPS(@as(i32, @intFromFloat(self.width - 100)), 10);
 
@@ -400,18 +391,23 @@ pub const Game = struct {
             try self.drawPlantPopup();
         }
 
+        // Draw pause menu
+        if (self.showPauseMenu) {
+            self.drawPauseMenu();
+        }
+
         // Log metrics
         const fps: f32 = @floatFromInt(rl.getFPS());
         self.metrics.log(fps, frameTime, self.cachedBeeCount, self.cachedFlowerCount);
     }
 
-    fn drawPlantPopup(self: *@This()) !void {
+    fn drawPauseMenu(self: *@This()) void {
         // Draw semi-transparent overlay
-        rl.drawRectangle(0, 0, @intFromFloat(self.width), @intFromFloat(self.height), rl.Color.init(0, 0, 0, 150));
+        rl.drawRectangle(0, 0, @intFromFloat(self.width), @intFromFloat(self.height), rl.Color.init(0, 0, 0, 180));
 
         // Popup dimensions
         const popupWidth: f32 = 300;
-        const popupHeight: f32 = 280;
+        const popupHeight: f32 = 200;
         const popupX: f32 = (self.width - popupWidth) / 2;
         const popupY: f32 = (self.height - popupHeight) / 2;
 
@@ -429,12 +425,59 @@ pub const Game = struct {
             rl.Color.init(0x45, 0x47, 0x5a, 0xff), // surface1
         );
 
-        // Check tile state
+        // Title
+        const titleText = "Paused";
+        const titleX = @as(i32, @intFromFloat(popupX + popupWidth / 2)) - @divFloor(rl.measureText(titleText, 32), 2);
+        rl.drawText(titleText, titleX, @as(i32, @intFromFloat(popupY + 25)), 32, rl.Color.init(0xcd, 0xd6, 0xf4, 0xff));
+
+        const buttonWidth: f32 = 200;
+        const buttonHeight: f32 = 45;
+        const buttonX = popupX + (popupWidth - buttonWidth) / 2;
+        const buttonStartY = popupY + 80;
+        const buttonSpacing: f32 = 55;
+
+        // Continue button
+        if (rg.button(rl.Rectangle.init(buttonX, buttonStartY, buttonWidth, buttonHeight), "Continue")) {
+            self.showPauseMenu = false;
+            self.isPaused = false;
+        }
+
+        // Exit button
+        if (rg.button(rl.Rectangle.init(buttonX, buttonStartY + buttonSpacing, buttonWidth, buttonHeight), "Exit Game")) {
+            self.shouldExit = true;
+        }
+    }
+
+    fn drawPlantPopup(self: *@This()) !void {
+        // Draw semi-transparent overlay
+        rl.drawRectangle(0, 0, @intFromFloat(self.width), @intFromFloat(self.height), rl.Color.init(0, 0, 0, 150));
+
+        // Check tile state first to determine popup height
         const centerTileX = @as(i32, @intCast((GRID_WIDTH - 1) / 2));
         const centerTileY = @as(i32, @intCast((GRID_HEIGHT - 1) / 2));
         const isBeehiveTile = (self.selectedTileX == centerTileX and self.selectedTileY == centerTileY);
         const flowerEntity = self.world.getFlowerAtGrid(self.selectedTileX, self.selectedTileY);
         const hasFlower = flowerEntity != null;
+
+        // Popup dimensions - height varies based on content
+        const popupWidth: f32 = 300;
+        const popupHeight: f32 = if (isBeehiveTile) 320 else 280;
+        const popupX: f32 = (self.width - popupWidth) / 2;
+        const popupY: f32 = (self.height - popupHeight) / 2;
+
+        // Draw popup panel background
+        rl.drawRectangleRounded(
+            rl.Rectangle.init(popupX, popupY, popupWidth, popupHeight),
+            0.1,
+            10,
+            rl.Color.init(0x31, 0x32, 0x44, 0xff), // surface0
+        );
+        rl.drawRectangleRoundedLines(
+            rl.Rectangle.init(popupX, popupY, popupWidth, popupHeight),
+            0.1,
+            10,
+            rl.Color.init(0x45, 0x47, 0x5a, 0xff), // surface1
+        );
 
         // Icon settings - show fully grown flower (state 4, frame at x=128)
         const frameSize: f32 = 32; // Each frame is 32x32
@@ -448,20 +491,88 @@ pub const Game = struct {
         const buttonX = popupX + (popupWidth - buttonWidth) / 2;
 
         if (isBeehiveTile) {
-            // Beehive tile - just show message and close button
-            const titleText = "Beehive Tile";
+            // Beehive tile - show upgrades and buy bee option
+            const titleText = "Beehive";
             const titleX = @as(i32, @intFromFloat(popupX + popupWidth / 2)) - @divFloor(rl.measureText(titleText, 24), 2);
             rl.drawText(titleText, titleX, @as(i32, @intFromFloat(popupY + 15)), 24, rl.Color.init(0xcd, 0xd6, 0xf4, 0xff));
 
-            const tileInfoText = rl.textFormat("Tile: (%d, %d)", .{ self.selectedTileX, self.selectedTileY });
-            const tileInfoX = @as(i32, @intFromFloat(popupX + popupWidth / 2)) - @divFloor(rl.measureText(tileInfoText, 16), 2);
-            rl.drawText(tileInfoText, tileInfoX, @as(i32, @intFromFloat(popupY + 45)), 16, rl.Color.init(0xa6, 0xad, 0xc8, 0xff));
+            // Draw beehive icon
+            const largeIconSize: f32 = 64;
+            const largeIconX = popupX + (popupWidth - largeIconSize) / 2;
+            const largeIconY = popupY + 45;
+            const largeDest = rl.Rectangle.init(largeIconX, largeIconY, largeIconSize, largeIconSize);
+            rl.drawTexturePro(self.textures.beehive, rl.Rectangle.init(0, 0, 32, 32), largeDest, rl.Vector2.init(0, 0), 0, rl.Color.white);
 
-            const msgText = "Cannot plant here!";
-            const msgX = @as(i32, @intFromFloat(popupX + popupWidth / 2)) - @divFloor(rl.measureText(msgText, 18), 2);
-            rl.drawText(msgText, msgX, @as(i32, @intFromFloat(popupY + 100)), 18, rl.Color.init(0xf3, 0x8b, 0xa8, 0xff)); // red
+            // Get beehive data
+            var honeyFactor: f32 = 1.0;
+            var beehiveIter = self.world.entityToBeehive.keyIterator();
+            if (beehiveIter.next()) |beehiveEntity| {
+                if (self.world.getBeehive(beehiveEntity.*)) |beehive| {
+                    honeyFactor = beehive.honeyConversionFactor;
+                }
+            }
 
-            if (rg.button(rl.Rectangle.init(buttonX, popupY + 200, buttonWidth, buttonHeight), "Close")) {
+            // Show current honey conversion factor
+            const factorText = rl.textFormat("Honey Conversion: %.1fx", .{honeyFactor});
+            const factorX = @as(i32, @intFromFloat(popupX + popupWidth / 2)) - @divFloor(rl.measureText(factorText, 18), 2);
+            rl.drawText(factorText, factorX, @as(i32, @intFromFloat(popupY + 115)), 18, rl.Color.init(0xf9, 0xe2, 0xaf, 0xff)); // yellow
+
+            // Show bee count
+            const beeCountText = rl.textFormat("Bees: %d", .{self.cachedBeeCount});
+            const beeCountX = @as(i32, @intFromFloat(popupX + popupWidth / 2)) - @divFloor(rl.measureText(beeCountText, 16), 2);
+            rl.drawText(beeCountText, beeCountX, @as(i32, @intFromFloat(popupY + 140)), 16, rl.Color.init(0xa6, 0xad, 0xc8, 0xff));
+
+            const buttonStartY = popupY + 170;
+            const buttonSpacing: f32 = 45;
+
+            // Upgrade beehive button
+            const canAffordUpgrade = self.resources.honey >= self.beehiveUpgradeCost;
+            if (!canAffordUpgrade) {
+                rg.setState(@intFromEnum(rg.State.disabled));
+            }
+            const upgradeText = rl.textFormat("Upgrade to %.1fx (%.0f Honey)", .{ honeyFactor * 2.0, self.beehiveUpgradeCost });
+            if (rg.button(rl.Rectangle.init(buttonX, buttonStartY, buttonWidth, buttonHeight), upgradeText) and canAffordUpgrade) {
+                if (self.resources.spendHoney(self.beehiveUpgradeCost)) {
+                    var beehiveIter2 = self.world.entityToBeehive.keyIterator();
+                    if (beehiveIter2.next()) |beehiveEntity| {
+                        if (self.world.getBeehive(beehiveEntity.*)) |beehive| {
+                            beehive.honeyConversionFactor *= 2.0;
+                            self.beehiveUpgradeCost *= 2.0;
+                        }
+                    }
+                }
+            }
+            rg.setState(@intFromEnum(rg.State.normal));
+
+            // Buy bee button
+            const beeCost: f32 = 10.0;
+            const canAffordBee = self.resources.honey >= beeCost;
+            if (!canAffordBee) {
+                rg.setState(@intFromEnum(rg.State.disabled));
+            }
+            if (rg.button(rl.Rectangle.init(buttonX, buttonStartY + buttonSpacing, buttonWidth, buttonHeight), "Buy Bee (10 Honey)") and canAffordBee) {
+                if (self.resources.spendHoney(beeCost)) {
+                    const randomPos = self.grid.getRandomPositionInBounds();
+
+                    const beeEntity = try self.world.createEntity();
+                    try self.world.addPosition(beeEntity, components.Position.init(randomPos.x, randomPos.y));
+                    try self.world.addSprite(beeEntity, components.Sprite.init(self.textures.bee, 32, 32, 1));
+                    try self.world.addBeeAI(beeEntity, components.BeeAI.init());
+                    try self.world.addLifespan(beeEntity, components.Lifespan.init(@floatFromInt(rl.getRandomValue(60, 140))));
+                    try self.world.addPollenCollector(beeEntity, components.PollenCollector.init());
+                    try self.world.addScaleSync(beeEntity, components.ScaleSync.init(1));
+
+                    if (self.world.getScaleSync(beeEntity)) |scaleSync| {
+                        scaleSync.updateFromGrid(1, self.grid.scale);
+                    }
+
+                    self.cachedBeeCount += 1;
+                }
+            }
+            rg.setState(@intFromEnum(rg.State.normal));
+
+            // Close button
+            if (rg.button(rl.Rectangle.init(buttonX, buttonStartY + buttonSpacing * 2, buttonWidth, buttonHeight), "Close")) {
                 self.showPlantPopup = false;
             }
         } else if (hasFlower) {
