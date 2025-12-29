@@ -47,6 +47,24 @@ pub fn build(b: *std.Build) void {
     const run_step = b.step("run", "Run the app");
     run_step.dependOn(&run_cmd.step);
 
+    // Check step for fast compile checking (useful for editor on-save hooks)
+    const exe_check = b.addExecutable(.{
+        .name = "buzzness-tycoon",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/main.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+
+    exe_check.linkLibrary(raylib_artifact);
+    exe_check.root_module.addImport("raylib", raylib);
+    exe_check.root_module.addImport("raygui", raygui);
+    exe_check.root_module.addImport("sprites", sprites_module);
+
+    const check_step = b.step("check", "Check if the app compiles without linking");
+    check_step.dependOn(&exe_check.step);
+
     const lib_unit_tests = b.addTest(.{
         .root_module = b.createModule(.{
             .root_source_file = b.path("src/root.zig"),
