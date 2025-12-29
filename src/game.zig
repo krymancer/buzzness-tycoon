@@ -221,7 +221,17 @@ pub const Game = struct {
     pub fn input(self: *@This()) void {
         // Alt+Enter to toggle fullscreen
         if (rl.isKeyPressed(rl.KeyboardKey.enter) and rl.isKeyDown(rl.KeyboardKey.left_alt)) {
+            const wasFullscreen = rl.isWindowFullscreen();
             rl.toggleFullscreen();
+
+            // When exiting fullscreen, resize window to 1280x720 and center it
+            if (wasFullscreen) {
+                rl.setWindowSize(1280, 720);
+                const monitor = rl.getCurrentMonitor();
+                const monitorWidth = rl.getMonitorWidth(monitor);
+                const monitorHeight = rl.getMonitorHeight(monitor);
+                rl.setWindowPosition(@divFloor(monitorWidth - 1280, 2), @divFloor(monitorHeight - 720, 2));
+            }
         }
 
         // Update viewport if window size changed
