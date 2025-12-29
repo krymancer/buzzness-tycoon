@@ -86,11 +86,22 @@ pub const Grid = struct {
     }
 
     pub fn draw(self: @This()) void {
+        const screenWidth: f32 = @floatFromInt(rl.getScreenWidth());
+        const screenHeight: f32 = @floatFromInt(rl.getScreenHeight());
+        const margin: f32 = 64 * self.scale; // Tile size plus buffer
+
         for (0..self.width) |i| {
             for (0..self.height) |j| {
                 const x: f32 = @floatFromInt(i);
                 const y: f32 = @floatFromInt(j);
                 const position = utils.isoToXY(x, y, self.tileWidth, self.tileHeight, self.offset.x, self.offset.y, self.scale);
+
+                // Frustum culling - skip tiles outside screen
+                if (position.x < -margin or position.x > screenWidth + margin or
+                    position.y < -margin or position.y > screenHeight + margin)
+                {
+                    continue;
+                }
 
                 const color = if (self.debug and self.isMouseHovering(x, y)) rl.Color.red else rl.Color.white;
                 rl.drawTextureEx(self.tileTexture, position, 0, self.scale, color);

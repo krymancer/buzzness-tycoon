@@ -1,8 +1,8 @@
 const World = @import("../world.zig").World;
 
 pub fn update(world: *World, deltaTime: f32) !void {
-    var iter = try world.queryEntitiesWithFlowerGrowth();
-    defer iter.deinit();
+    // Use direct iterator - no allocation
+    var iter = world.iterateFlowers();
 
     while (iter.next()) |entity| {
         if (world.getFlowerGrowth(entity)) |growth| {

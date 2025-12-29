@@ -13,15 +13,19 @@ const POLLINATION_CHECK_INTERVAL: f32 = 0.5;
 const SEARCH_COOLDOWN: f32 = 0.3;
 const MOVEMENT_LEAP_FACTOR: f32 = 2.0;
 
+// Staggered update system - split bees into groups, update one group per frame
+const STAGGER_GROUPS: usize = 4; // Update 1/4 of bees' AI per frame
+var currentStaggerGroup: usize = 0;
+
 // Cached beehive entity and position - only lookup once
 // NOTE: This cache is never invalidated. The beehive is permanent and never destroyed.
 var cachedBeehiveEntity: ?Entity = null;
 var cachedBeehiveWorldPos: ?rl.Vector2 = null;
 var beehiveCacheInitialized: bool = false;
 
-// Cached available flowers - rebuilt once per frame
-// NOTE: Fixed size array limits to 256 flowers, sufficient for current gameplay.
-const MAX_AVAILABLE_FLOWERS: usize = 256;
+// Cached available flowers - rebuilt once per STAGGER_GROUPS frames
+// NOTE: Fixed size array - 17x17 grid = 289 tiles max, 512 provides headroom
+const MAX_AVAILABLE_FLOWERS: usize = 512;
 var availableFlowers: [MAX_AVAILABLE_FLOWERS]AvailableFlower = undefined;
 var availableFlowerCount: usize = 0;
 
@@ -31,6 +35,10 @@ const AvailableFlower = struct {
 };
 
 pub fn update(world: *World, deltaTime: f32, gridOffset: rl.Vector2, gridScale: f32, gridWidth: usize, gridHeight: usize, texturesRef: Textures) !void {
+    // Scale deltaTime for staggered updates - since we only update 1/STAGGER_GROUPS of bees per frame,
+    // we need to scale the movement to compensate
+    const scaledDeltaTime = deltaTime * @as(f32, @floatFromInt(STAGGER_GROUPS));
+
     pollinationTimer += deltaTime;
     const checkPollination = pollinationTimer >= POLLINATION_CHECK_INTERVAL;
     if (checkPollination) {
@@ -47,10 +55,48 @@ pub fn update(world: *World, deltaTime: f32, gridOffset: rl.Vector2, gridScale: 
         beehiveCacheInitialized = true;
     }
 
-    buildAvailableFlowersCache(world, gridOffset, gridScale);
+    // Only rebuild flower cache once per full cycle (every STAGGER_GROUPS frames)
+    if (currentStaggerGroup == 0) {
+        buildAvailableFlowersCache(world, gridOffset, gridScale);
+    }
 
+    var beeIndex: usize = 0;
     var iter = world.iterateBees();
     while (iter.next()) |entity| {
+        // Stagger: only process bees in current group
+        if (beeIndex % STAGGER_GROUPS != currentStaggerGroup) {
+            beeIndex += 1;
+            // Still do basic movement interpolation for smooth visuals
+            if (world.getBeeAI(entity)) |beeAI| {
+                if (world.getPosition(entity)) |position| {
+                    if (world.getLifespan(entity)) |lifespan| {
+                        if (lifespan.isDead()) {
+                            beeIndex += 1;
+                            continue;
+                        }
+                    }
+                    // Continue movement towards target even when not doing full AI update
+                    if (beeAI.targetLocked and beeAI.targetEntity != null) {
+                        if (beeAI.carryingPollen) {
+                            if (cachedBeehiveWorldPos) |targetPos| {
+                                moveTowards(position, targetPos, deltaTime);
+                            }
+                        } else if (beeAI.targetEntity) |targetEntity| {
+                            if (world.getGridPosition(targetEntity)) |targetGridPos| {
+                                const targetPos = getFlowerWorldPosition(targetGridPos.toVector2(), gridOffset, gridScale);
+                                moveTowards(position, targetPos, deltaTime);
+                            }
+                        }
+                    } else if (beeAI.scatterTimer > 0) {
+                        beeAI.scatterTimer -= deltaTime;
+                        performRandomWalk(beeAI, position, deltaTime);
+                    }
+                }
+            }
+            continue;
+        }
+        beeIndex += 1;
+
         if (world.getBeeAI(entity)) |beeAI| {
             if (world.getPosition(entity)) |position| {
                 if (world.getLifespan(entity)) |lifespan| {
@@ -58,12 +104,12 @@ pub fn update(world: *World, deltaTime: f32, gridOffset: rl.Vector2, gridScale: 
                 }
 
                 if (beeAI.searchCooldown > 0) {
-                    beeAI.searchCooldown -= deltaTime;
+                    beeAI.searchCooldown -= scaledDeltaTime;
                 }
 
                 if (beeAI.scatterTimer > 0) {
-                    beeAI.scatterTimer -= deltaTime;
-                    performRandomWalk(beeAI, position, deltaTime);
+                    beeAI.scatterTimer -= scaledDeltaTime;
+                    performRandomWalk(beeAI, position, scaledDeltaTime);
                     continue;
                 }
 
@@ -90,7 +136,7 @@ pub fn update(world: *World, deltaTime: f32, gridOffset: rl.Vector2, gridScale: 
                                 }
                             }
                         } else {
-                            moveTowards(position, targetPos, deltaTime);
+                            moveTowards(position, targetPos, scaledDeltaTime);
                         }
                     }
                     continue;
@@ -108,7 +154,7 @@ pub fn update(world: *World, deltaTime: f32, gridOffset: rl.Vector2, gridScale: 
                     }
 
                     if (!beeAI.targetLocked) {
-                        performRandomWalk(beeAI, position, deltaTime);
+                        performRandomWalk(beeAI, position, scaledDeltaTime);
                     }
                 } else {
                     if (beeAI.targetEntity) |targetEntity| {
@@ -133,7 +179,7 @@ pub fn update(world: *World, deltaTime: f32, gridOffset: rl.Vector2, gridScale: 
                                     beeAI.targetLocked = false;
                                     beeAI.targetEntity = null;
                                 } else {
-                                    moveTowards(position, targetPos, deltaTime);
+                                    moveTowards(position, targetPos, scaledDeltaTime);
                                 }
                             } else {
                                 world.decrementFlowerTarget(targetEntity);
@@ -146,12 +192,15 @@ pub fn update(world: *World, deltaTime: f32, gridOffset: rl.Vector2, gridScale: 
                             beeAI.targetEntity = null;
                         }
                     } else {
-                        performRandomWalk(beeAI, position, deltaTime);
+                        performRandomWalk(beeAI, position, scaledDeltaTime);
                     }
                 }
             }
         }
     }
+
+    // Advance to next stagger group
+    currentStaggerGroup = (currentStaggerGroup + 1) % STAGGER_GROUPS;
 }
 
 fn moveTowards(position: anytype, target: rl.Vector2, deltaTime: f32) void {
