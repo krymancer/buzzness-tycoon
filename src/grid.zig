@@ -60,6 +60,12 @@ pub const Grid = struct {
         self.offset = utils.calculateCenteredGridOffset(self.width, self.height, self.tileWidth, self.tileHeight, self.scale, self.viewportWidth, self.viewportHeight);
     }
 
+    pub fn updateViewport(self: *@This(), viewportWidth: f32, viewportHeight: f32) void {
+        self.viewportWidth = viewportWidth;
+        self.viewportHeight = viewportHeight;
+        self.updateOffset();
+    }
+
     pub fn getRandomPositionInBounds(self: @This()) rl.Vector2 {
         const randomI = rl.getRandomValue(0, @as(i32, @intCast(self.width - 1)));
         const randomJ = rl.getRandomValue(0, @as(i32, @intCast(self.height - 1)));

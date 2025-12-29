@@ -219,8 +219,18 @@ pub const Game = struct {
     }
 
     pub fn input(self: *@This()) void {
+        // Alt+Enter to toggle fullscreen
         if (rl.isKeyPressed(rl.KeyboardKey.enter) and rl.isKeyDown(rl.KeyboardKey.left_alt)) {
             rl.toggleFullscreen();
+        }
+
+        // Update viewport if window size changed
+        const currentWidth: f32 = @floatFromInt(rl.getScreenWidth());
+        const currentHeight: f32 = @floatFromInt(rl.getScreenHeight());
+        if (currentWidth != self.width or currentHeight != self.height) {
+            self.width = currentWidth;
+            self.height = currentHeight;
+            self.grid.updateViewport(self.width, self.height);
         }
 
         // Close popup with Escape
