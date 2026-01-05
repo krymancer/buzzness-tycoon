@@ -23,6 +23,11 @@ const scale_sync_system = @import("ecs/systems/scale_sync_system.zig");
 const flower_spawning_system = @import("ecs/systems/flower_spawning_system.zig");
 const render_system = @import("ecs/systems/render_system.zig");
 
+pub const GameState = enum {
+    title_screen,
+    playing,
+};
+
 pub const Game = struct {
     const GRID_WIDTH = 17;
     const GRID_HEIGHT = 17;
@@ -62,6 +67,9 @@ pub const Game = struct {
     showPauseMenu: bool,
     isPaused: bool,
     shouldExit: bool,
+
+    // Game state
+    state: GameState,
 
     allocator: std.mem.Allocator,
 
@@ -141,6 +149,8 @@ pub const Game = struct {
             .isPaused = false,
             .shouldExit = false,
 
+            .state = .title_screen,
+
             .width = width,
             .height = height,
         };
@@ -152,6 +162,7 @@ pub const Game = struct {
         self.hud.deinit();
         self.world.deinit();
         self.metrics.deinit();
+        ui.title_screen.deinit();
 
         rl.closeWindow();
         rl.unloadImage(self.windowIcon);
@@ -159,19 +170,24 @@ pub const Game = struct {
 
     pub fn run(self: *@This()) !void {
         while (!rl.windowShouldClose() and !self.shouldExit) {
-            self.input();
-            try self.update();
-            try self.draw();
+            self.handleCommonInput();
+            switch (self.state) {
+                .title_screen => self.drawTitleScreen(),
+                .playing => {
+                    self.handlePlayingInput();
+                    try self.update();
+                    try self.draw();
+                },
+            }
         }
     }
 
-    pub fn input(self: *@This()) void {
+    /// Handle input common to all game states (fullscreen, window resize)
+    fn handleCommonInput(self: *@This()) void {
         // Alt+Enter to toggle fullscreen
         if (rl.isKeyPressed(rl.KeyboardKey.enter) and rl.isKeyDown(rl.KeyboardKey.left_alt)) {
             const wasFullscreen = rl.isWindowFullscreen();
             rl.toggleFullscreen();
-
-            // When exiting fullscreen, resize window to 1280x720 and center it
             if (wasFullscreen) {
                 rl.setWindowSize(1280, 720);
                 const monitor = rl.getCurrentMonitor();
@@ -181,24 +197,41 @@ pub const Game = struct {
             }
         }
 
-        // Update viewport if window size changed
+        // Update dimensions if window size changed
         const currentWidth: f32 = @floatFromInt(rl.getScreenWidth());
         const currentHeight: f32 = @floatFromInt(rl.getScreenHeight());
         if (currentWidth != self.width or currentHeight != self.height) {
             self.width = currentWidth;
             self.height = currentHeight;
+        }
+    }
 
-            // Save old offset before updating viewport
+    fn drawTitleScreen(self: *@This()) void {
+        rl.beginDrawing();
+        defer rl.endDrawing();
+
+        rl.clearBackground(theme.CatppuccinMocha.Color.base);
+
+        const action = ui.title_screen.draw(self.width, self.height);
+        switch (action) {
+            .play => self.state = .playing,
+            .quit => self.shouldExit = true,
+            .none => {},
+        }
+    }
+
+    /// Handle input specific to playing state
+    fn handlePlayingInput(self: *@This()) void {
+        // Update grid viewport and bee positions when window resizes
+        const currentWidth: f32 = @floatFromInt(rl.getScreenWidth());
+        const currentHeight: f32 = @floatFromInt(rl.getScreenHeight());
+        if (currentWidth != self.width or currentHeight != self.height) {
             const oldOffset = self.grid.offset;
-            self.grid.updateViewport(self.width, self.height);
-
-            // Calculate how much the grid offset changed
+            self.grid.updateViewport(currentWidth, currentHeight);
             const offsetDelta = rl.Vector2{
                 .x = self.grid.offset.x - oldOffset.x,
                 .y = self.grid.offset.y - oldOffset.y,
             };
-
-            // Update all bee positions by the offset delta so they stay relative to the grid
             var beeIter = self.world.iterateBees();
             while (beeIter.next()) |entity| {
                 if (self.world.getPosition(entity)) |pos| {
@@ -238,85 +271,61 @@ pub const Game = struct {
         }
 
         if (rl.isMouseButtonReleased(rl.MouseButton.left)) {
-            // Check if this was a click (not a drag) - mouse didn't move much
-            const dragDistance = @sqrt((mousePos.x - self.clickStartPos.x) * (mousePos.x - self.clickStartPos.x) + (mousePos.y - self.clickStartPos.y) * (mousePos.y - self.clickStartPos.y));
-
-            if (dragDistance < 5.0) {
-                // First, check if we clicked on a rebirth bubble
-                var bubbleClicked = false;
-                var flowerIter = self.world.iterateFlowers();
-                while (flowerIter.next()) |entity| {
-                    if (render_system.isFlowerDying(&self.world, entity)) {
-                        if (self.world.getGridPosition(entity)) |gridPos| {
-                            const bubble = render_system.getBubbleHitArea(gridPos.x, gridPos.y, self.grid.offset, self.grid.scale);
-                            const dx = mousePos.x - bubble.x;
-                            const dy = mousePos.y - bubble.y;
-                            const distSq = dx * dx + dy * dy;
-                            if (distSq <= bubble.radius * bubble.radius) {
-                                // Bubble clicked! Rebirth the flower
-                                self.rebirthFlower(entity);
-                                bubbleClicked = true;
-                                break;
-                            }
-                        }
-                    }
-                }
-
-                // If no bubble clicked, check if we clicked on a tile
-                if (!bubbleClicked) {
-                    if (self.grid.getHoveredTile()) |tile| {
-                        // Check if there's a flower on this tile and growth boost is ready
-                        if (self.world.getFlowerAtGrid(tile.x, tile.y)) |flowerEntity| {
-                            // Only use growth boost if flower is not dying
-                            if (!render_system.isFlowerDying(&self.world, flowerEntity)) {
-                                if (self.resources.canUseGrowthBoost()) {
-                                    self.boostFlowerGrowth(flowerEntity);
-                                    // Don't open popup when boosting
-                                } else {
-                                    // Open popup if boost on cooldown
-                                    self.selectedTileX = tile.x;
-                                    self.selectedTileY = tile.y;
-                                    self.showTilePopup = true;
-                                    self.popupJustOpened = true;
-                                }
-                            } else {
-                                // Dying flower - open popup
-                                self.selectedTileX = tile.x;
-                                self.selectedTileY = tile.y;
-                                self.showTilePopup = true;
-                                self.popupJustOpened = true;
-                            }
-                        } else {
-                            // No flower - open popup (plant or beehive)
-                            self.selectedTileX = tile.x;
-                            self.selectedTileY = tile.y;
-                            self.showTilePopup = true;
-                            self.popupJustOpened = true;
-                        }
-                    }
-                }
-            }
-
+            self.handleMouseClick(mousePos);
             self.isDragging = false;
         }
 
         if (self.isDragging) {
             const mouseDelta = rl.Vector2.init(mousePos.x - self.lastMousePos.x, mousePos.y - self.lastMousePos.y);
-
             self.cameraOffset.x += mouseDelta.x;
             self.cameraOffset.y += mouseDelta.y;
-
             self.grid.offset.x += mouseDelta.x;
             self.grid.offset.y += mouseDelta.y;
-
             self.lastMousePos = mousePos;
         }
 
         const wheelMove = rl.getMouseWheelMove();
         if (wheelMove != 0.0) {
-            const zoomSpeed = 0.3;
-            const zoomDelta = wheelMove * zoomSpeed;
-            self.grid.zoom(zoomDelta);
+            self.grid.zoom(wheelMove * 0.3);
+        }
+    }
+
+    fn handleMouseClick(self: *@This(), mousePos: rl.Vector2) void {
+        const dragDistance = @sqrt((mousePos.x - self.clickStartPos.x) * (mousePos.x - self.clickStartPos.x) +
+            (mousePos.y - self.clickStartPos.y) * (mousePos.y - self.clickStartPos.y));
+
+        if (dragDistance >= 5.0) return;
+
+        // Check if we clicked on a rebirth bubble
+        var flowerIter = self.world.iterateFlowers();
+        while (flowerIter.next()) |entity| {
+            if (render_system.isFlowerDying(&self.world, entity)) {
+                if (self.world.getGridPosition(entity)) |gridPos| {
+                    const bubble = render_system.getBubbleHitArea(gridPos.x, gridPos.y, self.grid.offset, self.grid.scale);
+                    const dx = mousePos.x - bubble.x;
+                    const dy = mousePos.y - bubble.y;
+                    if (dx * dx + dy * dy <= bubble.radius * bubble.radius) {
+                        self.rebirthFlower(entity);
+                        return;
+                    }
+                }
+            }
+        }
+
+        // Check if we clicked on a tile
+        if (self.grid.getHoveredTile()) |tile| {
+            if (self.world.getFlowerAtGrid(tile.x, tile.y)) |flowerEntity| {
+                if (!render_system.isFlowerDying(&self.world, flowerEntity)) {
+                    if (self.resources.canUseGrowthBoost()) {
+                        self.boostFlowerGrowth(flowerEntity);
+                        return;
+                    }
+                }
+            }
+            self.selectedTileX = tile.x;
+            self.selectedTileY = tile.y;
+            self.showTilePopup = true;
+            self.popupJustOpened = true;
         }
     }
 
