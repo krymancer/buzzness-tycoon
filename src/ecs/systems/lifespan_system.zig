@@ -39,8 +39,15 @@ pub fn update(world: *World, deltaTime: f32) !void {
                     }
                 }
 
-                // Cleanup for dying FLOWER: clear its target count entry and unregister from grid
-                if (world.getFlowerGrowth(entity) != null) {
+                // Cleanup for dying FLOWER: only kill if mature (state 4)
+                if (world.getFlowerGrowth(entity)) |growth| {
+                    // Don't kill immature flowers - extend their lifespan instead
+                    if (growth.state < 4) {
+                        lifespan.timeAlive = 0;
+                        lifespan.totalTimeAlive = lifespan.timeSpan * 0.5; // Reset to halfway
+                        continue;
+                    }
+
                     world.clearFlowerTargetCount(entity);
 
                     // Unregister flower from spatial lookup

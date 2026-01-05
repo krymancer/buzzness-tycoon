@@ -5,6 +5,8 @@ const Grid = @import("grid.zig").Grid;
 const Textures = @import("textures.zig").Textures;
 const Flowers = @import("textures.zig").Flowers;
 const assets = @import("assets.zig");
+const theme = @import("theme.zig");
+const actions = @import("actions.zig");
 
 const Resources = @import("resources.zig").Resources;
 const ui = @import("ui.zig");
@@ -105,7 +107,7 @@ pub const Game = struct {
         }
 
         // Spawn initial bees
-        for (0..10000) |_| {
+        for (0..5) |_| {
             _ = try spawners.spawnBee(&world, &grid, &textures);
         }
 
@@ -240,12 +242,58 @@ pub const Game = struct {
             const dragDistance = @sqrt((mousePos.x - self.clickStartPos.x) * (mousePos.x - self.clickStartPos.x) + (mousePos.y - self.clickStartPos.y) * (mousePos.y - self.clickStartPos.y));
 
             if (dragDistance < 5.0) {
-                // This is a click - check if we clicked on a tile
-                if (self.grid.getHoveredTile()) |tile| {
-                    self.selectedTileX = tile.x;
-                    self.selectedTileY = tile.y;
-                    self.showTilePopup = true;
-                    self.popupJustOpened = true; // Prevent click-through
+                // First, check if we clicked on a rebirth bubble
+                var bubbleClicked = false;
+                var flowerIter = self.world.iterateFlowers();
+                while (flowerIter.next()) |entity| {
+                    if (render_system.isFlowerDying(&self.world, entity)) {
+                        if (self.world.getGridPosition(entity)) |gridPos| {
+                            const bubble = render_system.getBubbleHitArea(gridPos.x, gridPos.y, self.grid.offset, self.grid.scale);
+                            const dx = mousePos.x - bubble.x;
+                            const dy = mousePos.y - bubble.y;
+                            const distSq = dx * dx + dy * dy;
+                            if (distSq <= bubble.radius * bubble.radius) {
+                                // Bubble clicked! Rebirth the flower
+                                self.rebirthFlower(entity);
+                                bubbleClicked = true;
+                                break;
+                            }
+                        }
+                    }
+                }
+
+                // If no bubble clicked, check if we clicked on a tile
+                if (!bubbleClicked) {
+                    if (self.grid.getHoveredTile()) |tile| {
+                        // Check if there's a flower on this tile and growth boost is ready
+                        if (self.world.getFlowerAtGrid(tile.x, tile.y)) |flowerEntity| {
+                            // Only use growth boost if flower is not dying
+                            if (!render_system.isFlowerDying(&self.world, flowerEntity)) {
+                                if (self.resources.canUseGrowthBoost()) {
+                                    self.boostFlowerGrowth(flowerEntity);
+                                    // Don't open popup when boosting
+                                } else {
+                                    // Open popup if boost on cooldown
+                                    self.selectedTileX = tile.x;
+                                    self.selectedTileY = tile.y;
+                                    self.showTilePopup = true;
+                                    self.popupJustOpened = true;
+                                }
+                            } else {
+                                // Dying flower - open popup
+                                self.selectedTileX = tile.x;
+                                self.selectedTileY = tile.y;
+                                self.showTilePopup = true;
+                                self.popupJustOpened = true;
+                            }
+                        } else {
+                            // No flower - open popup (plant or beehive)
+                            self.selectedTileX = tile.x;
+                            self.selectedTileY = tile.y;
+                            self.showTilePopup = true;
+                            self.popupJustOpened = true;
+                        }
+                    }
                 }
             }
 
@@ -279,6 +327,9 @@ pub const Game = struct {
         }
 
         const deltaTime = rl.getFrameTime();
+
+        // Update growth boost cooldown
+        self.resources.updateCooldown(deltaTime);
 
         try lifespan_system.update(&self.world, deltaTime);
         try flower_growth_system.update(&self.world, deltaTime);
@@ -320,7 +371,7 @@ pub const Game = struct {
         rl.beginDrawing();
         defer rl.endDrawing();
 
-        rl.clearBackground(rl.Color.init(0x1e, 0x1e, 0x2e, 0xff));
+        rl.clearBackground(theme.CatppuccinMocha.Color.base);
 
         self.grid.draw();
 
@@ -328,7 +379,7 @@ pub const Game = struct {
 
         // Draw HUD
         const honeyFactor = self.getBeehiveHoneyFactor();
-        self.hud.draw(self.resources.honey, self.cachedBeeCount, honeyFactor);
+        self.hud.draw(&self.resources, self.cachedBeeCount, honeyFactor);
 
         rl.drawFPS(@as(i32, @intFromFloat(self.width - 100)), 10);
 
@@ -350,7 +401,7 @@ pub const Game = struct {
                     .tileY = self.selectedTileY,
                     .gridWidth = GRID_WIDTH,
                     .gridHeight = GRID_HEIGHT,
-                    .honey = self.resources.honey,
+                    .resources = &self.resources,
                     .beeCount = self.cachedBeeCount,
                     .beehiveUpgradeCost = self.beehiveUpgradeCost,
                     .textures = &self.textures,
@@ -382,6 +433,16 @@ pub const Game = struct {
         self.metrics.log(fps, frameTime, self.cachedBeeCount, self.cachedFlowerCount);
     }
 
+    fn createActionHandler(self: *@This()) actions.ActionHandler {
+        return actions.ActionHandler{
+            .world = &self.world,
+            .resources = &self.resources,
+            .grid = &self.grid,
+            .textures = &self.textures,
+            .beehiveUpgradeCost = &self.beehiveUpgradeCost,
+        };
+    }
+
     fn handleTilePopup(self: *@This()) !void {
         const ctx = ui.TilePopupContext{
             .screenWidth = self.width,
@@ -390,7 +451,7 @@ pub const Game = struct {
             .tileY = self.selectedTileY,
             .gridWidth = GRID_WIDTH,
             .gridHeight = GRID_HEIGHT,
-            .honey = self.resources.honey,
+            .resources = &self.resources,
             .beeCount = self.cachedBeeCount,
             .beehiveUpgradeCost = self.beehiveUpgradeCost,
             .textures = &self.textures,
@@ -398,70 +459,32 @@ pub const Game = struct {
         };
 
         const action = ui.popups.draw(ctx);
+        var handler = self.createActionHandler();
+        const result = try handler.handlePopupAction(action, self.selectedTileX, self.selectedTileY);
 
-        switch (action) {
-            .close => {
-                self.showTilePopup = false;
-            },
-            .buy_bee => {
-                if (self.resources.spendHoney(spawners.BEE_COST)) {
-                    _ = try spawners.spawnBee(&self.world, &self.grid, &self.textures);
-                    self.cachedBeeCount += 1;
-                }
-            },
-            .upgrade_beehive => {
-                if (self.resources.spendHoney(self.beehiveUpgradeCost)) {
-                    var beehiveIter = self.world.entityToBeehive.keyIterator();
-                    if (beehiveIter.next()) |beehiveEntity| {
-                        if (self.world.getBeehive(beehiveEntity.*)) |beehive| {
-                            beehive.honeyConversionFactor *= 2.0;
-                            self.beehiveUpgradeCost *= 2.0;
-                        }
-                    }
-                }
-            },
-            .upgrade_flower => {
-                if (self.world.getFlowerAtGrid(self.selectedTileX, self.selectedTileY)) |flowerEntity| {
-                    if (self.world.getFlowerGrowth(flowerEntity)) |growth| {
-                        const upgradeCost = 20.0 * growth.pollenMultiplier;
-                        if (self.resources.spendHoney(upgradeCost)) {
-                            growth.pollenMultiplier += 0.5;
-                        }
-                    }
-                }
-            },
-            .plant_rose => {
-                if (self.resources.spendHoney(spawners.FLOWER_COSTS.rose)) {
-                    _ = try spawners.spawnFlower(&self.world, &self.textures, .rose, self.selectedTileX, self.selectedTileY);
-                    self.cachedFlowerCount += 1;
-                    self.showTilePopup = false;
-                }
-            },
-            .plant_tulip => {
-                if (self.resources.spendHoney(spawners.FLOWER_COSTS.tulip)) {
-                    _ = try spawners.spawnFlower(&self.world, &self.textures, .tulip, self.selectedTileX, self.selectedTileY);
-                    self.cachedFlowerCount += 1;
-                    self.showTilePopup = false;
-                }
-            },
-            .plant_dandelion => {
-                if (self.resources.spendHoney(spawners.FLOWER_COSTS.dandelion)) {
-                    _ = try spawners.spawnFlower(&self.world, &self.textures, .dandelion, self.selectedTileX, self.selectedTileY);
-                    self.cachedFlowerCount += 1;
-                    self.showTilePopup = false;
-                }
-            },
-            .none => {},
+        if (result.closePopup) {
+            self.showTilePopup = false;
+        }
+        if (result.beeCountDelta != 0) {
+            self.cachedBeeCount = @intCast(@as(i64, @intCast(self.cachedBeeCount)) + result.beeCountDelta);
+        }
+        if (result.flowerCountDelta != 0) {
+            self.cachedFlowerCount = @intCast(@as(i64, @intCast(self.cachedFlowerCount)) + result.flowerCountDelta);
         }
     }
 
     fn getBeehiveHoneyFactor(self: *@This()) f32 {
-        var beehiveIter = self.world.entityToBeehive.keyIterator();
-        if (beehiveIter.next()) |beehiveEntity| {
-            if (self.world.getBeehive(beehiveEntity.*)) |beehive| {
-                return beehive.honeyConversionFactor;
-            }
-        }
-        return 1.0;
+        var handler = self.createActionHandler();
+        return handler.getBeehiveHoneyFactor();
+    }
+
+    fn rebirthFlower(self: *@This(), entity: u32) void {
+        var handler = self.createActionHandler();
+        handler.rebirthFlower(entity);
+    }
+
+    fn boostFlowerGrowth(self: *@This(), entity: u32) void {
+        var handler = self.createActionHandler();
+        handler.boostFlowerGrowth(entity);
     }
 };
