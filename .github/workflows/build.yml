@@ -29,7 +29,7 @@ jobs:
           sudo apt-get install -y libgl1-mesa-dev libglu1-mesa-dev xorg-dev
 
       - name: Build
-        run: zig build -Doptimize=ReleaseFast
+        run: zig build -Dtarget=x86_64-linux-gnu.2.17 -Doptimize=ReleaseFast
 
       - name: Upload Linux binary
         uses: actions/upload-artifact@v4
