@@ -2,12 +2,14 @@ const rl = @import("raylib");
 const std = @import("std");
 const World = @import("../world.zig").World;
 const utils = @import("../../utils.zig");
+const theme = @import("../../theme.zig");
 
 const FlowerRenderData = struct {
     entity: u32,
     gridX: f32,
     gridY: f32,
     sortKey: f32,
+    isDying: bool, // Flag for rebirth bubble
 };
 
 fn compareFlowers(context: void, a: FlowerRenderData, b: FlowerRenderData) bool {
@@ -22,6 +24,7 @@ const BeeRenderData = struct {
     y: f32,
     scale: f32,
     carryingPollen: bool,
+    color: rl.Color,
 };
 var beeRenderList: [MAX_BEES]BeeRenderData = undefined;
 var beeRenderCount: usize = 0;
@@ -51,8 +54,12 @@ pub fn draw(world: *World, gridOffset: rl.Vector2, gridScale: f32) !void {
     var flowerIter = world.iterateFlowers();
     while (flowerIter.next()) |entity| {
         if (world.getGridPosition(entity)) |gridPos| {
+            var isDying = false;
             if (world.getLifespan(entity)) |lifespan| {
                 if (lifespan.isDead()) continue;
+                // Check if flower is dying (within last 5 seconds of life)
+                const timeRemaining = lifespan.timeSpan - lifespan.totalTimeAlive;
+                isDying = timeRemaining <= 5.0 and timeRemaining > 0;
             }
             if (flowerCount < flowerList.len) {
                 flowerList[flowerCount] = .{
@@ -60,6 +67,7 @@ pub fn draw(world: *World, gridOffset: rl.Vector2, gridScale: f32) !void {
                     .gridX = gridPos.x,
                     .gridY = gridPos.y,
                     .sortKey = gridPos.x + gridPos.y,
+                    .isDying = isDying,
                 };
                 flowerCount += 1;
             }
@@ -74,10 +82,15 @@ pub fn draw(world: *World, gridOffset: rl.Vector2, gridScale: f32) !void {
                 const source = rl.Rectangle.init(growth.state * sprite.width, 0, sprite.width, sprite.height);
 
                 if (growth.state == 4 and growth.hasPollen) {
-                    drawSpriteAtGridPosition(sprite.texture, flowerData.gridX, flowerData.gridY, source, sprite.scale + 0.1, rl.Color.init(255, 255, 100, 128), gridOffset, gridScale);
+                    drawSpriteAtGridPosition(sprite.texture, flowerData.gridX, flowerData.gridY, source, sprite.scale + 0.1, theme.CatppuccinMocha.Color.pollenGlow, gridOffset, gridScale);
                 }
 
                 drawSpriteAtGridPosition(sprite.texture, flowerData.gridX, flowerData.gridY, source, sprite.scale, rl.Color.white, gridOffset, gridScale);
+
+                // Draw rebirth bubble if flower is dying
+                if (flowerData.isDying) {
+                    drawRebirthBubble(flowerData.gridX, flowerData.gridY, gridOffset, gridScale);
+                }
             }
         }
     }
@@ -96,9 +109,10 @@ pub fn draw(world: *World, gridOffset: rl.Vector2, gridScale: f32) !void {
 
     // Batch draw all bees - same texture, minimizes state changes
     if (beeTexture) |texture| {
+        const pollenColor = theme.CatppuccinMocha.Color.yellow;
         for (0..beeRenderCount) |i| {
             const bee = beeRenderList[i];
-            const color = if (bee.carryingPollen) rl.Color.yellow else rl.Color.white;
+            const color = if (bee.carryingPollen) pollenColor else bee.color;
             rl.drawTextureEx(texture, rl.Vector2.init(bee.x, bee.y), 0, bee.scale, color);
         }
     }
@@ -130,6 +144,7 @@ fn buildBeeRenderList(world: *World) void {
                         .y = position.y,
                         .scale = scaleSync.effectiveScale,
                         .carryingPollen = beeAI.carryingPollen,
+                        .color = beeAI.beeType.getColor(),
                     };
                     beeRenderCount += 1;
                 }
@@ -163,4 +178,64 @@ fn drawBeehiveAtGridPosition(texture: rl.Texture, i: f32, j: f32, width: f32, he
     const destination = rl.Rectangle.init(centeredX, centeredY, width * effectiveScale, height * effectiveScale);
 
     rl.drawTexturePro(texture, source, destination, rl.Vector2.init(0, 0), 0, rl.Color.white);
+}
+
+fn drawRebirthBubble(gridX: f32, gridY: f32, gridOffset: rl.Vector2, gridScale: f32) void {
+    const tilePosition = utils.isoToXY(gridX, gridY, 32, 32, gridOffset.x, gridOffset.y, gridScale);
+    const tileWidth = 32 * gridScale;
+
+    // Bubble position above the flower
+    const bubbleRadius: f32 = 18 * (gridScale / 3.0); // Bigger radius
+    const bubbleX = tilePosition.x + tileWidth / 2;
+    const bubbleY = tilePosition.y - bubbleRadius * 1.5;
+
+    // Animated pulsing effect using game time
+    const time = @as(f32, @floatCast(rl.getTime())) * 4.0; // Faster pulse
+    const pulse = 1.0 + @sin(time) * 0.25; // Stronger pulse
+    const animatedRadius = bubbleRadius * pulse;
+
+    // Draw multiple glow layers for better visibility
+    rl.drawCircle(@intFromFloat(bubbleX), @intFromFloat(bubbleY), animatedRadius + 8, rl.Color.init(0xa6, 0xe3, 0xa1, 40)); // outer glow
+    rl.drawCircle(@intFromFloat(bubbleX), @intFromFloat(bubbleY), animatedRadius + 4, rl.Color.init(0xa6, 0xe3, 0xa1, 80)); // mid glow
+    rl.drawCircle(@intFromFloat(bubbleX), @intFromFloat(bubbleY), animatedRadius, theme.CatppuccinMocha.Color.green); // solid center
+
+    // Draw pulsing ring outline
+    const ringPulse = 1.0 + @sin(time * 1.5) * 0.3;
+    const ringRadius = animatedRadius * ringPulse;
+    rl.drawCircleLines(@intFromFloat(bubbleX), @intFromFloat(bubbleY), ringRadius + 2, rl.Color.white);
+
+    // Draw "+" symbol in the center
+    const plusSize: i32 = @intFromFloat(animatedRadius * 0.5);
+    const cx: i32 = @intFromFloat(bubbleX);
+    const cy: i32 = @intFromFloat(bubbleY);
+    rl.drawLine(cx - plusSize, cy, cx + plusSize, cy, rl.Color.white);
+    rl.drawLine(cx, cy - plusSize, cx, cy + plusSize, rl.Color.white);
+}
+
+/// Returns the bubble position and radius for hit testing
+pub fn getBubbleHitArea(gridX: f32, gridY: f32, gridOffset: rl.Vector2, gridScale: f32) struct { x: f32, y: f32, radius: f32 } {
+    const tilePosition = utils.isoToXY(gridX, gridY, 32, 32, gridOffset.x, gridOffset.y, gridScale);
+    const tileWidth = 32 * gridScale;
+    const bubbleRadius: f32 = 18 * (gridScale / 3.0);
+    const bubbleX = tilePosition.x + tileWidth / 2;
+    const bubbleY = tilePosition.y - bubbleRadius * 1.5;
+
+    return .{ .x = bubbleX, .y = bubbleY, .radius = bubbleRadius * 2.5 }; // Very forgiving hit area
+}
+
+/// Check if a flower entity is dying (has rebirth bubble)
+/// Only mature flowers (state 4) can die and show the bubble
+pub fn isFlowerDying(world: *World, entity: u32) bool {
+    // Must be a mature flower (state 4) to show rebirth bubble
+    if (world.getFlowerGrowth(entity)) |growth| {
+        if (growth.state < 4) return false;
+    } else {
+        return false;
+    }
+
+    if (world.getLifespan(entity)) |lifespan| {
+        const timeRemaining = lifespan.timeSpan - lifespan.totalTimeAlive;
+        return timeRemaining <= 5.0 and timeRemaining > 0;
+    }
+    return false;
 }

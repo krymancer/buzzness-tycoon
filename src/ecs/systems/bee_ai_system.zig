@@ -136,7 +136,7 @@ pub fn update(world: *World, deltaTime: f32, gridOffset: rl.Vector2, gridScale: 
                                 }
                             }
                         } else {
-                            moveTowards(position, targetPos, scaledDeltaTime);
+                            moveTowardsWithSpeed(position, targetPos, scaledDeltaTime, beeAI.beeType.getSpeedMultiplier());
                         }
                     }
                     continue;
@@ -169,7 +169,9 @@ pub fn update(world: *World, deltaTime: f32, gridOffset: rl.Vector2, gridScale: 
                                         beeAI.carryingPollen = true;
 
                                         if (world.getPollenCollector(entity)) |collector| {
-                                            collector.collect(1.0 * targetFlower.pollenMultiplier);
+                                            // Efficient bees collect more pollen
+                                            const collectionMultiplier = beeAI.beeType.getCollectionMultiplier();
+                                            collector.collect(1.0 * targetFlower.pollenMultiplier * collectionMultiplier);
                                         }
 
                                         beeAI.scatterTimer = @as(f32, @floatFromInt(rl.getRandomValue(20, 40))) / 10.0;
@@ -179,7 +181,7 @@ pub fn update(world: *World, deltaTime: f32, gridOffset: rl.Vector2, gridScale: 
                                     beeAI.targetLocked = false;
                                     beeAI.targetEntity = null;
                                 } else {
-                                    moveTowards(position, targetPos, scaledDeltaTime);
+                                    moveTowardsWithSpeed(position, targetPos, scaledDeltaTime, beeAI.beeType.getSpeedMultiplier());
                                 }
                             } else {
                                 world.decrementFlowerTarget(targetEntity);
@@ -204,8 +206,13 @@ pub fn update(world: *World, deltaTime: f32, gridOffset: rl.Vector2, gridScale: 
 }
 
 fn moveTowards(position: anytype, target: rl.Vector2, deltaTime: f32) void {
-    position.x += (target.x - position.x) * MOVEMENT_LEAP_FACTOR * deltaTime;
-    position.y += (target.y - position.y) * MOVEMENT_LEAP_FACTOR * deltaTime;
+    moveTowardsWithSpeed(position, target, deltaTime, 1.0);
+}
+
+fn moveTowardsWithSpeed(position: anytype, target: rl.Vector2, deltaTime: f32, speedMultiplier: f32) void {
+    const speed = MOVEMENT_LEAP_FACTOR * speedMultiplier;
+    position.x += (target.x - position.x) * speed * deltaTime;
+    position.y += (target.y - position.y) * speed * deltaTime;
 }
 
 fn buildAvailableFlowersCache(world: *World, gridOffset: rl.Vector2, gridScale: f32) void {
@@ -300,6 +307,9 @@ fn performRandomWalk(beeAI: anytype, position: anytype, deltaTime: f32) void {
 }
 
 fn handlePollination(world: *World, beeAI: anytype, position: anytype, gridOffset: rl.Vector2, gridScale: f32, gridWidth: usize, gridHeight: usize, texturesRef: Textures) !void {
+    // Only Gardener bees can spawn flowers
+    if (!beeAI.beeType.canSpawnFlowers()) return;
+
     const gridPos = utils.worldToGrid(position.toVector2(), gridOffset, gridScale);
     const gridX: i32 = @intFromFloat(@floor(gridPos.x));
     const gridY: i32 = @intFromFloat(@floor(gridPos.y));
@@ -316,7 +326,8 @@ fn handlePollination(world: *World, beeAI: anytype, position: anytype, gridOffse
     if (gridX == centerX and gridY == centerY) return;
 
     if (!world.hasFlowerAtGrid(gridX, gridY)) {
-        if (rl.getRandomValue(1, 100) <= 10) {
+        // Gardener bees have a higher spawn chance (20%)
+        if (rl.getRandomValue(1, 100) <= 20) {
             const flowerType = switch (rl.getRandomValue(1, 3)) {
                 1 => Flowers.rose,
                 2 => Flowers.dandelion,

@@ -20,8 +20,24 @@ pub const FLOWER_COSTS = struct {
     pub const dandelion: f32 = 5.0;
 };
 
-/// Bee cost for purchasing
+/// Bee cost for purchasing (per type)
 pub const BEE_COST: f32 = 10.0;
+
+pub const BEE_TYPE_COSTS = struct {
+    pub const worker: f32 = 10.0;
+    pub const swift: f32 = 100.0;
+    pub const efficient: f32 = 500.0;
+    pub const gardener: f32 = 2000.0;
+
+    pub fn get(beeType: components.BeeType) f32 {
+        return switch (beeType) {
+            .worker => worker,
+            .swift => swift,
+            .efficient => efficient,
+            .gardener => gardener,
+        };
+    }
+};
 
 /// Convert texture Flowers enum to component FlowerType
 pub fn flowersToFlowerType(flower: Flowers) components.FlowerType {
@@ -43,12 +59,17 @@ pub fn flowerTypeToFlowers(flowerType: components.FlowerType) Flowers {
 
 /// Spawn a new bee at a random position within the grid bounds
 pub fn spawnBee(world: *World, grid: *const Grid, textures: *const Textures) !u32 {
+    return spawnBeeWithType(world, grid, textures, .worker);
+}
+
+/// Spawn a new bee of a specific type at a random position within the grid bounds
+pub fn spawnBeeWithType(world: *World, grid: *const Grid, textures: *const Textures, beeType: components.BeeType) !u32 {
     const randomPos = grid.getRandomPositionInBounds();
 
     const beeEntity = try world.createEntity();
     try world.addPosition(beeEntity, components.Position.init(randomPos.x, randomPos.y));
     try world.addSprite(beeEntity, components.Sprite.init(textures.bee, 32, 32, 1));
-    try world.addBeeAI(beeEntity, components.BeeAI.init());
+    try world.addBeeAI(beeEntity, components.BeeAI.initWithType(beeType));
     try world.addLifespan(beeEntity, components.Lifespan.init(@floatFromInt(rl.getRandomValue(60, 140))));
     try world.addPollenCollector(beeEntity, components.PollenCollector.init());
     try world.addScaleSync(beeEntity, components.ScaleSync.init(1));

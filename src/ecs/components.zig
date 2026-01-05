@@ -1,5 +1,6 @@
 const std = @import("std");
 const rl = @import("raylib");
+const theme = @import("../theme.zig");
 
 pub const Position = struct {
     x: f32,
@@ -70,8 +71,13 @@ pub const BeeAI = struct {
     lastGridY: i32,
     scatterTimer: f32,
     searchCooldown: f32, // Cooldown before searching for flowers again
+    beeType: BeeType,
 
     pub fn init() @This() {
+        return initWithType(.worker);
+    }
+
+    pub fn initWithType(beeType: BeeType) @This() {
         const rl_module = @import("raylib");
         return .{
             .targetEntity = null,
@@ -83,11 +89,50 @@ pub const BeeAI = struct {
             .lastGridY = -1,
             .scatterTimer = 0,
             .searchCooldown = 0,
+            .beeType = beeType,
         };
     }
 };
 
 pub const FlowerType = enum { rose, tulip, dandelion };
+
+pub const BeeType = enum {
+    worker, // Default, baseline stats
+    swift, // 2x movement speed
+    efficient, // 2x faster pollen collection
+    gardener, // Can spawn flowers
+
+    pub fn getSpeedMultiplier(self: @This()) f32 {
+        return switch (self) {
+            .worker => 1.0,
+            .swift => 2.0,
+            .efficient => 1.0,
+            .gardener => 1.0,
+        };
+    }
+
+    pub fn getCollectionMultiplier(self: @This()) f32 {
+        return switch (self) {
+            .worker => 1.0,
+            .swift => 1.0,
+            .efficient => 2.0,
+            .gardener => 1.0,
+        };
+    }
+
+    pub fn canSpawnFlowers(self: @This()) bool {
+        return self == .gardener;
+    }
+
+    pub fn getColor(self: @This()) rl.Color {
+        return switch (self) {
+            .worker => theme.CatppuccinMocha.Color.text,
+            .swift => theme.CatppuccinMocha.Color.blue,
+            .efficient => theme.CatppuccinMocha.Color.green,
+            .gardener => theme.CatppuccinMocha.Color.pink,
+        };
+    }
+};
 
 pub const FlowerGrowth = struct {
     state: f32,
@@ -162,6 +207,24 @@ pub const Beehive = struct {
     pub fn init() @This() {
         return .{
             .honeyConversionFactor = 1.0,
+        };
+    }
+};
+
+/// Tracks dying flowers that can be saved with a rebirth bubble
+pub const RebirthBubble = struct {
+    timeRemaining: f32, // Time left to click the bubble
+    wasClicked: bool, // Flag to mark bubble was clicked
+
+    // How long the bubble appears before flower dies
+    pub const BUBBLE_DURATION: f32 = 5.0;
+    // How close to death the flower must be for bubble to appear
+    pub const DEATH_THRESHOLD: f32 = 5.0;
+
+    pub fn init() @This() {
+        return .{
+            .timeRemaining = BUBBLE_DURATION,
+            .wasClicked = false,
         };
     }
 };
