@@ -3,6 +3,7 @@ const rg = @import("raygui");
 const std = @import("std");
 
 const theme = @import("../theme.zig");
+const format = @import("../format.zig");
 const Textures = @import("../textures.zig").Textures;
 const Flowers = @import("../textures.zig").Flowers;
 const World = @import("../ecs/world.zig").World;
@@ -288,7 +289,9 @@ fn drawFlowerPopup(
         if (!canAffordUpgrade) {
             rg.setState(@intFromEnum(rg.State.disabled));
         }
-        const upgradeText = rl.textFormat("Upgrade to %.1fx (%.0f Honey)", .{ growth.pollenMultiplier + 0.5, upgradeCost });
+        var cbuf: [32]u8 = undefined;
+        const cstr = format.formatShort(upgradeCost, &cbuf);
+        const upgradeText = rl.textFormat("Upgrade to %.1fx (%s Honey)", .{ growth.pollenMultiplier + 0.5, cstr.ptr });
         if (rg.button(rl.Rectangle.init(buttonX, buttonStartY, buttonWidth, buttonHeight), upgradeText) and canAffordUpgrade) {
             rg.setState(@intFromEnum(rg.State.normal));
             return .upgrade_flower;

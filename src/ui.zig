@@ -10,6 +10,8 @@ pub const hud = @import("ui/hud.zig");
 pub const pause_menu = @import("ui/pause_menu.zig");
 pub const popups = @import("ui/popups.zig");
 pub const title_screen = @import("ui/title_screen.zig");
+pub const side_panel = @import("ui/side_panel.zig");
+pub const tree_view = @import("ui/tree_view.zig");
 
 // Re-export commonly used types for convenience
 pub const Hud = hud.Hud;
@@ -17,3 +19,6 @@ pub const PauseMenuAction = pause_menu.PauseMenuAction;
 pub const TilePopupAction = popups.TilePopupAction;
 pub const TilePopupContext = popups.TilePopupContext;
 pub const TitleScreenAction = title_screen.TitleScreenAction;
+pub const SidePanelContext = side_panel.SidePanelContext;
+pub const TreeContext = tree_view.TreeContext;
+pub const TreeAction = tree_view.TreeAction;

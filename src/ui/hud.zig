@@ -1,6 +1,8 @@
 const rl = @import("raylib");
 const std = @import("std");
 const theme = @import("../theme.zig");
+const config = @import("../config.zig");
+const format = @import("../format.zig");
 const Resources = @import("../resources.zig").Resources;
 
 /// HUD system for displaying game information.
@@ -20,12 +22,31 @@ pub const Hud = struct {
     pub fn draw(self: @This(), resources: *const Resources, bees: usize, beehiveFactor: f32) void {
         _ = self;
 
-        const barWidth: f32 = 200;
-        const barHeight: f32 = 20;
         const barX: f32 = 10;
         const barY: f32 = 10;
 
-        // Draw honey storage bar background
+        if (config.honey_cap_enabled) {
+            drawHoneyBar(resources, barX, barY);
+        } else {
+            drawHoneyText(resources, barX, barY);
+        }
+
+        // Rate line
+        const rateText = rl.textFormat("+%.1f/s", .{resources.honeyPerSec});
+        rl.drawText(rateText, @intFromFloat(barX), 35, 16, theme.CatppuccinMocha.Color.green);
+
+        // Draw bee count and beehive factor below
+        rl.drawText(rl.textFormat("Bees: %d", .{bees}), 10, 57, 20, rl.Color.white);
+        rl.drawText(rl.textFormat("Honey Factor: %.1fx", .{beehiveFactor}), 10, 82, 16, theme.CatppuccinMocha.Color.yellow);
+
+        // Draw growth boost cooldown indicator
+        drawGrowthBoostIndicator(resources, barX, 105);
+    }
+
+    fn drawHoneyBar(resources: *const Resources, barX: f32, barY: f32) void {
+        const barWidth: f32 = 200;
+        const barHeight: f32 = 20;
+
         rl.drawRectangle(
             @intFromFloat(barX),
             @intFromFloat(barY),
@@ -34,7 +55,6 @@ pub const Hud = struct {
             theme.CatppuccinMocha.Color.surface0,
         );
 
-        // Draw honey fill - always yellow (Catppuccin Mocha Yellow)
         const fillPercent = resources.getCapacityPercent();
         const fillWidth = barWidth * fillPercent;
 
@@ -46,7 +66,6 @@ pub const Hud = struct {
             theme.CatppuccinMocha.Color.yellow,
         );
 
-        // Draw bar border
         rl.drawRectangleLines(
             @intFromFloat(barX),
             @intFromFloat(barY),
@@ -55,23 +74,25 @@ pub const Hud = struct {
             theme.CatppuccinMocha.Color.surface1,
         );
 
-        // Draw honey text on top of bar
-        const honeyText = rl.textFormat("%.0f / %.0f", .{ resources.honey, resources.honeyCapacity });
+        var hbuf: [32]u8 = undefined;
+        var cbuf: [32]u8 = undefined;
+        const hstr = format.formatShort(resources.honey, &hbuf);
+        const cstr = format.formatShort(resources.honeyCapacity, &cbuf);
+        const honeyText = rl.textFormat("%s / %s", .{ hstr.ptr, cstr.ptr });
         const textWidth = rl.measureText(honeyText, 16);
         const textX = @as(i32, @intFromFloat(barX + barWidth / 2)) - @divFloor(textWidth, 2);
         rl.drawText(honeyText, textX, @as(i32, @intFromFloat(barY + 2)), 16, rl.Color.white);
 
-        // Draw "FULL" warning if at capacity
         if (resources.isAtCapacity()) {
             rl.drawText("STORAGE FULL!", @as(i32, @intFromFloat(barX + barWidth + 10)), @as(i32, @intFromFloat(barY + 2)), 16, theme.CatppuccinMocha.Color.red);
         }
+    }
 
-        // Draw bee count and beehive factor below the bar
-        rl.drawText(rl.textFormat("Bees: %d", .{bees}), 10, 35, 20, rl.Color.white);
-        rl.drawText(rl.textFormat("Honey Factor: %.1fx", .{beehiveFactor}), 10, 58, 16, theme.CatppuccinMocha.Color.yellow);
-
-        // Draw growth boost cooldown indicator
-        drawGrowthBoostIndicator(resources, barX, 85);
+    fn drawHoneyText(resources: *const Resources, x: f32, y: f32) void {
+        var buf: [32]u8 = undefined;
+        const s = format.formatShort(resources.honey, &buf);
+        const honeyText = rl.textFormat("%s honey", .{s.ptr});
+        rl.drawText(honeyText, @intFromFloat(x), @intFromFloat(y), 20, theme.CatppuccinMocha.Color.yellow);
     }
 
     fn drawGrowthBoostIndicator(resources: *const Resources, x: f32, y: f32) void {

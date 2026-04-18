@@ -1,10 +1,16 @@
 const rl = @import("raylib");
 const std = @import("std");
+const config = @import("config.zig");
 
 pub const Resources = struct {
     honey: f32,
     honeyCapacity: f32,
     storageLevel: u32,
+
+    // Rolling honey/sec tracker (EMA over 1s windows)
+    honeyPerSec: f32,
+    honeyThisSecond: f32,
+    rateWindowTimer: f32,
 
     // Growth boost ability
     growthBoostCooldown: f32, // Current cooldown remaining
@@ -24,9 +30,12 @@ pub const Resources = struct {
 
     pub fn init() @This() {
         return .{
-            .honey = 100.0, // Start with some honey
+            .honey = config.starting_honey,
             .honeyCapacity = BASE_CAPACITY,
             .storageLevel = 1,
+            .honeyPerSec = 0,
+            .honeyThisSecond = 0,
+            .rateWindowTimer = 0,
             .growthBoostCooldown = 0,
             .growthBoostMaxCooldown = BASE_GROWTH_COOLDOWN,
             .growthBoostLevel = 1,
@@ -34,7 +43,22 @@ pub const Resources = struct {
     }
 
     pub fn addHoney(self: *@This(), amount: f32) void {
-        self.honey = @min(self.honey + amount, self.honeyCapacity);
+        if (config.honey_cap_enabled) {
+            self.honey = @min(self.honey + amount, self.honeyCapacity);
+        } else {
+            self.honey += amount;
+        }
+        self.honeyThisSecond += amount;
+    }
+
+    pub fn tickRate(self: *@This(), deltaTime: f32) void {
+        self.rateWindowTimer += deltaTime;
+        if (self.rateWindowTimer >= 1.0) {
+            // EMA smoothing: 60% new, 40% prior
+            self.honeyPerSec = self.honeyPerSec * 0.4 + self.honeyThisSecond * 0.6;
+            self.honeyThisSecond = 0;
+            self.rateWindowTimer = 0;
+        }
     }
 
     pub fn spendHoney(self: *@This(), amount: f32) bool {
@@ -62,10 +86,12 @@ pub const Resources = struct {
     }
 
     pub fn getCapacityPercent(self: *const @This()) f32 {
+        if (!config.honey_cap_enabled) return 0;
         return self.honey / self.honeyCapacity;
     }
 
     pub fn isAtCapacity(self: *const @This()) bool {
+        if (!config.honey_cap_enabled) return false;
         return self.honey >= self.honeyCapacity;
     }
 

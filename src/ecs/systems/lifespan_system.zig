@@ -1,4 +1,5 @@
 const World = @import("../world.zig").World;
+const config = @import("../../config.zig");
 
 pub fn update(world: *World, deltaTime: f32) !void {
     var iter = world.iterateLifespans();
@@ -9,6 +10,12 @@ pub fn update(world: *World, deltaTime: f32) !void {
             lifespan.totalTimeAlive += deltaTime;
 
             if (lifespan.isDead()) {
+                if (config.bees_immortal and world.getBeeAI(entity) != null) {
+                    lifespan.timeAlive = 0;
+                    lifespan.totalTimeAlive = 0;
+                    continue;
+                }
+
                 // Cleanup for dying BEE: decrement flower target count
                 if (world.getBeeAI(entity)) |beeAI| {
                     if (beeAI.targetLocked and beeAI.targetEntity != null) {
