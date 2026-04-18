@@ -60,6 +60,7 @@ pub const Game = struct {
     beehiveUpgradeCost: f32,
     cachedBeeCount: usize,
     cachedFlowerCount: usize,
+    cachedHoneyFactor: f32,
 
     metrics: Metrics,
 
@@ -158,6 +159,7 @@ pub const Game = struct {
             .beehiveUpgradeCost = 20.0,
             .cachedBeeCount = 0,
             .cachedFlowerCount = 0,
+            .cachedHoneyFactor = 1.0,
 
             .showTilePopup = false,
             .popupJustOpened = false,
@@ -385,46 +387,36 @@ pub const Game = struct {
 
         const deltaTime = rl.getFrameTime();
 
-        // Update growth boost cooldown
         self.resources.updateCooldown(deltaTime);
         self.resources.tickRate(deltaTime);
         self.labs.update(deltaTime);
 
+        // Cache honey factor once per frame (draw re-uses this — no double lookup).
+        self.cachedHoneyFactor = self.getBeehiveHoneyFactor();
+
         try lifespan_system.update(&self.world, deltaTime);
         try flower_growth_system.update(&self.world, deltaTime);
-        try bee_ai_system.update(&self.world, deltaTime, self.grid.offset, self.grid.scale, self.gridWidth, self.gridHeight, self.textures);
+
+        var frameHoneyGain: f32 = 0;
+        try bee_ai_system.update(.{
+            .world = &self.world,
+            .deltaTime = deltaTime,
+            .gridOffset = self.grid.offset,
+            .gridScale = self.grid.scale,
+            .gridWidth = self.gridWidth,
+            .gridHeight = self.gridHeight,
+            .texturesRef = self.textures,
+            .resources = &self.resources,
+            .labs = &self.labs,
+            .prestige = &self.prestige,
+            .honeyFactor = self.cachedHoneyFactor,
+            .frameHoneyGain = &frameHoneyGain,
+        });
         try flower_spawning_system.update(&self.world, deltaTime, self.grid.offset, self.grid.scale, self.gridWidth, self.gridHeight, self.textures);
         scale_sync_system.update(&self.world, self.grid.scale);
 
-        // Get beehive honey conversion factor
-        const honeyFactor = self.getBeehiveHoneyFactor();
-
-        // Get counts directly from HashMap sizes - O(1) instead of O(n) iteration
         self.cachedBeeCount = self.world.entityToBeeAI.count();
         self.cachedFlowerCount = self.world.entityToFlowerGrowth.count();
-
-        // Convert pollen to honey - iterate only pollenCollectors
-        // This is necessary for honey conversion but we've reduced per-entity work
-        var frameHoneyGain: f32 = 0;
-        var iter = self.world.entityToPollenCollector.iterator();
-        while (iter.next()) |entry| {
-            const entity = entry.key_ptr.*;
-            const index = entry.value_ptr.*;
-            const collector = &self.world.pollenCollectors.items[index];
-
-            if (collector.pollenCollected > 0) {
-                // Check if bee is not carrying pollen (has deposited)
-                if (self.world.getBeeAI(entity)) |beeAI| {
-                    if (!beeAI.carryingPollen) {
-                        const newHoney = collector.pollenCollected * honeyFactor * self.labs.honeyMultiplier() * self.prestige.globalMul();
-                        self.resources.addHoney(newHoney);
-                        frameHoneyGain += newHoney;
-                        self.prestige.trackHoney(newHoney);
-                        collector.pollenCollected = 0;
-                    }
-                }
-            }
-        }
 
         if (frameHoneyGain > 0) {
             const centerX: f32 = @floatFromInt((self.gridWidth - 1) / 2);
@@ -448,8 +440,8 @@ pub const Game = struct {
 
         self.floatingTexts.draw(self.grid.offset, self.grid.scale);
 
-        // Draw HUD
-        const honeyFactor = self.getBeehiveHoneyFactor();
+        // Draw HUD (reuses this frame's cached factor)
+        const honeyFactor = self.cachedHoneyFactor;
         self.hud.draw(&self.resources, self.cachedBeeCount, honeyFactor);
 
         self.drawLabsWidget();
@@ -694,6 +686,10 @@ pub const Game = struct {
         self.world.deinit();
         self.world = World.init(self.allocator);
 
+        // Module-level caches hold stale entity IDs across the rebuild.
+        bee_ai_system.resetCaches();
+        render_system.resetCaches();
+
         self.gridWidth = INITIAL_GRID_WIDTH;
         self.gridHeight = INITIAL_GRID_HEIGHT;
         self.grid.width = INITIAL_GRID_WIDTH;
@@ -750,6 +746,20 @@ pub const Game = struct {
             gp.x += 1.0;
             gp.y += 1.0;
         }
+
+        // Shift cached target coords on locked bees so they don't chase stale tiles.
+        var beeAiIt = self.world.entityToBeeAI.iterator();
+        while (beeAiIt.next()) |entry| {
+            const ai = &self.world.beeAIs.items[entry.value_ptr.*];
+            if (ai.targetLocked) {
+                ai.targetGridX += 1.0;
+                ai.targetGridY += 1.0;
+            }
+        }
+
+        // Cached beehive grid coords shifted — invalidate so caches refresh.
+        bee_ai_system.resetCaches();
+        render_system.resetCaches();
 
         // Shift bee pixel positions by the grid offset delta
         const offsetDelta = rl.Vector2{

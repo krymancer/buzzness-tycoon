@@ -7,6 +7,9 @@ const theme = @import("theme.zig");
 const LIFETIME: f32 = 1.2;
 const RISE_PX_PER_SEC: f32 = 40.0;
 const FONT_SIZE: i32 = 18;
+// Throttle: merge gains inside this window into the most-recent popup so a
+// steady honey flow doesn't spawn one popup per frame.
+const MERGE_WINDOW: f32 = 0.25;
 
 pub const FloatingText = struct {
     gridX: f32,
@@ -28,6 +31,13 @@ pub const Manager = struct {
     }
 
     pub fn spawn(self: *@This(), gridX: f32, gridY: f32, amount: f32) !void {
+        if (self.items.items.len > 0) {
+            const last = &self.items.items[self.items.items.len - 1];
+            if (last.elapsed < MERGE_WINDOW) {
+                last.amount += amount;
+                return;
+            }
+        }
         try self.items.append(self.allocator, .{
             .gridX = gridX,
             .gridY = gridY,
@@ -56,10 +66,13 @@ pub const Manager = struct {
             const yOffset = RISE_PX_PER_SEC * ft.elapsed;
             const alpha: u8 = @intFromFloat(@max(0.0, 255.0 * (1.0 - progress)));
 
-            var buf: [32]u8 = undefined;
-            const numStr = format.formatShort(ft.amount, &buf);
-            var lbuf: [40]u8 = undefined;
-            const label = std.fmt.bufPrintZ(&lbuf, "+{s}", .{numStr}) catch continue;
+            // Prefix '+' directly in the number buffer — one format call.
+            var buf: [40]u8 = undefined;
+            buf[0] = '+';
+            const numStr = format.formatShort(ft.amount, buf[1..]);
+            const labelLen = 1 + numStr.len;
+            buf[labelLen] = 0;
+            const label: [:0]const u8 = buf[0..labelLen :0];
 
             const textWidth = rl.measureText(label, FONT_SIZE);
             const textX = @as(i32, @intFromFloat(pos.x + tileW / 2.0)) - @divFloor(textWidth, 2);

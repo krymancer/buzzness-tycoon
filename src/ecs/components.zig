@@ -70,8 +70,12 @@ pub const BeeAI = struct {
     lastGridX: i32,
     lastGridY: i32,
     scatterTimer: f32,
-    searchCooldown: f32, // Cooldown before searching for flowers again
+    searchCooldown: f32,
     beeType: BeeType,
+    // Cached target grid coords — lets the stagger-skip path compute world pos
+    // without a HashMap lookup. Invalid when targetLocked == false.
+    targetGridX: f32,
+    targetGridY: f32,
 
     pub fn init() @This() {
         return initWithType(.worker);
@@ -90,6 +94,8 @@ pub const BeeAI = struct {
             .scatterTimer = 0,
             .searchCooldown = 0,
             .beeType = beeType,
+            .targetGridX = 0,
+            .targetGridY = 0,
         };
     }
 };

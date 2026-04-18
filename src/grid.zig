@@ -88,7 +88,9 @@ pub const Grid = struct {
     pub fn draw(self: @This()) void {
         const screenWidth: f32 = @floatFromInt(rl.getScreenWidth());
         const screenHeight: f32 = @floatFromInt(rl.getScreenHeight());
-        const margin: f32 = 64 * self.scale; // Tile size plus buffer
+        const margin: f32 = 64 * self.scale;
+
+        const hovered = if (self.debug) self.getHoveredTile() else null;
 
         for (0..self.width) |i| {
             for (0..self.height) |j| {
@@ -96,14 +98,14 @@ pub const Grid = struct {
                 const y: f32 = @floatFromInt(j);
                 const position = utils.isoToXY(x, y, self.tileWidth, self.tileHeight, self.offset.x, self.offset.y, self.scale);
 
-                // Frustum culling - skip tiles outside screen
                 if (position.x < -margin or position.x > screenWidth + margin or
                     position.y < -margin or position.y > screenHeight + margin)
                 {
                     continue;
                 }
 
-                const color = if (self.debug and self.isMouseHovering(x, y)) rl.Color.red else rl.Color.white;
+                const isHovered = if (hovered) |h| (h.x == @as(i32, @intCast(i)) and h.y == @as(i32, @intCast(j))) else false;
+                const color = if (isHovered) rl.Color.red else rl.Color.white;
                 rl.drawTextureEx(self.tileTexture, position, 0, self.scale, color);
             }
         }
@@ -114,17 +116,17 @@ pub const Grid = struct {
         return utils.isPointInIsometricTile(mousePosition.x, mousePosition.y, x, y, self.tileWidth, self.tileHeight, self.offset.x, self.offset.y, self.scale);
     }
 
-    /// Returns the grid coordinates of the tile the mouse is currently hovering over, or null if not on any tile
+    /// Returns the grid coordinates of the tile the mouse is currently hovering over, or null if off-grid.
+    /// Uses the inverse isometric transform — O(1) regardless of grid size.
     pub fn getHoveredTile(self: @This()) ?struct { x: i32, y: i32 } {
-        for (0..self.width) |i| {
-            for (0..self.height) |j| {
-                const x: f32 = @floatFromInt(i);
-                const y: f32 = @floatFromInt(j);
-                if (self.isMouseHovering(x, y)) {
-                    return .{ .x = @intCast(i), .y = @intCast(j) };
-                }
-            }
-        }
-        return null;
+        const mouse = rl.getMousePosition();
+        const iso = utils.xyToIso(mouse.x, mouse.y, self.tileWidth, self.tileHeight, self.offset.x, self.offset.y, self.scale);
+        const gi: i32 = @intFromFloat(@floor(iso.x));
+        const gj: i32 = @intFromFloat(@floor(iso.y));
+        if (gi < 0 or gj < 0 or gi >= @as(i32, @intCast(self.width)) or gj >= @as(i32, @intCast(self.height))) return null;
+        // Double-check with the precise diamond hit-test — the floor rounding can
+        // land just outside the tile diamond near edges.
+        if (!utils.isPointInIsometricTile(mouse.x, mouse.y, @floatFromInt(gi), @floatFromInt(gj), self.tileWidth, self.tileHeight, self.offset.x, self.offset.y, self.scale)) return null;
+        return .{ .x = gi, .y = gj };
     }
 };
