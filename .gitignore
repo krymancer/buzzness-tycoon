@@ -23,3 +23,8 @@ zig-cache/
 
 # Performance metrics logs
 logs/
+# Dev screenshot output (BT_SHOOT)
+bt_shot.png
+
+# Zig 0.16 local package cache
+zig-pkg/

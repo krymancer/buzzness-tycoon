@@ -27,13 +27,13 @@ pub fn build(b: *std.Build) void {
         }),
     });
 
-    exe.linkLibrary(raylib_artifact);
+    exe.root_module.linkLibrary(raylib_artifact);
     exe.root_module.addImport("raylib", raylib);
     exe.root_module.addImport("raygui", raygui);
     exe.root_module.addImport("sprites", sprites_module);
 
     // Add path to the sprites directory for @embedFile
-    exe.addIncludePath(b.path(".")); // Makes the project root accessible
+    exe.root_module.addIncludePath(b.path(".")); // Makes the project root accessible
 
     b.installArtifact(exe);
 
@@ -57,7 +57,7 @@ pub fn build(b: *std.Build) void {
         }),
     });
 
-    exe_check.linkLibrary(raylib_artifact);
+    exe_check.root_module.linkLibrary(raylib_artifact);
     exe_check.root_module.addImport("raylib", raylib);
     exe_check.root_module.addImport("raygui", raygui);
     exe_check.root_module.addImport("sprites", sprites_module);

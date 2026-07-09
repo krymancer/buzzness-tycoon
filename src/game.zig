@@ -16,6 +16,9 @@ const floating_text = @import("floating_text.zig");
 const upgrade_tree = @import("upgrade_tree.zig");
 const labs = @import("labs.zig");
 const prestige_mod = @import("prestige.zig");
+const Sky = @import("sky.zig").Sky;
+const Ambient = @import("ambient.zig").Ambient;
+const Audio = @import("audio.zig").Audio;
 
 const World = @import("ecs/world.zig").World;
 const components = @import("ecs/components.zig");
@@ -47,6 +50,9 @@ pub const Game = struct {
 
     textures: Textures,
     grid: Grid,
+    sky: Sky,
+    ambient: Ambient,
+    audio: Audio,
 
     world: World,
 
@@ -87,19 +93,35 @@ pub const Game = struct {
     state: GameState,
 
     allocator: std.mem.Allocator,
+    env: *std.process.Environ.Map,
 
-    pub fn init(allocator: std.mem.Allocator) !@This() {
-        const rand = std.crypto.random;
-        rl.setRandomSeed(rand.int(u32));
+    pub fn init(allocator: std.mem.Allocator, io: std.Io, env: *std.process.Environ.Map) !@This() {
+        // Seed raylib's RNG from the wall clock (std.crypto.random was removed in 0.16;
+        // time is now read through an Io clock).
+        const nowTs = std.Io.Clock.now(.real, io);
+        const seed: u96 = @bitCast(nowTs.nanoseconds);
+        rl.setRandomSeed(@truncate(seed));
 
-        const monitor = rl.getCurrentMonitor();
-        const screenWidth = rl.getMonitorWidth(monitor);
-        const screenHeight = rl.getMonitorHeight(monitor);
-
-        rl.initWindow(screenWidth, screenHeight, "Buzzness Tycoon");
+        // Monitor queries only work once GLFW is up, so open a default-size
+        // window first, then size it to the monitor. (Querying before
+        // initWindow returns 0 on raylib 6 → an 800x450 fallback window.)
+        rl.initWindow(1280, 720, "Buzzness Tycoon");
         rl.setExitKey(rl.KeyboardKey.null); // Disable default ESC closing the window
         rl.setWindowState(.{ .window_resizable = true });
-        rl.toggleFullscreen();
+        // Dev: BT_WINDOWED runs in a plain window (no fullscreen takeover) so
+        // the game can be launched/screenshotted without hijacking the desktop.
+        if (env.get("BT_WINDOWED") == null) {
+            const monitor = rl.getCurrentMonitor();
+            const mw = rl.getMonitorWidth(monitor);
+            const mh = rl.getMonitorHeight(monitor);
+            if (mw > 0 and mh > 0) rl.setWindowSize(mw, mh);
+            rl.toggleFullscreen();
+        } else {
+            rl.setWindowSize(1366, 820);
+        }
+        if (env.get("BT_PHASE")) |p| {
+            Sky.phaseOverride = std.fmt.parseFloat(f32, p) catch null;
+        }
         const windowIcon = try assets.loadImageFromMemory(assets.bee_png);
         rl.setWindowIcon(windowIcon);
 
@@ -140,11 +162,14 @@ pub const Game = struct {
 
             .textures = textures,
             .grid = grid,
+            .sky = Sky.init(),
+            .ambient = Ambient.init(),
+            .audio = Audio.init(allocator),
             .world = world,
 
             .resources = Resources.init(),
             .hud = ui.Hud.init(),
-            .metrics = Metrics.init(),
+            .metrics = Metrics.init(io),
             .floatingTexts = floating_text.Manager.init(allocator),
             .upgradeTree = upgrade_tree.State.init(allocator),
             .showTree = false,
@@ -171,7 +196,8 @@ pub const Game = struct {
             .isPaused = false,
             .shouldExit = false,
 
-            .state = .title_screen,
+            .state = if (env.get("BT_AUTOPLAY") != null) .playing else .title_screen,
+            .env = env,
 
             .width = width,
             .height = height,
@@ -188,6 +214,7 @@ pub const Game = struct {
         self.metrics.deinit();
         self.floatingTexts.deinit();
         self.upgradeTree.deinit();
+        self.audio.deinit();
         ui.title_screen.deinit();
 
         rl.closeWindow();
@@ -195,6 +222,14 @@ pub const Game = struct {
     }
 
     pub fn run(self: *@This()) !void {
+        // Dev: BT_SHOOT=N renders N frames, writes a screenshot, then exits.
+        const shootAt: ?u32 = blk: {
+            const v = self.env.get("BT_SHOOT") orelse break :blk null;
+            break :blk std.fmt.parseInt(u32, v, 10) catch null;
+        };
+        if (shootAt != null) rl.setTargetFPS(60);
+        var frame: u32 = 0;
+
         while (!rl.windowShouldClose() and !self.shouldExit) {
             self.handleCommonInput();
             switch (self.state) {
@@ -205,11 +240,23 @@ pub const Game = struct {
                     try self.draw();
                 },
             }
+
+            frame += 1;
+            if (shootAt) |n| {
+                if (frame >= n) {
+                    rl.takeScreenshot("bt_shot.png");
+                    self.shouldExit = true;
+                }
+            }
         }
     }
 
     /// Handle input common to all game states (fullscreen, window resize)
     fn handleCommonInput(self: *@This()) void {
+        // Keep the ambient audio bed looping in every state, and allow muting.
+        self.audio.update(rl.getFrameTime());
+        if (rl.isKeyPressed(rl.KeyboardKey.n)) self.audio.toggleMute();
+
         // Alt+Enter to toggle fullscreen
         if (rl.isKeyPressed(rl.KeyboardKey.enter) and rl.isKeyDown(rl.KeyboardKey.left_alt)) {
             const wasFullscreen = rl.isWindowFullscreen();
@@ -237,6 +284,12 @@ pub const Game = struct {
         defer rl.endDrawing();
 
         rl.clearBackground(theme.CatppuccinMocha.Color.base);
+
+        // Cozy animated sky behind the title, with a subtle darkening wash so
+        // the menu text stays readable.
+        self.sky.drawBackground(self.width, self.height);
+        self.sky.drawCelestial(self.width, self.height);
+        rl.drawRectangle(0, 0, @intFromFloat(self.width), @intFromFloat(self.height), rl.Color.init(20, 20, 40, 90));
 
         const action = ui.title_screen.draw(self.width, self.height);
         switch (action) {
@@ -422,8 +475,10 @@ pub const Game = struct {
             const centerX: f32 = @floatFromInt((self.gridWidth - 1) / 2);
             const centerY: f32 = @floatFromInt((self.gridHeight - 1) / 2);
             try self.floatingTexts.spawn(centerX, centerY, frameHoneyGain);
+            self.audio.playCollect();
         }
         self.floatingTexts.update(deltaTime);
+        self.ambient.update(deltaTime, self.width - ui.side_panel.PANEL_WIDTH, self.height);
 
         try self.world.processDestroyQueue();
     }
@@ -434,11 +489,23 @@ pub const Game = struct {
 
         rl.clearBackground(theme.CatppuccinMocha.Color.base);
 
-        self.grid.draw();
+        // Cozy animated sky behind everything.
+        self.sky.drawBackground(self.width, self.height);
 
-        try render_system.draw(&self.world, self.grid.offset, self.grid.scale);
+        self.grid.draw(self.sky.worldTint());
+
+        try render_system.draw(&self.world, self.grid.offset, self.grid.scale, self.sky.worldTint());
 
         self.floatingTexts.draw(self.grid.offset, self.grid.scale);
+
+        // Ambient day/night light wash + vignette over the whole meadow.
+        self.sky.drawAmbientOverlay(self.width, self.height);
+
+        // Sun/moon on top of the wash so they stay bright and crisp.
+        self.sky.drawCelestial(self.width, self.height);
+
+        // Floating pollen dust / fireflies over the light wash so they glow.
+        self.ambient.draw(self.sky.nightFactor());
 
         // Draw HUD (reuses this frame's cached factor)
         const honeyFactor = self.cachedHoneyFactor;

@@ -6,22 +6,24 @@ fn isLeapYear(year: u64) bool {
 }
 
 pub const Metrics = struct {
-    file: ?std.fs.File,
+    io: std.Io,
+    file: ?std.Io.File,
     frameCounter: u32,
     lastLogTime: f64,
 
     const LOG_INTERVAL_SECONDS: f64 = 1.0;
     const SPIKE_THRESHOLD_MS: f32 = 33.0;
 
-    pub fn init() @This() {
-        std.fs.cwd().makeDir("logs") catch |err| {
+    pub fn init(io: std.Io) @This() {
+        // Zig 0.16 threads an `Io` through file operations (the std I/O refactor).
+        std.Io.Dir.cwd().createDirPath(io, "logs") catch |err| {
             if (err != error.PathAlreadyExists) {
                 std.debug.print("Failed to create logs directory: {}\n", .{err});
-                return .{ .file = null, .frameCounter = 0, .lastLogTime = 0 };
+                return .{ .io = io, .file = null, .frameCounter = 0, .lastLogTime = 0 };
             }
         };
 
-        const timestamp = std.time.timestamp();
+        const timestamp: i64 = @intCast(@divTrunc(std.Io.Clock.now(.real, io).nanoseconds, std.time.ns_per_s));
         const epochSeconds: u64 = @intCast(timestamp);
         const epochSeconds2000: u64 = epochSeconds - 946684800;
 
@@ -60,20 +62,20 @@ pub const Metrics = struct {
             year, month, day, hours, minutes, seconds,
         }) catch "logs/metrics.csv";
 
-        const file = std.fs.cwd().createFile(filename, .{}) catch |err| {
+        const file = std.Io.Dir.cwd().createFile(io, filename, .{}) catch |err| {
             std.debug.print("Failed to create metrics file: {}\n", .{err});
-            return .{ .file = null, .frameCounter = 0, .lastLogTime = 0 };
+            return .{ .io = io, .file = null, .frameCounter = 0, .lastLogTime = 0 };
         };
 
-        _ = file.write("timestamp_ms,fps,frame_time_ms,bee_count,flower_count,is_spike\n") catch {};
+        file.writeStreamingAll(io, "timestamp_ms,fps,frame_time_ms,bee_count,flower_count,is_spike\n") catch {};
         std.debug.print("Metrics logging to: {s}\n", .{filename});
 
-        return .{ .file = file, .frameCounter = 0, .lastLogTime = 0 };
+        return .{ .io = io, .file = file, .frameCounter = 0, .lastLogTime = 0 };
     }
 
     pub fn deinit(self: *@This()) void {
         if (self.file) |file| {
-            file.close();
+            file.close(self.io);
         }
     }
 
@@ -87,14 +89,14 @@ pub const Metrics = struct {
         const isSpike = frameTimeMs >= SPIKE_THRESHOLD_MS;
 
         if (timeSinceLastLog >= LOG_INTERVAL_SECONDS or isSpike) {
-            const timestamp = std.time.milliTimestamp();
+            const timestamp: i64 = @intCast(@divTrunc(std.Io.Clock.now(.real, self.io).nanoseconds, std.time.ns_per_ms));
 
             var buf: [128]u8 = undefined;
             const line = std.fmt.bufPrint(&buf, "{d},{d:.1},{d:.2},{d},{d},{}\n", .{
                 timestamp, fps, frameTimeMs, beeCount, flowerCount, isSpike,
             }) catch return;
 
-            _ = self.file.?.write(line) catch {};
+            self.file.?.writeStreamingAll(self.io, line) catch {};
             self.lastLogTime = currentTime;
         }
     }

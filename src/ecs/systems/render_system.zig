@@ -54,9 +54,11 @@ pub fn resetCaches() void {
     beeRenderCount = 0;
 }
 
-pub fn draw(world: *World, gridOffset: rl.Vector2, gridScale: f32) !void {
+pub fn draw(world: *World, gridOffset: rl.Vector2, gridScale: f32, worldTint: rl.Color) !void {
     cachedScreenWidth = @floatFromInt(rl.getScreenWidth());
     cachedScreenHeight = @floatFromInt(rl.getScreenHeight());
+
+    const time = @as(f32, @floatCast(rl.getTime()));
 
     if (cachedBeehive == null) {
         var beehiveIter = world.entityToBeehive.keyIterator();
@@ -78,10 +80,11 @@ pub fn draw(world: *World, gridOffset: rl.Vector2, gridScale: f32) !void {
     }
 
     if (cachedBeehive) |bh| {
-        drawBeehiveAtGridPosition(bh.texture, bh.gridX, bh.gridY, bh.width, bh.height, bh.scale, gridOffset, gridScale);
+        // Soft ground shadow + a gentle "breathing" pulse so the hive feels alive.
+        drawGroundShadow(bh.gridX, bh.gridY, gridOffset, gridScale, 0.6, 0.28);
+        const pulse = bh.scale * (1.0 + 0.03 * @sin(time * 1.4));
+        drawBeehiveAtGridPosition(bh.texture, bh.gridX, bh.gridY, bh.width, bh.height, pulse, gridOffset, gridScale, worldTint);
     }
-
-    const time = @as(f32, @floatCast(rl.getTime()));
 
     var flowerList: [512]FlowerRenderData = undefined;
     var flowerCount: usize = 0;
@@ -115,11 +118,23 @@ pub fn draw(world: *World, gridOffset: rl.Vector2, gridScale: f32) !void {
             if (world.getSprite(flowerData.entity)) |sprite| {
                 const source = rl.Rectangle.init(growth.state * sprite.width, 0, sprite.width, sprite.height);
 
+                // Grown flowers are taller → they sway more. Per-flower phase from
+                // grid position keeps the meadow from swaying in lockstep.
+                const growthFrac = growth.state / 4.0;
+                const phase = flowerData.gridX * 1.7 + flowerData.gridY * 0.9;
+                const sway = @sin(time * 0.9 + phase) * 2.6 * growthFrac;
+
+                // Ground shadow, scaled with how grown the flower is.
+                drawGroundShadow(flowerData.gridX, flowerData.gridY, gridOffset, gridScale, 0.34 + 0.14 * growthFrac, 0.22);
+
                 if (growth.state == 4 and growth.hasPollen) {
-                    drawSpriteAtGridPosition(sprite.texture, flowerData.gridX, flowerData.gridY, source, sprite.scale + 0.1, theme.CatppuccinMocha.Color.pollenGlow, gridOffset, gridScale);
+                    // Pollen glow breathes and stays bright (untinted) so ready
+                    // flowers pop, even at night.
+                    const glowPulse = 0.1 + 0.05 * @sin(time * 3.0 + phase);
+                    drawSpriteAtGridPosition(sprite.texture, flowerData.gridX, flowerData.gridY, source, sprite.scale + glowPulse, theme.CatppuccinMocha.Color.pollenGlow, gridOffset, gridScale, sway);
                 }
 
-                drawSpriteAtGridPosition(sprite.texture, flowerData.gridX, flowerData.gridY, source, sprite.scale, rl.Color.white, gridOffset, gridScale);
+                drawSpriteAtGridPosition(sprite.texture, flowerData.gridX, flowerData.gridY, source, sprite.scale, worldTint, gridOffset, gridScale, sway);
 
                 if (flowerData.isDying) {
                     drawRebirthBubble(flowerData.gridX, flowerData.gridY, gridOffset, gridScale, time);
@@ -143,10 +158,44 @@ pub fn draw(world: *World, gridOffset: rl.Vector2, gridScale: f32) !void {
         const pollenColor = theme.CatppuccinMocha.Color.yellow;
         for (0..beeRenderCount) |i| {
             const bee = beeRenderList[i];
-            const color = if (bee.carryingPollen) pollenColor else bee.color;
-            rl.drawTextureEx(texture, rl.Vector2.init(bee.x, bee.y), 0, bee.scale, color);
+            const phase = @as(f32, @floatFromInt(i)) * 0.7;
+
+            // Slow float bob + fast wing "buzz" scale flutter = alive, cozy bees.
+            const bob = @sin(time * 2.0 + phase) * 2.2 * bee.scale;
+            const buzz = 1.0 + 0.06 * @sin(time * 26.0 + phase);
+            const drawScale = bee.scale * buzz;
+            const cx = bee.x + 16 * bee.scale;
+
+            // Ground shadow stays near the resting baseline; it shrinks and fades
+            // as the bee floats higher, selling the vertical motion.
+            const lift = std.math.clamp(-bob / (3.0 * bee.scale), -1.0, 1.0);
+            const shadowScale = 1.0 - 0.25 * lift;
+            drawEllipseSoft(cx, bee.y + 26 * bee.scale, 8.5 * bee.scale * shadowScale, 3.2 * bee.scale * shadowScale, @intFromFloat(60 * (1.0 - 0.35 * lift)));
+
+            // Pollen-carriers get a warm glow so laden bees are easy to track.
+            if (bee.carryingPollen) {
+                rl.drawCircleGradient(rl.Vector2.init(cx, bee.y + bob + 14 * bee.scale), 16 * bee.scale, rl.Color.init(255, 226, 120, 90), rl.Color.init(255, 226, 120, 0));
+            }
+
+            const base = if (bee.carryingPollen) pollenColor else bee.color;
+            const color = rl.colorTint(base, worldTint);
+            rl.drawTextureEx(texture, rl.Vector2.init(bee.x, bee.y + bob), 0, drawScale, color);
         }
     }
+}
+
+/// Soft translucent ground shadow at an isometric grid cell's surface centre.
+fn drawGroundShadow(gridX: f32, gridY: f32, gridOffset: rl.Vector2, gridScale: f32, radiusScale: f32, alphaScale: f32) void {
+    const tilePos = utils.isoToXY(gridX, gridY, 32, 32, gridOffset.x, gridOffset.y, gridScale);
+    const cx = tilePos.x + 16 * gridScale;
+    const cy = tilePos.y + 8 * gridScale;
+    const rx = 26 * radiusScale * (gridScale / 3.0);
+    const ry = rx * 0.5;
+    drawEllipseSoft(cx, cy, rx, ry, @intFromFloat(alphaScale * 255));
+}
+
+fn drawEllipseSoft(cx: f32, cy: f32, rx: f32, ry: f32, alpha: u8) void {
+    rl.drawEllipse(@intFromFloat(cx), @intFromFloat(cy), rx, ry, rl.Color.init(0, 0, 0, alpha));
 }
 
 fn buildBeeRenderList(world: *World) void {
@@ -183,20 +232,25 @@ fn buildBeeRenderList(world: *World) void {
     }
 }
 
-fn drawSpriteAtGridPosition(texture: rl.Texture, i: f32, j: f32, sourceRect: rl.Rectangle, scale: f32, color: rl.Color, gridOffset: rl.Vector2, gridScale: f32) void {
+fn drawSpriteAtGridPosition(texture: rl.Texture, i: f32, j: f32, sourceRect: rl.Rectangle, scale: f32, color: rl.Color, gridOffset: rl.Vector2, gridScale: f32, swayDeg: f32) void {
     const tilePosition = utils.isoToXY(i, j, 32, 32, gridOffset.x, gridOffset.y, gridScale);
     const effectiveScale = scale * (gridScale / 3.0);
     const tileWidth = 32 * gridScale;
     const tileHeight = 32 * gridScale;
 
-    const centeredX = tilePosition.x + (tileWidth - sourceRect.width * effectiveScale) / 2.0;
-    const centeredY = tilePosition.y + (tileHeight * 0.25) - (sourceRect.height * effectiveScale);
-    const destination = rl.Rectangle.init(centeredX, centeredY, sourceRect.width * effectiveScale, sourceRect.height * effectiveScale);
+    const destW = sourceRect.width * effectiveScale;
+    const destH = sourceRect.height * effectiveScale;
+    const centeredX = tilePosition.x + (tileWidth - destW) / 2.0;
+    const centeredY = tilePosition.y + (tileHeight * 0.25) - destH;
 
-    rl.drawTexturePro(texture, sourceRect, destination, rl.Vector2.init(0, 0), 0, color);
+    // Pivot the sway around the flower's base (bottom-centre) so it bends like a
+    // stem in the breeze rather than sliding.
+    const destination = rl.Rectangle.init(centeredX + destW / 2.0, centeredY + destH, destW, destH);
+    const origin = rl.Vector2.init(destW / 2.0, destH);
+    rl.drawTexturePro(texture, sourceRect, destination, origin, swayDeg, color);
 }
 
-fn drawBeehiveAtGridPosition(texture: rl.Texture, i: f32, j: f32, width: f32, height: f32, scale: f32, gridOffset: rl.Vector2, gridScale: f32) void {
+fn drawBeehiveAtGridPosition(texture: rl.Texture, i: f32, j: f32, width: f32, height: f32, scale: f32, gridOffset: rl.Vector2, gridScale: f32, tint: rl.Color) void {
     const tilePosition = utils.isoToXY(i, j, 32, 32, gridOffset.x, gridOffset.y, gridScale);
     const effectiveScale = scale * (gridScale / 3.0);
     const tileWidth = 32 * gridScale;
@@ -207,7 +261,7 @@ fn drawBeehiveAtGridPosition(texture: rl.Texture, i: f32, j: f32, width: f32, he
     const source = rl.Rectangle.init(0, 0, width, height);
     const destination = rl.Rectangle.init(centeredX, centeredY, width * effectiveScale, height * effectiveScale);
 
-    rl.drawTexturePro(texture, source, destination, rl.Vector2.init(0, 0), 0, rl.Color.white);
+    rl.drawTexturePro(texture, source, destination, rl.Vector2.init(0, 0), 0, tint);
 }
 
 fn drawRebirthBubble(gridX: f32, gridY: f32, gridOffset: rl.Vector2, gridScale: f32, time: f32) void {
