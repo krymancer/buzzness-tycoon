@@ -23,7 +23,7 @@ pub const Manager = struct {
     allocator: std.mem.Allocator,
 
     pub fn init(allocator: std.mem.Allocator) @This() {
-        return .{ .items = .{}, .allocator = allocator };
+        return .{ .items = .empty, .allocator = allocator };
     }
 
     pub fn deinit(self: *@This()) void {

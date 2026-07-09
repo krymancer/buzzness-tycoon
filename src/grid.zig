@@ -85,7 +85,7 @@ pub const Grid = struct {
         rl.unloadTexture(self.tileTexture);
     }
 
-    pub fn draw(self: @This()) void {
+    pub fn draw(self: @This(), tint: rl.Color) void {
         const screenWidth: f32 = @floatFromInt(rl.getScreenWidth());
         const screenHeight: f32 = @floatFromInt(rl.getScreenHeight());
         const margin: f32 = 64 * self.scale;
@@ -105,8 +105,8 @@ pub const Grid = struct {
                 }
 
                 const isHovered = if (hovered) |h| (h.x == @as(i32, @intCast(i)) and h.y == @as(i32, @intCast(j))) else false;
-                const color = if (isHovered) rl.Color.red else rl.Color.white;
-                rl.drawTextureEx(self.tileTexture, position, 0, self.scale, color);
+                const base = if (isHovered) rl.Color.red else rl.Color.white;
+                rl.drawTextureEx(self.tileTexture, position, 0, self.scale, rl.colorTint(base, tint));
             }
         }
     }
