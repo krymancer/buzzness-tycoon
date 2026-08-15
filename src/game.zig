@@ -18,7 +18,11 @@ const labs = @import("labs.zig");
 const prestige_mod = @import("prestige.zig");
 const Sky = @import("sky.zig").Sky;
 const Ambient = @import("ambient.zig").Ambient;
+const clock = @import("clock.zig");
 const Audio = @import("audio.zig").Audio;
+const text = @import("text.zig");
+const locale = @import("localization.zig");
+const save = @import("save.zig");
 
 const World = @import("ecs/world.zig").World;
 const components = @import("ecs/components.zig");
@@ -93,9 +97,13 @@ pub const Game = struct {
     state: GameState,
 
     allocator: std.mem.Allocator,
+    io: std.Io,
     env: *std.process.Environ.Map,
+    savePath: []u8,
+    autosaveTimer: f32,
 
     pub fn init(allocator: std.mem.Allocator, io: std.Io, env: *std.process.Environ.Map) !@This() {
+        locale.detectFromEnvironment(env);
         // Seed raylib's RNG from the wall clock (std.crypto.random was removed in 0.16;
         // time is now read through an Io clock).
         const nowTs = std.Io.Clock.now(.real, io);
@@ -117,13 +125,32 @@ pub const Game = struct {
             if (mw > 0 and mh > 0) rl.setWindowSize(mw, mh);
             rl.toggleFullscreen();
         } else {
-            rl.setWindowSize(1366, 820);
+            // Dev: BT_W/BT_H override the windowed size (e.g. 1920x1080 for
+            // store screenshots); default to the handy 1366x820 work size.
+            // When overridden we drop the WM decorations and pin to (0,0) so the
+            // window can occupy the full monitor height without a title bar
+            // clamping it (needed for pixel-exact 16:9 captures).
+            const hasSize = env.get("BT_W") != null or env.get("BT_H") != null;
+            const sw = if (env.get("BT_W")) |s| (std.fmt.parseInt(i32, s, 10) catch 1366) else 1366;
+            const sh = if (env.get("BT_H")) |s| (std.fmt.parseInt(i32, s, 10) catch 820) else 820;
+            if (hasSize) rl.setWindowState(.{ .window_undecorated = true });
+            rl.setWindowSize(sw, sh);
+            if (hasSize) rl.setWindowPosition(0, 0);
         }
         if (env.get("BT_PHASE")) |p| {
             Sky.phaseOverride = std.fmt.parseFloat(f32, p) catch null;
         }
+        if (env.get("BT_DAYLEN")) |d| {
+            Sky.dayLengthOverride = std.fmt.parseFloat(f32, d) catch null;
+        }
+        // Capture mode drives the clock at a fixed 30fps step so a slow PNG
+        // dump still yields smooth, real-time-paced video.
+        if (env.get("BT_CAPTURE") != null) clock.fixedDt = 1.0 / 30.0;
         const windowIcon = try assets.loadImageFromMemory(assets.bee_png);
         rl.setWindowIcon(windowIcon);
+
+        // Load the shared UI font (needs the GL context from initWindow).
+        text.load();
 
         const width: f32 = @floatFromInt(rl.getScreenWidth());
         const height: f32 = @floatFromInt(rl.getScreenHeight());
@@ -152,12 +179,16 @@ pub const Game = struct {
         }
 
         // Spawn initial bees
-        for (0..5) |_| {
+        for (0..8) |_| {
             _ = try spawners.spawnBee(&world, &grid, &textures);
         }
 
-        return .{
+        const savePath = try save.path(allocator, env);
+        errdefer allocator.free(savePath);
+
+        var game: @This() = .{
             .allocator = allocator,
+            .io = io,
             .windowIcon = windowIcon,
 
             .textures = textures,
@@ -198,12 +229,20 @@ pub const Game = struct {
 
             .state = if (env.get("BT_AUTOPLAY") != null) .playing else .title_screen,
             .env = env,
+            .savePath = savePath,
+            .autosaveTimer = 0,
 
             .width = width,
             .height = height,
             .gridWidth = INITIAL_GRID_WIDTH,
             .gridHeight = INITIAL_GRID_HEIGHT,
         };
+
+        game.loadProgress() catch |err| switch (err) {
+            error.FileNotFound => {},
+            else => std.debug.print("Could not load save '{s}': {}\n", .{ savePath, err }),
+        };
+        return game;
     }
 
     pub fn deinit(self: *@This()) void {
@@ -215,6 +254,8 @@ pub const Game = struct {
         self.floatingTexts.deinit();
         self.upgradeTree.deinit();
         self.audio.deinit();
+        self.allocator.free(self.savePath);
+        text.unload();
         ui.title_screen.deinit();
 
         rl.closeWindow();
@@ -222,12 +263,20 @@ pub const Game = struct {
     }
 
     pub fn run(self: *@This()) !void {
+        defer self.saveProgress() catch |err| std.debug.print("Could not save progress: {}\n", .{err});
         // Dev: BT_SHOOT=N renders N frames, writes a screenshot, then exits.
         const shootAt: ?u32 = blk: {
             const v = self.env.get("BT_SHOOT") orelse break :blk null;
             break :blk std.fmt.parseInt(u32, v, 10) catch null;
         };
+        // Dev/trailer: BT_CAPTURE=N renders N frames at 30fps, dumping each to
+        // steam/art/frames/cap_XXXXX.png (assembled into a video by ffmpeg).
+        const captureN: ?u32 = blk: {
+            const v = self.env.get("BT_CAPTURE") orelse break :blk null;
+            break :blk std.fmt.parseInt(u32, v, 10) catch null;
+        };
         if (shootAt != null) rl.setTargetFPS(60);
+        if (captureN != null) rl.setTargetFPS(30);
         var frame: u32 = 0;
 
         while (!rl.windowShouldClose() and !self.shouldExit) {
@@ -242,6 +291,13 @@ pub const Game = struct {
             }
 
             frame += 1;
+            clock.advance();
+            if (captureN) |n| {
+                var buf: [96]u8 = undefined;
+                const path = std.fmt.bufPrintZ(&buf, "steam/art/frames/cap_{d:0>5}.png", .{frame}) catch unreachable;
+                rl.takeScreenshot(path);
+                if (frame >= n) self.shouldExit = true;
+            }
             if (shootAt) |n| {
                 if (frame >= n) {
                     rl.takeScreenshot("bt_shot.png");
@@ -254,7 +310,7 @@ pub const Game = struct {
     /// Handle input common to all game states (fullscreen, window resize)
     fn handleCommonInput(self: *@This()) void {
         // Keep the ambient audio bed looping in every state, and allow muting.
-        self.audio.update(rl.getFrameTime());
+        self.audio.update(clock.frameTime());
         if (rl.isKeyPressed(rl.KeyboardKey.n)) self.audio.toggleMute();
 
         // Alt+Enter to toggle fullscreen
@@ -295,6 +351,7 @@ pub const Game = struct {
         switch (action) {
             .play => self.state = .playing,
             .quit => self.shouldExit = true,
+            .toggle_language => locale.toggle(),
             .none => {},
         }
     }
@@ -338,6 +395,7 @@ pub const Game = struct {
             } else {
                 self.showPauseMenu = true;
                 self.isPaused = true;
+                self.saveProgress() catch |err| std.debug.print("Could not save progress: {}\n", .{err});
                 return;
             }
         }
@@ -392,7 +450,9 @@ pub const Game = struct {
         const dragDistance = @sqrt((mousePos.x - self.clickStartPos.x) * (mousePos.x - self.clickStartPos.x) +
             (mousePos.y - self.clickStartPos.y) * (mousePos.y - self.clickStartPos.y));
 
-        if (dragDistance >= 5.0) return;
+        // Generous threshold so a small hand-wobble during a click still counts
+        // as a click, not a camera drag.
+        if (dragDistance >= 12.0) return;
 
         // Check if we clicked on a rebirth bubble
         var flowerIter = self.world.iterateFlowers();
@@ -438,7 +498,13 @@ pub const Game = struct {
             return;
         }
 
-        const deltaTime = rl.getFrameTime();
+        const deltaTime = clock.frameTime();
+
+        self.autosaveTimer += deltaTime;
+        if (self.autosaveTimer >= 10.0) {
+            self.saveProgress() catch |err| std.debug.print("Could not autosave progress: {}\n", .{err});
+            self.autosaveTimer = 0;
+        }
 
         self.resources.updateCooldown(deltaTime);
         self.resources.tickRate(deltaTime);
@@ -559,12 +625,13 @@ pub const Game = struct {
             }
         }
 
-        const fpsX = @as(i32, @intFromFloat(self.width - ui.side_panel.PANEL_WIDTH - 100));
-        rl.drawFPS(fpsX, 10);
-
-        // Draw frame time
-        const frameTime = rl.getFrameTime() * 1000.0;
-        rl.drawText(rl.textFormat("%.2f ms", .{frameTime}), fpsX, 30, 20, rl.Color.white);
+        // Dev FPS/frametime readout. BT_HIDE_DEBUG suppresses it for clean
+        // store screenshots. (frameTime is still computed below for metrics.)
+        if (self.env.get("BT_HIDE_DEBUG") == null) {
+            const fpsX = @as(i32, @intFromFloat(self.width - ui.side_panel.PANEL_WIDTH - 100));
+            rl.drawFPS(fpsX, 10);
+            text.draw(rl.textFormat("%.2f ms", .{rl.getFrameTime() * 1000.0}), fpsX, 30, 20, rl.Color.white);
+        }
 
         // Draw tile popup
         if (self.showTilePopup) {
@@ -603,13 +670,14 @@ pub const Game = struct {
                 .exit_game => {
                     self.shouldExit = true;
                 },
+                .toggle_language => locale.toggle(),
                 .none => {},
             }
         }
 
         // Log metrics
         const fps: f32 = @floatFromInt(rl.getFPS());
-        self.metrics.log(fps, frameTime, self.cachedBeeCount, self.cachedFlowerCount);
+        self.metrics.log(fps, rl.getFrameTime() * 1000.0, self.cachedBeeCount, self.cachedFlowerCount);
     }
 
     fn createActionHandler(self: *@This()) actions.ActionHandler {
@@ -675,26 +743,26 @@ pub const Game = struct {
 
         var y: i32 = 130;
         if (auraOn) {
-            rl.drawText(rl.textFormat("Aura: x%.2f", .{self.labs.auraMul}), 10, y, 14, theme.CatppuccinMocha.Color.mauve);
-            y += 18;
+            text.draw(rl.textFormat("Aura: x%.2f", .{self.labs.auraMul}), 10, y, 18, theme.CatppuccinMocha.Color.mauve);
+            y += 23;
         }
         if (burstUnlocked) {
             const txt = if (self.labs.burstRemaining > 0)
-                rl.textFormat("[B] Burst: ACTIVE %.1fs", .{self.labs.burstRemaining})
+                rl.textFormat(locale.tr("[B] Burst: ACTIVE %.1fs", "[B] Explosão: ATIVA %.1fs"), .{self.labs.burstRemaining})
             else if (self.labs.burstCooldown > 0)
-                rl.textFormat("[B] Burst: %.1fs", .{self.labs.burstCooldown})
+                rl.textFormat(locale.tr("[B] Burst: %.1fs", "[B] Explosão: %.1fs"), .{self.labs.burstCooldown})
             else
-                rl.textFormat("[B] Burst: READY", .{});
-            rl.drawText(txt, 10, y, 14, theme.CatppuccinMocha.Color.red);
-            y += 18;
+                rl.textFormat(locale.tr("[B] Burst: READY", "[B] Explosão: PRONTA"), .{});
+            text.draw(txt, 10, y, 18, theme.CatppuccinMocha.Color.red);
+            y += 23;
         }
         if (bloomUnlocked) {
             const txt = if (self.labs.bloomCooldown > 0)
-                rl.textFormat("[M] Bloom: %.1fs", .{self.labs.bloomCooldown})
+                rl.textFormat(locale.tr("[M] Bloom: %.1fs", "[M] Florescer: %.1fs"), .{self.labs.bloomCooldown})
             else
-                rl.textFormat("[M] Bloom: READY", .{});
-            rl.drawText(txt, 10, y, 14, theme.CatppuccinMocha.Color.pink);
-            y += 18;
+                rl.textFormat(locale.tr("[M] Bloom: READY", "[M] Florescer: PRONTO"), .{});
+            text.draw(txt, 10, y, 18, theme.CatppuccinMocha.Color.pink);
+            y += 23;
         }
     }
 
@@ -702,7 +770,7 @@ pub const Game = struct {
         const rg = @import("raygui");
         rl.drawRectangle(0, 0, @intFromFloat(self.width), @intFromFloat(self.height), theme.CatppuccinMocha.Color.modalOverlay);
 
-        const popupW: f32 = 420;
+        const popupW: f32 = 520;
         const popupH: f32 = 260;
         const popupX: f32 = (self.width - popupW) / 2;
         const popupY: f32 = (self.height - popupH) / 2;
@@ -710,36 +778,36 @@ pub const Game = struct {
         rl.drawRectangleRounded(rl.Rectangle.init(popupX, popupY, popupW, popupH), 0.05, 10, theme.CatppuccinMocha.Color.surface0);
         rl.drawRectangleRoundedLines(rl.Rectangle.init(popupX, popupY, popupW, popupH), 0.05, 10, theme.CatppuccinMocha.Color.mauve);
 
-        const title = "Prestige";
-        const titleX = @as(i32, @intFromFloat(popupX + popupW / 2)) - @divFloor(rl.measureText(title, 28), 2);
-        rl.drawText(title, titleX, @as(i32, @intFromFloat(popupY + 16)), 28, theme.CatppuccinMocha.Color.mauve);
+        const title = locale.tr("Prestige", "Prestígio");
+        const titleX = @as(i32, @intFromFloat(popupX + popupW / 2)) - @divFloor(text.measure(title, 28), 2);
+        text.draw(title, titleX, @as(i32, @intFromFloat(popupY + 16)), 28, theme.CatppuccinMocha.Color.mauve);
 
         const gain = self.prestige.gainFromReset();
         const newTotal = self.prestige.royalJelly + gain;
         const newMul = 1.0 + 0.1 * @as(f32, @floatFromInt(newTotal));
 
-        const line1 = rl.textFormat("This run: %.0f honey", .{self.prestige.thisRunHoney});
-        rl.drawText(line1, @as(i32, @intFromFloat(popupX + 24)), @as(i32, @intFromFloat(popupY + 60)), 16, theme.CatppuccinMocha.Color.text);
+        const line1 = rl.textFormat(locale.tr("This run: %.0f honey", "Nesta partida: %.0f mel"), .{self.prestige.thisRunHoney});
+        text.draw(line1, @as(i32, @intFromFloat(popupX + 24)), @as(i32, @intFromFloat(popupY + 60)), 16, theme.CatppuccinMocha.Color.text);
 
-        const line2 = rl.textFormat("Royal Jelly gained: +%d", .{gain});
-        rl.drawText(line2, @as(i32, @intFromFloat(popupX + 24)), @as(i32, @intFromFloat(popupY + 88)), 16, theme.CatppuccinMocha.Color.pink);
+        const line2 = rl.textFormat(locale.tr("Royal Jelly gained: +%d", "Geleia Real recebida: +%d"), .{gain});
+        text.draw(line2, @as(i32, @intFromFloat(popupX + 24)), @as(i32, @intFromFloat(popupY + 88)), 16, theme.CatppuccinMocha.Color.pink);
 
-        const line3 = rl.textFormat("New multiplier: x%.2f  (was x%.2f)", .{ newMul, self.prestige.globalMul() });
-        rl.drawText(line3, @as(i32, @intFromFloat(popupX + 24)), @as(i32, @intFromFloat(popupY + 116)), 16, theme.CatppuccinMocha.Color.yellow);
+        const line3 = rl.textFormat(locale.tr("New multiplier: x%.2f  (was x%.2f)", "Novo multiplicador: x%.2f  (antes x%.2f)"), .{ newMul, self.prestige.globalMul() });
+        text.draw(line3, @as(i32, @intFromFloat(popupX + 24)), @as(i32, @intFromFloat(popupY + 116)), 16, theme.CatppuccinMocha.Color.yellow);
 
-        const warn = "Resets honey, tree, labs, grid, bees.";
-        rl.drawText(warn, @as(i32, @intFromFloat(popupX + 24)), @as(i32, @intFromFloat(popupY + 150)), 14, theme.CatppuccinMocha.Color.red);
+        const warn = locale.tr("Resets honey, tree, labs, grid, bees.", "Reinicia mel, árvore, labs, grade e abelhas.");
+        text.draw(warn, @as(i32, @intFromFloat(popupX + 24)), @as(i32, @intFromFloat(popupY + 150)), 16, theme.CatppuccinMocha.Color.red);
 
         const btnW: f32 = 160;
         const btnH: f32 = 40;
         const btnY = popupY + popupH - btnH - 16;
 
-        if (rg.button(rl.Rectangle.init(popupX + 24, btnY, btnW, btnH), "Cancel")) {
+        if (rg.button(rl.Rectangle.init(popupX + 24, btnY, btnW, btnH), locale.tr("Cancel", "Cancelar"))) {
             self.showPrestigeDialog = false;
         }
         const confirmRect = rl.Rectangle.init(popupX + popupW - btnW - 24, btnY, btnW, btnH);
         if (gain == 0) rg.setState(@intFromEnum(rg.State.disabled));
-        if (rg.button(confirmRect, "Confirm") and gain > 0) {
+        if (rg.button(confirmRect, locale.tr("Confirm", "Confirmar")) and gain > 0) {
             try self.doPrestige(gain);
             self.showPrestigeDialog = false;
         }
@@ -772,7 +840,7 @@ pub const Game = struct {
                 }
             }
         }
-        for (0..5) |_| {
+        for (0..8) |_| {
             _ = try spawners.spawnBee(&self.world, &self.grid, &self.textures);
         }
 
@@ -879,7 +947,7 @@ pub const Game = struct {
             },
             .storage_add => self.resources.honeyCapacity += node.value,
             .growth_cd_sub => self.resources.growthBoostMaxCooldown = @max(2.0, self.resources.growthBoostMaxCooldown - node.value),
-            .bee_unlock_swift, .bee_unlock_efficient, .bee_unlock_gardener => {},
+            .bee_unlock_worker, .bee_unlock_swift, .bee_unlock_efficient, .bee_unlock_gardener => {},
             .grid_expand => try self.expandGrid(),
             .lab_aura => self.labs.auraMul = labs.AURA_MUL,
             .lab_burst, .lab_bloom => {}, // unlock only, activation via hotkey
@@ -887,5 +955,189 @@ pub const Game = struct {
         }
 
         try self.upgradeTree.markPurchased(nodeId);
+    }
+
+    fn saveProgress(self: *@This()) !void {
+        var data = save.Data{
+            .language = @intFromEnum(locale.current()),
+            .honey = self.resources.honey,
+            .honey_capacity = self.resources.honeyCapacity,
+            .storage_level = self.resources.storageLevel,
+            .honey_per_sec = self.resources.honeyPerSec,
+            .growth_cooldown = self.resources.growthBoostCooldown,
+            .growth_max_cooldown = self.resources.growthBoostMaxCooldown,
+            .growth_level = self.resources.growthBoostLevel,
+            .beehive_factor = self.getBeehiveHoneyFactor(),
+            .beehive_upgrade_cost = self.beehiveUpgradeCost,
+            .grid_width = self.gridWidth,
+            .grid_height = self.gridHeight,
+            .royal_jelly = self.prestige.royalJelly,
+            .this_run_honey = self.prestige.thisRunHoney,
+            .prestige_unlocked = self.prestige.hasUnlockedPrestige,
+            .aura_multiplier = self.labs.auraMul,
+            .burst_remaining = self.labs.burstRemaining,
+            .burst_cooldown = self.labs.burstCooldown,
+            .bloom_cooldown = self.labs.bloomCooldown,
+        };
+        defer data.deinit(self.allocator);
+
+        var upgrade_it = self.upgradeTree.purchased.keyIterator();
+        while (upgrade_it.next()) |id| {
+            if (id.* < data.purchased.len) data.purchased[id.*] = true;
+        }
+
+        var bee_it = self.world.iterateBees();
+        while (bee_it.next()) |entity| {
+            const ai = self.world.getBeeAI(entity) orelse continue;
+            const index: usize = @intFromEnum(ai.beeType);
+            if (index < data.bee_counts.len and data.bee_counts[index] < save.MAX_BEES_PER_TYPE) {
+                data.bee_counts[index] += 1;
+            }
+        }
+
+        var flower_it = self.world.iterateFlowers();
+        while (flower_it.next()) |entity| {
+            const grid_pos = self.world.getGridPosition(entity) orelse continue;
+            const growth = self.world.getFlowerGrowth(entity) orelse continue;
+            const lifespan = self.world.getLifespan(entity) orelse continue;
+            if (data.flowers.items.len >= save.MAX_FLOWERS) break;
+            try data.flowers.append(self.allocator, .{
+                .flower_type = @intFromEnum(growth.flowerType),
+                .x = @intFromFloat(grid_pos.x),
+                .y = @intFromFloat(grid_pos.y),
+                .state = growth.state,
+                .growth_time_alive = growth.timeAlive,
+                .growth_rate = growth.growthRate,
+                .growth_threshold = growth.growthThreshold,
+                .has_pollen = growth.hasPollen,
+                .pollen_cooldown = growth.pollenCooldown,
+                .pollen_multiplier = growth.pollenMultiplier,
+                .lifespan_time_alive = lifespan.timeAlive,
+                .lifespan_total_time_alive = lifespan.totalTimeAlive,
+                .lifespan_time_span = lifespan.timeSpan,
+            });
+        }
+
+        try save.write(self.io, self.savePath, &data);
+    }
+
+    fn loadProgress(self: *@This()) !void {
+        var data = try save.read(self.allocator, self.io, self.savePath);
+        defer data.deinit(self.allocator);
+
+        if (data.grid_width < INITIAL_GRID_WIDTH or data.grid_height < INITIAL_GRID_HEIGHT or
+            data.grid_width != data.grid_height or data.grid_width > 127 or data.grid_width % 2 == 0)
+        {
+            return error.InvalidSave;
+        }
+
+        var total_bees: u32 = 0;
+        for (data.bee_counts) |count| {
+            total_bees = std.math.add(u32, total_bees, count) catch return error.SaveTooLarge;
+            if (total_bees > save.MAX_BEES_PER_TYPE) return error.SaveTooLarge;
+        }
+
+        locale.set(switch (data.language) {
+            1 => .portuguese_br,
+            else => .english,
+        });
+
+        self.world.deinit();
+        self.world = World.init(self.allocator);
+        bee_ai_system.resetCaches();
+        render_system.resetCaches();
+
+        self.gridWidth = data.grid_width;
+        self.gridHeight = data.grid_height;
+        self.grid.width = data.grid_width;
+        self.grid.height = data.grid_height;
+        self.grid.updateOffset();
+
+        const hive = try spawners.spawnBeehive(&self.world, &self.textures, self.gridWidth, self.gridHeight);
+        if (self.world.getBeehive(hive)) |beehive| {
+            beehive.honeyConversionFactor = finiteAtLeast(data.beehive_factor, 1.0, 1.0);
+        }
+
+        for (data.flowers.items) |flower| {
+            if (flower.x < 0 or flower.y < 0 or
+                flower.x >= @as(i32, @intCast(self.gridWidth)) or flower.y >= @as(i32, @intCast(self.gridHeight))) continue;
+            const flower_type: components.FlowerType = switch (flower.flower_type) {
+                0 => .rose,
+                1 => .tulip,
+                2 => .dandelion,
+                else => continue,
+            };
+            const entity = try spawners.spawnFlower(&self.world, &self.textures, spawners.flowerTypeToFlowers(flower_type), flower.x, flower.y);
+            if (self.world.getFlowerGrowth(entity)) |growth| {
+                growth.state = finiteInRange(flower.state, 0, 4, 0);
+                growth.timeAlive = finiteAtLeast(flower.growth_time_alive, 0, 0);
+                growth.growthRate = finiteAtLeast(flower.growth_rate, 0.01, 1);
+                growth.growthThreshold = finiteAtLeast(flower.growth_threshold, 0.01, 35);
+                growth.hasPollen = flower.has_pollen;
+                growth.pollenCooldown = finiteAtLeast(flower.pollen_cooldown, 0, 0);
+                growth.pollenMultiplier = finiteAtLeast(flower.pollen_multiplier, 0.1, 1);
+            }
+            if (self.world.getLifespan(entity)) |lifespan| {
+                lifespan.timeAlive = finiteAtLeast(flower.lifespan_time_alive, 0, 0);
+                lifespan.totalTimeAlive = finiteAtLeast(flower.lifespan_total_time_alive, 0, 0);
+                lifespan.timeSpan = finiteAtLeast(flower.lifespan_time_span, 1, 60);
+            }
+        }
+
+        for (data.bee_counts, 0..) |count, index| {
+            const bee_type: components.BeeType = switch (index) {
+                0 => .worker,
+                1 => .swift,
+                2 => .efficient,
+                3 => .gardener,
+                else => unreachable,
+            };
+            for (0..count) |_| {
+                _ = try spawners.spawnBeeWithType(&self.world, &self.grid, &self.textures, bee_type);
+            }
+        }
+
+        self.resources.honey = finiteAtLeast(data.honey, 0, 100);
+        self.resources.honeyCapacity = finiteAtLeast(data.honey_capacity, 1, 500);
+        self.resources.storageLevel = @max(1, data.storage_level);
+        self.resources.honeyPerSec = finiteAtLeast(data.honey_per_sec, 0, 0);
+        self.resources.honeyThisSecond = 0;
+        self.resources.rateWindowTimer = 0;
+        self.resources.growthBoostCooldown = finiteAtLeast(data.growth_cooldown, 0, 0);
+        self.resources.growthBoostMaxCooldown = finiteAtLeast(data.growth_max_cooldown, 2, 10);
+        self.resources.growthBoostLevel = @max(1, data.growth_level);
+        self.beehiveUpgradeCost = finiteAtLeast(data.beehive_upgrade_cost, 1, 20);
+
+        self.upgradeTree.deinit();
+        self.upgradeTree = upgrade_tree.State.init(self.allocator);
+        for (data.purchased, 0..) |purchased, id| {
+            if (purchased and upgrade_tree.findNode(@intCast(id)) != null) {
+                try self.upgradeTree.markPurchased(@intCast(id));
+            }
+        }
+
+        self.prestige.royalJelly = data.royal_jelly;
+        self.prestige.thisRunHoney = finiteAtLeast(data.this_run_honey, 0, 0);
+        self.prestige.hasUnlockedPrestige = data.prestige_unlocked or self.upgradeTree.hasEffect(.prestige_unlock);
+        self.labs.auraMul = finiteAtLeast(data.aura_multiplier, 1, 1);
+        self.labs.burstRemaining = finiteAtLeast(data.burst_remaining, 0, 0);
+        self.labs.burstCooldown = finiteAtLeast(data.burst_cooldown, 0, 0);
+        self.labs.bloomCooldown = finiteAtLeast(data.bloom_cooldown, 0, 0);
+
+        self.cachedBeeCount = self.world.entityToBeeAI.count();
+        self.cachedFlowerCount = self.world.entityToFlowerGrowth.count();
+        self.cachedHoneyFactor = self.getBeehiveHoneyFactor();
+        self.floatingTexts.items.clearRetainingCapacity();
+        self.autosaveTimer = 0;
+    }
+
+    fn finiteAtLeast(value: f32, minimum: f32, fallback: f32) f32 {
+        if (!std.math.isFinite(value)) return fallback;
+        return @max(minimum, value);
+    }
+
+    fn finiteInRange(value: f32, minimum: f32, maximum: f32, fallback: f32) f32 {
+        if (!std.math.isFinite(value)) return fallback;
+        return std.math.clamp(value, minimum, maximum);
     }
 };

@@ -86,7 +86,7 @@ pub fn applyCatppuccinMochaTheme() void {
     rg.loadStyleDefault();
 
     rg.setStyle(rg.Control.default, .{ .default = rg.DefaultProperty.background_color }, @bitCast(@as(i32, @bitCast(CatppuccinMocha.base))));
-    rg.setStyle(rg.Control.default, .{ .default = rg.DefaultProperty.text_size }, 16);
+    rg.setStyle(rg.Control.default, .{ .default = rg.DefaultProperty.text_size }, 19);
     rg.setStyle(rg.Control.default, .{ .default = rg.DefaultProperty.text_spacing }, 1);
 
     rg.setStyle(rg.Control.button, .{ .control = rg.ControlProperty.base_color_normal }, @bitCast(@as(i32, @bitCast(CatppuccinMocha.yellow))));
@@ -110,4 +110,7 @@ pub fn applyCatppuccinMochaTheme() void {
     rg.setStyle(rg.Control.default, .{ .control = rg.ControlProperty.base_color_normal }, @bitCast(@as(i32, @bitCast(CatppuccinMocha.surface0))));
     rg.setStyle(rg.Control.default, .{ .control = rg.ControlProperty.border_color_normal }, @bitCast(@as(i32, @bitCast(CatppuccinMocha.surface1))));
     rg.setStyle(rg.Control.default, .{ .control = rg.ControlProperty.text_color_normal }, @bitCast(@as(i32, @bitCast(CatppuccinMocha.text))));
+
+    // Route raygui through our readable TTF (loadStyleDefault above reset it).
+    @import("text.zig").applyToRaygui();
 }

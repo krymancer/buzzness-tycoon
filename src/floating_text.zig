@@ -1,4 +1,5 @@
 const rl = @import("raylib");
+const text = @import("text.zig");
 const std = @import("std");
 const utils = @import("utils.zig");
 const format = @import("format.zig");
@@ -74,13 +75,13 @@ pub const Manager = struct {
             buf[labelLen] = 0;
             const label: [:0]const u8 = buf[0..labelLen :0];
 
-            const textWidth = rl.measureText(label, FONT_SIZE);
+            const textWidth = text.measure(label, FONT_SIZE);
             const textX = @as(i32, @intFromFloat(pos.x + tileW / 2.0)) - @divFloor(textWidth, 2);
             const textY = @as(i32, @intFromFloat(pos.y - yOffset));
 
             var color = theme.CatppuccinMocha.Color.yellow;
             color.a = alpha;
-            rl.drawText(label, textX, textY, FONT_SIZE, color);
+            text.draw(label, textX, textY, FONT_SIZE, color);
         }
     }
 };

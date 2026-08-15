@@ -1,5 +1,6 @@
 const rl = @import("raylib");
 const std = @import("std");
+const clock = @import("clock.zig");
 
 /// Screen-space ambient motes: drifting pollen dust by day that warms into
 /// glowing, blinking fireflies at night. Purely decorative — floats in the
@@ -46,7 +47,7 @@ pub const Ambient = struct {
 
     pub fn update(self: *Ambient, dt: f32, playW: f32, playH: f32) void {
         if (!self.seeded) self.seed(playW, playH);
-        const time = @as(f32, @floatCast(rl.getTime()));
+        const time = @as(f32, @floatCast(clock.time()));
         for (&self.motes) |*m| {
             // Lazy sine sway on top of the base drift so paths look organic.
             m.x += (m.vx + @sin(time * 0.6 + m.phase) * 6.0) * dt;
@@ -63,7 +64,7 @@ pub const Ambient = struct {
 
     /// nightFactor in [0,1] blends pollen-dust → firefly behaviour.
     pub fn draw(self: *const Ambient, nightFactor: f32) void {
-        const time = @as(f32, @floatCast(rl.getTime()));
+        const time = @as(f32, @floatCast(clock.time()));
         // Day: pale warm pollen. Night: glowing amber fireflies.
         const day = rl.Color.init(255, 244, 200, 255);
         const nite = rl.Color.init(190, 255, 150, 255);

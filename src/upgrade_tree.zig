@@ -6,6 +6,7 @@ pub const EffectKind = enum {
     honey_factor_mul,
     storage_add,
     growth_cd_sub,
+    bee_unlock_worker,
     bee_unlock_swift,
     bee_unlock_efficient,
     bee_unlock_gardener,
@@ -33,8 +34,9 @@ const r_worker = &[_]NodeId{0};
 // Root node id 0 is Worker (auto-owned at game start).
 // Tiers branch outward from root. Labs gate behind cross-branch t3 nodes.
 pub const NODES = [_]Node{
-    // id 0 — root (free, auto-owned)
-    .{ .id = 0, .name = "Worker Bee", .cost = 0, .prereqs = no_prereqs, .effect = .bee_unlock_swift, .value = 0, .col = 0, .row = 0 },
+    // id 0 — root (free, auto-owned). Unlocks the Worker bee only; Swift is
+    // gated behind node 4 so it stays locked until purchased.
+    .{ .id = 0, .name = "Worker Bee", .cost = 0, .prereqs = no_prereqs, .effect = .bee_unlock_worker, .value = 0, .col = 0, .row = 0 },
 
     // Honey branch (col -2)
     .{ .id = 1, .name = "Honey x2", .cost = 50, .prereqs = r_worker, .effect = .honey_factor_mul, .value = 2.0, .col = -2, .row = 1 },

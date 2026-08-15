@@ -1,9 +1,10 @@
 const rl = @import("raylib");
 const std = @import("std");
+const clock = @import("clock.zig");
 
 /// Cozy animated sky + day/night cycle.
 ///
-/// Everything is driven off `rl.getTime()` so it needs no per-frame state
+/// Everything is driven off `clock.time()` so it needs no per-frame state
 /// threading — the whole atmosphere is a pure function of the wall clock.
 /// A full day/night cycle takes DAY_LENGTH seconds. Kept long and gentle so
 /// the game reads as calm and AFK-friendly rather than a strobing disco.
@@ -52,12 +53,16 @@ pub const Sky = struct {
     /// Dev/screenshot hook: when set, freezes the clock at this phase.
     pub var phaseOverride: ?f32 = null;
 
+    /// Dev/trailer hook: when set, overrides DAY_LENGTH (e.g. a fast cycle for
+    /// recording a day→night sweep). null uses the normal gentle 300s day.
+    pub var dayLengthOverride: ?f32 = null;
+
     /// Normalized time of day in [0,1): 0 = midnight, 0.25 = sunrise,
     /// 0.5 = noon, 0.75 = sunset.
     pub fn timeOfDay(_: *const Sky) f32 {
         if (phaseOverride) |p| return @mod(p, 1.0);
-        const t = @as(f32, @floatCast(rl.getTime()));
-        return @mod(t / DAY_LENGTH + START_PHASE, 1.0);
+        const t = @as(f32, @floatCast(clock.time()));
+        return @mod(t / (dayLengthOverride orelse DAY_LENGTH) + START_PHASE, 1.0);
     }
 
     /// Sun elevation in [-1,1]. >0 is above the horizon (daytime).
@@ -116,7 +121,7 @@ pub const Sky = struct {
         rl.drawRectangleGradientV(0, @intFromFloat(horizonY), w, h - @as(i32, @intFromFloat(horizonY)), grad.hor, lower);
 
         const night = self.nightFactor();
-        const time = @as(f32, @floatCast(rl.getTime()));
+        const time = @as(f32, @floatCast(clock.time()));
 
         // Stars — fade in with night, gentle twinkle.
         if (night > 0.02) {

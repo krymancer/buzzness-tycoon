@@ -1,13 +1,16 @@
 const rl = @import("raylib");
+const text = @import("../text.zig");
 const rg = @import("raygui");
 const std = @import("std");
 const theme = @import("../theme.zig");
 const assets = @import("../assets.zig");
+const locale = @import("../localization.zig");
 
 pub const TitleScreenAction = enum {
     none,
     play,
     quit,
+    toggle_language,
 };
 
 // Module-level texture storage for background bees
@@ -44,12 +47,12 @@ pub fn draw(screenWidth: f32, screenHeight: f32) TitleScreenAction {
     // Title text with shadow
     const titleText = "Buzzness Tycoon";
     const titleFontSize: i32 = 64;
-    const titleWidth = rl.measureText(titleText, titleFontSize);
+    const titleWidth = text.measure(titleText, titleFontSize);
     const titleX = @as(i32, @intFromFloat(centerX)) - @divFloor(titleWidth, 2);
     const titleY = @as(i32, @intFromFloat(centerY)) - 150;
 
     // Shadow
-    rl.drawText(titleText, titleX + 3, titleY + 3, titleFontSize, theme.CatppuccinMocha.Color.crust);
+    text.draw(titleText, titleX + 3, titleY + 3, titleFontSize, theme.CatppuccinMocha.Color.crust);
     // Main title with animated color
     const titlePulse = 0.8 + @sin(time * 2.0) * 0.2;
     const titleColor = rl.Color.init(
@@ -58,41 +61,45 @@ pub fn draw(screenWidth: f32, screenHeight: f32) TitleScreenAction {
         @intFromFloat(@as(f32, @floatFromInt(theme.CatppuccinMocha.Color.yellow.b)) * titlePulse),
         255,
     );
-    rl.drawText(titleText, titleX, titleY, titleFontSize, titleColor);
+    text.draw(titleText, titleX, titleY, titleFontSize, titleColor);
 
     // Subtitle
-    const subtitleText = "A Bee Idle Game";
+    const subtitleText = locale.tr("A Bee Idle Game", "Um jogo idle de abelhas");
     const subtitleFontSize: i32 = 24;
-    const subtitleWidth = rl.measureText(subtitleText, subtitleFontSize);
+    const subtitleWidth = text.measure(subtitleText, subtitleFontSize);
     const subtitleX = @as(i32, @intFromFloat(centerX)) - @divFloor(subtitleWidth, 2);
-    rl.drawText(subtitleText, subtitleX, titleY + 70, subtitleFontSize, theme.CatppuccinMocha.Color.subtext0);
+    text.draw(subtitleText, subtitleX, titleY + 70, subtitleFontSize, theme.CatppuccinMocha.Color.subtext0);
 
     // Buttons
-    const buttonWidth: f32 = 200;
+    const buttonWidth: f32 = 270;
     const buttonHeight: f32 = 50;
     const buttonX = centerX - buttonWidth / 2;
-    const buttonStartY = centerY + 20;
-    const buttonSpacing: f32 = 70;
+    const buttonStartY = centerY + 5;
+    const buttonSpacing: f32 = 62;
 
     // Play button
-    if (rg.button(rl.Rectangle.init(buttonX, buttonStartY, buttonWidth, buttonHeight), "Play")) {
+    if (rg.button(rl.Rectangle.init(buttonX, buttonStartY, buttonWidth, buttonHeight), locale.tr("Play", "Jogar"))) {
         return .play;
     }
 
+    if (rg.button(rl.Rectangle.init(buttonX, buttonStartY + buttonSpacing, buttonWidth, buttonHeight), locale.languageButton())) {
+        return .toggle_language;
+    }
+
     // Quit button
-    if (rg.button(rl.Rectangle.init(buttonX, buttonStartY + buttonSpacing, buttonWidth, buttonHeight), "Quit")) {
+    if (rg.button(rl.Rectangle.init(buttonX, buttonStartY + buttonSpacing * 2, buttonWidth, buttonHeight), locale.tr("Quit", "Sair"))) {
         return .quit;
     }
 
     // Version text
-    const versionText = "v0.1.1";
+    const versionText = "v0.1.2";
     const versionFontSize: i32 = 16;
-    rl.drawText(versionText, 10, @as(i32, @intFromFloat(screenHeight)) - 26, versionFontSize, theme.CatppuccinMocha.Color.overlay0);
+    text.draw(versionText, 10, @as(i32, @intFromFloat(screenHeight)) - 26, versionFontSize, theme.CatppuccinMocha.Color.overlay0);
 
     // Controls hint
-    const hintText = "Alt+Enter: Toggle Fullscreen";
-    const hintWidth = rl.measureText(hintText, 16);
-    rl.drawText(hintText, @as(i32, @intFromFloat(screenWidth)) - hintWidth - 10, @as(i32, @intFromFloat(screenHeight)) - 26, 16, theme.CatppuccinMocha.Color.overlay0);
+    const hintText = locale.tr("Alt+Enter: Toggle Fullscreen", "Alt+Enter: Alternar tela cheia");
+    const hintWidth = text.measure(hintText, 16);
+    text.draw(hintText, @as(i32, @intFromFloat(screenWidth)) - hintWidth - 10, @as(i32, @intFromFloat(screenHeight)) - 26, 16, theme.CatppuccinMocha.Color.overlay0);
 
     return .none;
 }

@@ -1,4 +1,5 @@
 const rl = @import("raylib");
+const text = @import("../text.zig");
 const rg = @import("raygui");
 const std = @import("std");
 
@@ -6,6 +7,7 @@ const theme = @import("../theme.zig");
 const format = @import("../format.zig");
 const upgrade_tree = @import("../upgrade_tree.zig");
 const Resources = @import("../resources.zig").Resources;
+const locale = @import("../localization.zig");
 
 pub const TreeAction = union(enum) {
     none,
@@ -13,10 +15,10 @@ pub const TreeAction = union(enum) {
     purchase: upgrade_tree.NodeId,
 };
 
-const NODE_W: f32 = 136;
-const NODE_H: f32 = 56;
-const COL_SPACING: f32 = 156;
-const ROW_SPACING: f32 = 84;
+const NODE_W: f32 = 158;
+const NODE_H: f32 = 66;
+const COL_SPACING: f32 = 174;
+const ROW_SPACING: f32 = 74;
 
 pub const TreeContext = struct {
     screenWidth: f32,
@@ -78,8 +80,8 @@ pub fn draw(ctx: TreeContext) TreeAction {
 
     rl.drawRectangle(0, 0, @intFromFloat(ctx.screenWidth), @intFromFloat(ctx.screenHeight), C.modalOverlay);
 
-    const panelW: f32 = @min(ctx.screenWidth - 80, 1000);
-    const panelH: f32 = @min(ctx.screenHeight - 80, 680);
+    const panelW: f32 = @min(ctx.screenWidth - 40, 1120);
+    const panelH: f32 = @min(ctx.screenHeight - 40, 720);
     const panelX: f32 = (ctx.screenWidth - panelW) / 2;
     const panelY: f32 = (ctx.screenHeight - panelH) / 2;
 
@@ -87,18 +89,18 @@ pub fn draw(ctx: TreeContext) TreeAction {
     rl.drawRectangleRounded(rl.Rectangle.init(panelX, panelY, panelW, panelH), 0.03, 10, C.mantle);
     rl.drawRectangleRoundedLinesEx(rl.Rectangle.init(panelX, panelY, panelW, panelH), 0.03, 10, 2, C.surface2);
 
-    const title = "Upgrade Tree";
-    const titleX = @as(i32, @intFromFloat(panelX + panelW / 2)) - @divFloor(rl.measureText(title, 28), 2);
-    rl.drawText(title, titleX, @as(i32, @intFromFloat(panelY + 14)), 28, C.mauve);
+    const title = locale.tr("Upgrade Tree", "Árvore de Melhorias");
+    const titleX = @as(i32, @intFromFloat(panelX + panelW / 2)) - @divFloor(text.measure(title, 32), 2);
+    text.draw(title, titleX, @as(i32, @intFromFloat(panelY + 10)), 32, C.mauve);
 
     // Honey stash pill (helps gauge affordability)
     var hbuf: [32]u8 = undefined;
     const hstr = format.formatShort(ctx.resources.honey, &hbuf);
-    const honeyLabel = rl.textFormat("Honey: %s", .{hstr.ptr});
-    rl.drawText(honeyLabel, @as(i32, @intFromFloat(panelX + 18)), @as(i32, @intFromFloat(panelY + 22)), 16, C.yellow);
+    const honeyLabel = rl.textFormat(locale.tr("Honey: %s", "Mel: %s"), .{hstr.ptr});
+    text.draw(honeyLabel, @as(i32, @intFromFloat(panelX + 18)), @as(i32, @intFromFloat(panelY + 20)), 19, C.yellow);
 
     const centerX = panelX + panelW / 2;
-    const topY = panelY + 72;
+    const topY = panelY + 68;
 
     // Prereq lines first (behind nodes)
     for (&upgrade_tree.NODES) |*node| {
@@ -144,28 +146,29 @@ pub fn draw(ctx: TreeContext) TreeAction {
 
         // Name
         var nameBuf: [64]u8 = undefined;
-        const nameZ = std.fmt.bufPrintZ(&nameBuf, "{s}", .{node.name}) catch continue;
-        const nameW = rl.measureText(nameZ, 15);
+        const localizedName = locale.nodeName(node.id, node.name);
+        const nameZ = std.fmt.bufPrintZ(&nameBuf, "{s}", .{localizedName}) catch continue;
+        const nameW = text.measure(nameZ, 17);
         const nameX = @as(i32, @intFromFloat(pos.x + NODE_W / 2)) - @divFloor(nameW, 2);
-        rl.drawText(nameZ, nameX, @as(i32, @intFromFloat(pos.y + 8)), 15, style.nameColor);
+        text.draw(nameZ, nameX, @as(i32, @intFromFloat(pos.y + 8)), 17, style.nameColor);
 
         // Cost / OWNED line
         if (style.showOwned) {
-            const owned = "OWNED";
-            const ow = rl.measureText(owned, 13);
+            const owned = locale.tr("OWNED", "ADQUIRIDO");
+            const ow = text.measure(owned, 15);
             const ox = @as(i32, @intFromFloat(pos.x + NODE_W / 2)) - @divFloor(ow, 2);
-            rl.drawText(owned, ox, @as(i32, @intFromFloat(pos.y + 32)), 13, style.costColor);
+            text.draw(owned, ox, @as(i32, @intFromFloat(pos.y + 39)), 15, style.costColor);
         } else if (!unlocked) {
-            const locked = "LOCKED";
-            const lw = rl.measureText(locked, 12);
+            const locked = locale.tr("LOCKED", "BLOQUEADO");
+            const lw = text.measure(locked, 15);
             const lx = @as(i32, @intFromFloat(pos.x + NODE_W / 2)) - @divFloor(lw, 2);
-            rl.drawText(locked, lx, @as(i32, @intFromFloat(pos.y + 33)), 12, style.costColor);
+            text.draw(locked, lx, @as(i32, @intFromFloat(pos.y + 39)), 15, style.costColor);
         } else {
             var cbuf: [32]u8 = undefined;
             const cstr = format.formatShort(node.cost, &cbuf);
-            const cw = rl.measureText(cstr, 14);
+            const cw = text.measure(cstr, 16);
             const cx = @as(i32, @intFromFloat(pos.x + NODE_W / 2)) - @divFloor(cw, 2);
-            rl.drawText(cstr, cx, @as(i32, @intFromFloat(pos.y + 32)), 14, style.costColor);
+            text.draw(cstr, cx, @as(i32, @intFromFloat(pos.y + 38)), 16, style.costColor);
         }
 
         if (!purchased and unlocked and afford and hovered and rl.isMouseButtonPressed(rl.MouseButton.left)) {
@@ -175,17 +178,17 @@ pub fn draw(ctx: TreeContext) TreeAction {
 
     // Legend
     const legendY = panelY + panelH - 64;
-    drawLegendChip(panelX + 18, legendY, "Owned", C.green);
-    drawLegendChip(panelX + 110, legendY, "Ready", C.blue);
-    drawLegendChip(panelX + 210, legendY, "Too pricy", C.red);
-    drawLegendChip(panelX + 340, legendY, "Locked", C.overlay0);
+    drawLegendChip(panelX + 18, legendY, locale.tr("Owned", "Adquirido"), C.green);
+    drawLegendChip(panelX + 130, legendY, locale.tr("Ready", "Disponível"), C.blue);
+    drawLegendChip(panelX + 270, legendY, locale.tr("Too pricy", "Muito caro"), C.red);
+    drawLegendChip(panelX + 410, legendY, locale.tr("Locked", "Bloqueado"), C.overlay0);
 
     // Close button
     const closeW: f32 = 140;
-    const closeH: f32 = 38;
+    const closeH: f32 = 44;
     const closeX = panelX + panelW - closeW - 14;
     const closeY = panelY + panelH - closeH - 14;
-    if (rg.button(rl.Rectangle.init(closeX, closeY, closeW, closeH), "Close")) {
+    if (rg.button(rl.Rectangle.init(closeX, closeY, closeW, closeH), locale.tr("Close", "Fechar"))) {
         action = .close;
     }
 
@@ -195,5 +198,5 @@ pub fn draw(ctx: TreeContext) TreeAction {
 fn drawLegendChip(x: f32, y: f32, label: [:0]const u8, color: rl.Color) void {
     const chipSize: f32 = 12;
     rl.drawRectangleRounded(rl.Rectangle.init(x, y + 2, chipSize, chipSize), 0.4, 4, color);
-    rl.drawText(label, @as(i32, @intFromFloat(x + chipSize + 6)), @as(i32, @intFromFloat(y)), 14, theme.CatppuccinMocha.Color.subtext1);
+    text.draw(label, @as(i32, @intFromFloat(x + chipSize + 6)), @as(i32, @intFromFloat(y - 2)), 17, theme.CatppuccinMocha.Color.subtext1);
 }

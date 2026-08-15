@@ -35,6 +35,12 @@ pub fn build(b: *std.Build) void {
     // Add path to the sprites directory for @embedFile
     exe.root_module.addIncludePath(b.path(".")); // Makes the project root accessible
 
+    // On Windows, use the GUI subsystem so no console window pops up behind the
+    // game when launched from Steam / a desktop shortcut.
+    if (target.result.os.tag == .windows) exe.subsystem = .Windows;
+    // Strip debug info from release builds (smaller download, no symbols shipped).
+    exe.root_module.strip = optimize != .Debug;
+
     b.installArtifact(exe);
 
     const run_cmd = b.addRunArtifact(exe);

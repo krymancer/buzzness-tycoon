@@ -1,4 +1,5 @@
 const rl = @import("raylib");
+const text = @import("../text.zig");
 const rg = @import("raygui");
 const std = @import("std");
 
@@ -10,6 +11,7 @@ const World = @import("../ecs/world.zig").World;
 const Resources = @import("../resources.zig").Resources;
 const components = @import("../ecs/components.zig");
 const FlowerType = components.FlowerType;
+const locale = @import("../localization.zig");
 
 /// Actions that can be triggered from the tile popup
 pub const TilePopupAction = enum {
@@ -53,9 +55,9 @@ fn flowerTypeToFlowers(flowerType: FlowerType) Flowers {
 
 fn getFlowerName(flowerType: FlowerType) [:0]const u8 {
     return switch (flowerType) {
-        .rose => "Rose",
-        .tulip => "Tulip",
-        .dandelion => "Dandelion",
+        .rose => locale.tr("Rose", "Rosa"),
+        .tulip => locale.tr("Tulip", "Tulipa"),
+        .dandelion => locale.tr("Dandelion", "Dente-de-leão"),
     };
 }
 
@@ -72,7 +74,7 @@ pub fn draw(ctx: TilePopupContext) TilePopupAction {
     const hasFlower = flowerEntity != null;
 
     // Popup dimensions - height varies based on content
-    const popupWidth: f32 = 300;
+    const popupWidth: f32 = 380;
     const popupHeight: f32 = if (isBeehiveTile) 560 else 280;
     const popupX: f32 = (ctx.screenWidth - popupWidth) / 2;
     const popupY: f32 = (ctx.screenHeight - popupHeight) / 2;
@@ -91,7 +93,7 @@ pub fn draw(ctx: TilePopupContext) TilePopupAction {
         theme.CatppuccinMocha.Color.surface1,
     );
 
-    const buttonWidth: f32 = 250;
+    const buttonWidth: f32 = 330;
     const buttonHeight: f32 = 40;
     const buttonX = popupX + (popupWidth - buttonWidth) / 2;
 
@@ -115,9 +117,9 @@ fn drawBeehivePopup(
 ) TilePopupAction {
     const spawners = @import("../spawners.zig");
 
-    const titleText = "Beehive";
-    const titleX = @as(i32, @intFromFloat(popupX + popupWidth / 2)) - @divFloor(rl.measureText(titleText, 24), 2);
-    rl.drawText(titleText, titleX, @as(i32, @intFromFloat(popupY + 15)), 24, theme.CatppuccinMocha.Color.text);
+    const titleText = locale.tr("Beehive", "Colmeia");
+    const titleX = @as(i32, @intFromFloat(popupX + popupWidth / 2)) - @divFloor(text.measure(titleText, 24), 2);
+    text.draw(titleText, titleX, @as(i32, @intFromFloat(popupY + 15)), 24, theme.CatppuccinMocha.Color.text);
 
     // Draw beehive icon
     const largeIconSize: f32 = 48;
@@ -137,9 +139,9 @@ fn drawBeehivePopup(
 
     // Compact info section
     const infoY = popupY + 95;
-    const factorText = rl.textFormat("Honey: %.1fx | Bees: %d", .{ honeyFactor, ctx.beeCount });
-    const factorX = @as(i32, @intFromFloat(popupX + popupWidth / 2)) - @divFloor(rl.measureText(factorText, 14), 2);
-    rl.drawText(factorText, factorX, @as(i32, @intFromFloat(infoY)), 14, theme.CatppuccinMocha.Color.yellow);
+    const factorText = rl.textFormat(locale.tr("Honey: %.1fx | Bees: %d", "Mel: %.1fx | Abelhas: %d"), .{ honeyFactor, ctx.beeCount });
+    const factorX = @as(i32, @intFromFloat(popupX + popupWidth / 2)) - @divFloor(text.measure(factorText, 18), 2);
+    text.draw(factorText, factorX, @as(i32, @intFromFloat(infoY)), 18, theme.CatppuccinMocha.Color.yellow);
 
     const buttonStartY = popupY + 120;
     const buttonSpacing: f32 = 38;
@@ -150,7 +152,7 @@ fn drawBeehivePopup(
     if (!canAffordUpgrade) {
         rg.setState(@intFromEnum(rg.State.disabled));
     }
-    const upgradeText = rl.textFormat("Honey %.1fx (%.0f)", .{ honeyFactor * 2.0, ctx.beehiveUpgradeCost });
+    const upgradeText = rl.textFormat(locale.tr("Honey %.1fx (%.0f)", "Mel %.1fx (%.0f)"), .{ honeyFactor * 2.0, ctx.beehiveUpgradeCost });
     if (rg.button(rl.Rectangle.init(buttonX, buttonStartY, buttonWidth, smallButtonHeight), upgradeText) and canAffordUpgrade) {
         rg.setState(@intFromEnum(rg.State.normal));
         return .upgrade_beehive;
@@ -163,7 +165,7 @@ fn drawBeehivePopup(
     if (!canAffordStorage) {
         rg.setState(@intFromEnum(rg.State.disabled));
     }
-    const storageUpgradeText = rl.textFormat("Storage +500 (%.0f)", .{storageCost});
+    const storageUpgradeText = rl.textFormat(locale.tr("Storage +500 (%.0f)", "Armazém +500 (%.0f)"), .{storageCost});
     if (rg.button(rl.Rectangle.init(buttonX, buttonStartY + buttonSpacing, buttonWidth, smallButtonHeight), storageUpgradeText) and canAffordStorage) {
         rg.setState(@intFromEnum(rg.State.normal));
         return .upgrade_storage;
@@ -177,7 +179,7 @@ fn drawBeehivePopup(
     if (!canAffordGrowth) {
         rg.setState(@intFromEnum(rg.State.disabled));
     }
-    const growthUpgradeText = rl.textFormat("Grow CD %.1fs (%.0f)", .{ nextCooldown, growthCost });
+    const growthUpgradeText = rl.textFormat(locale.tr("Grow CD %.1fs (%.0f)", "Recarga crescer %.1fs (%.0f)"), .{ nextCooldown, growthCost });
     if (rg.button(rl.Rectangle.init(buttonX, buttonStartY + buttonSpacing * 2, buttonWidth, smallButtonHeight), growthUpgradeText) and canAffordGrowth) {
         rg.setState(@intFromEnum(rg.State.normal));
         return .upgrade_growth_boost;
@@ -186,9 +188,9 @@ fn drawBeehivePopup(
 
     // Section header for bees
     const beeHeaderY = buttonStartY + buttonSpacing * 3 + 5;
-    const beeHeaderText = "-- Buy Bees --";
-    const beeHeaderX = @as(i32, @intFromFloat(popupX + popupWidth / 2)) - @divFloor(rl.measureText(beeHeaderText, 14), 2);
-    rl.drawText(beeHeaderText, beeHeaderX, @as(i32, @intFromFloat(beeHeaderY)), 14, theme.CatppuccinMocha.Color.subtext0);
+    const beeHeaderText = locale.tr("-- Buy Bees --", "-- Comprar Abelhas --");
+    const beeHeaderX = @as(i32, @intFromFloat(popupX + popupWidth / 2)) - @divFloor(text.measure(beeHeaderText, 18), 2);
+    text.draw(beeHeaderText, beeHeaderX, @as(i32, @intFromFloat(beeHeaderY)), 18, theme.CatppuccinMocha.Color.subtext0);
 
     const beeButtonStartY = beeHeaderY + 20;
 
@@ -198,7 +200,7 @@ fn drawBeehivePopup(
     if (!canAffordWorker) {
         rg.setState(@intFromEnum(rg.State.disabled));
     }
-    if (rg.button(rl.Rectangle.init(buttonX, beeButtonStartY, buttonWidth, smallButtonHeight), rl.textFormat("Worker Bee (%.0f)", .{workerCost})) and canAffordWorker) {
+    if (rg.button(rl.Rectangle.init(buttonX, beeButtonStartY, buttonWidth, smallButtonHeight), rl.textFormat(locale.tr("Worker Bee (%.0f)", "Abelha Operária (%.0f)"), .{workerCost})) and canAffordWorker) {
         rg.setState(@intFromEnum(rg.State.normal));
         return .buy_worker_bee;
     }
@@ -210,7 +212,7 @@ fn drawBeehivePopup(
     if (!canAffordSwift) {
         rg.setState(@intFromEnum(rg.State.disabled));
     }
-    if (rg.button(rl.Rectangle.init(buttonX, beeButtonStartY + buttonSpacing, buttonWidth, smallButtonHeight), rl.textFormat("Swift Bee 2x Speed (%.0f)", .{swiftCost})) and canAffordSwift) {
+    if (rg.button(rl.Rectangle.init(buttonX, beeButtonStartY + buttonSpacing, buttonWidth, smallButtonHeight), rl.textFormat(locale.tr("Swift Bee 2x Speed (%.0f)", "Abelha Veloz 2x (%.0f)"), .{swiftCost})) and canAffordSwift) {
         rg.setState(@intFromEnum(rg.State.normal));
         return .buy_swift_bee;
     }
@@ -222,7 +224,7 @@ fn drawBeehivePopup(
     if (!canAffordEfficient) {
         rg.setState(@intFromEnum(rg.State.disabled));
     }
-    if (rg.button(rl.Rectangle.init(buttonX, beeButtonStartY + buttonSpacing * 2, buttonWidth, smallButtonHeight), rl.textFormat("Efficient Bee 2x Pollen (%.0f)", .{efficientCost})) and canAffordEfficient) {
+    if (rg.button(rl.Rectangle.init(buttonX, beeButtonStartY + buttonSpacing * 2, buttonWidth, smallButtonHeight), rl.textFormat(locale.tr("Efficient Bee 2x Pollen (%.0f)", "Abelha Eficiente 2x Pólen (%.0f)"), .{efficientCost})) and canAffordEfficient) {
         rg.setState(@intFromEnum(rg.State.normal));
         return .buy_efficient_bee;
     }
@@ -234,14 +236,14 @@ fn drawBeehivePopup(
     if (!canAffordGardener) {
         rg.setState(@intFromEnum(rg.State.disabled));
     }
-    if (rg.button(rl.Rectangle.init(buttonX, beeButtonStartY + buttonSpacing * 3, buttonWidth, smallButtonHeight), rl.textFormat("Gardener Bee Plants (%.0f)", .{gardenerCost})) and canAffordGardener) {
+    if (rg.button(rl.Rectangle.init(buttonX, beeButtonStartY + buttonSpacing * 3, buttonWidth, smallButtonHeight), rl.textFormat(locale.tr("Gardener Bee Plants (%.0f)", "Abelha Jardineira (%.0f)"), .{gardenerCost})) and canAffordGardener) {
         rg.setState(@intFromEnum(rg.State.normal));
         return .buy_gardener_bee;
     }
     rg.setState(@intFromEnum(rg.State.normal));
 
     // Close button
-    if (rg.button(rl.Rectangle.init(buttonX, beeButtonStartY + buttonSpacing * 4, buttonWidth, smallButtonHeight), "Close")) {
+    if (rg.button(rl.Rectangle.init(buttonX, beeButtonStartY + buttonSpacing * 4, buttonWidth, smallButtonHeight), locale.tr("Close", "Fechar"))) {
         return .close;
     }
 
@@ -265,8 +267,8 @@ fn drawFlowerPopup(
 
     if (ctx.world.getFlowerGrowth(flowerEntity)) |growth| {
         const flowerName = getFlowerName(growth.flowerType);
-        const titleX = @as(i32, @intFromFloat(popupX + popupWidth / 2)) - @divFloor(rl.measureText(flowerName, 24), 2);
-        rl.drawText(flowerName, titleX, @as(i32, @intFromFloat(popupY + 15)), 24, theme.CatppuccinMocha.Color.text);
+        const titleX = @as(i32, @intFromFloat(popupX + popupWidth / 2)) - @divFloor(text.measure(flowerName, 24), 2);
+        text.draw(flowerName, titleX, @as(i32, @intFromFloat(popupY + 15)), 24, theme.CatppuccinMocha.Color.text);
 
         // Draw large flower icon
         const largeIconSize: f32 = 64;
@@ -277,9 +279,9 @@ fn drawFlowerPopup(
         rl.drawTexturePro(flowerTexture, sourceRect, largeDest, rl.Vector2.init(0, 0), 0, rl.Color.white);
 
         // Show current multiplier
-        const multiplierText = rl.textFormat("Pollen Multiplier: %.1fx", .{growth.pollenMultiplier});
-        const multiplierX = @as(i32, @intFromFloat(popupX + popupWidth / 2)) - @divFloor(rl.measureText(multiplierText, 18), 2);
-        rl.drawText(multiplierText, multiplierX, @as(i32, @intFromFloat(popupY + 125)), 18, theme.CatppuccinMocha.Color.yellow);
+        const multiplierText = rl.textFormat(locale.tr("Pollen Multiplier: %.1fx", "Multiplicador de pólen: %.1fx"), .{growth.pollenMultiplier});
+        const multiplierX = @as(i32, @intFromFloat(popupX + popupWidth / 2)) - @divFloor(text.measure(multiplierText, 18), 2);
+        text.draw(multiplierText, multiplierX, @as(i32, @intFromFloat(popupY + 125)), 18, theme.CatppuccinMocha.Color.yellow);
 
         // Upgrade button
         const upgradeCost = 20.0 * growth.pollenMultiplier;
@@ -291,7 +293,7 @@ fn drawFlowerPopup(
         }
         var cbuf: [32]u8 = undefined;
         const cstr = format.formatShort(upgradeCost, &cbuf);
-        const upgradeText = rl.textFormat("Upgrade to %.1fx (%s Honey)", .{ growth.pollenMultiplier + 0.5, cstr.ptr });
+        const upgradeText = rl.textFormat(locale.tr("Upgrade to %.1fx (%s Honey)", "Melhorar para %.1fx (%s Mel)"), .{ growth.pollenMultiplier + 0.5, cstr.ptr });
         if (rg.button(rl.Rectangle.init(buttonX, buttonStartY, buttonWidth, buttonHeight), upgradeText) and canAffordUpgrade) {
             rg.setState(@intFromEnum(rg.State.normal));
             return .upgrade_flower;
@@ -299,7 +301,7 @@ fn drawFlowerPopup(
         rg.setState(@intFromEnum(rg.State.normal));
 
         // Close button
-        if (rg.button(rl.Rectangle.init(buttonX, buttonStartY + 50, buttonWidth, buttonHeight), "Close")) {
+        if (rg.button(rl.Rectangle.init(buttonX, buttonStartY + 50, buttonWidth, buttonHeight), locale.tr("Close", "Fechar"))) {
             return .close;
         }
     }
@@ -323,13 +325,13 @@ fn drawPlantingPopup(
     const iconPadding: f32 = 8;
     const sourceRect = rl.Rectangle.init(fullyGrownFrame * frameSize, 0, frameSize, frameSize);
 
-    const titleText = "Plant a Flower";
-    const titleX = @as(i32, @intFromFloat(popupX + popupWidth / 2)) - @divFloor(rl.measureText(titleText, 24), 2);
-    rl.drawText(titleText, titleX, @as(i32, @intFromFloat(popupY + 15)), 24, theme.CatppuccinMocha.Color.text);
+    const titleText = locale.tr("Plant a Flower", "Plantar uma Flor");
+    const titleX = @as(i32, @intFromFloat(popupX + popupWidth / 2)) - @divFloor(text.measure(titleText, 24), 2);
+    text.draw(titleText, titleX, @as(i32, @intFromFloat(popupY + 15)), 24, theme.CatppuccinMocha.Color.text);
 
-    const tileInfoText = rl.textFormat("Tile: (%d, %d)", .{ ctx.tileX, ctx.tileY });
-    const tileInfoX = @as(i32, @intFromFloat(popupX + popupWidth / 2)) - @divFloor(rl.measureText(tileInfoText, 16), 2);
-    rl.drawText(tileInfoText, tileInfoX, @as(i32, @intFromFloat(popupY + 45)), 16, theme.CatppuccinMocha.Color.subtext0);
+    const tileInfoText = rl.textFormat(locale.tr("Tile: (%d, %d)", "Bloco: (%d, %d)"), .{ ctx.tileX, ctx.tileY });
+    const tileInfoX = @as(i32, @intFromFloat(popupX + popupWidth / 2)) - @divFloor(text.measure(tileInfoText, 16), 2);
+    text.draw(tileInfoText, tileInfoX, @as(i32, @intFromFloat(popupY + 45)), 16, theme.CatppuccinMocha.Color.subtext0);
 
     const buttonStartY = popupY + 80;
     const buttonSpacing: f32 = 50;
@@ -340,7 +342,7 @@ fn drawPlantingPopup(
     if (!canAffordRose) {
         rg.setState(@intFromEnum(rg.State.disabled));
     }
-    if (rg.button(rl.Rectangle.init(buttonX, buttonStartY, buttonWidth, buttonHeight), "      Rose (10 Honey)") and canAffordRose) {
+    if (rg.button(rl.Rectangle.init(buttonX, buttonStartY, buttonWidth, buttonHeight), locale.tr("      Rose (10 Honey)", "      Rosa (10 Mel)")) and canAffordRose) {
         rg.setState(@intFromEnum(rg.State.normal));
         return .plant_rose;
     }
@@ -357,7 +359,7 @@ fn drawPlantingPopup(
     if (!canAffordTulip) {
         rg.setState(@intFromEnum(rg.State.disabled));
     }
-    if (rg.button(rl.Rectangle.init(buttonX, buttonStartY + buttonSpacing, buttonWidth, buttonHeight), "      Tulip (15 Honey)") and canAffordTulip) {
+    if (rg.button(rl.Rectangle.init(buttonX, buttonStartY + buttonSpacing, buttonWidth, buttonHeight), locale.tr("      Tulip (15 Honey)", "      Tulipa (15 Mel)")) and canAffordTulip) {
         rg.setState(@intFromEnum(rg.State.normal));
         return .plant_tulip;
     }
@@ -374,7 +376,7 @@ fn drawPlantingPopup(
     if (!canAffordDandelion) {
         rg.setState(@intFromEnum(rg.State.disabled));
     }
-    if (rg.button(rl.Rectangle.init(buttonX, buttonStartY + buttonSpacing * 2, buttonWidth, buttonHeight), "      Dandelion (5 Honey)") and canAffordDandelion) {
+    if (rg.button(rl.Rectangle.init(buttonX, buttonStartY + buttonSpacing * 2, buttonWidth, buttonHeight), locale.tr("      Dandelion (5 Honey)", "      Dente-de-leão (5 Mel)")) and canAffordDandelion) {
         rg.setState(@intFromEnum(rg.State.normal));
         return .plant_dandelion;
     }
@@ -386,7 +388,7 @@ fn drawPlantingPopup(
     rl.drawTexturePro(ctx.textures.dandelion, sourceRect, dandelionDest, rl.Vector2.init(0, 0), 0, rl.Color.white);
 
     // Cancel button
-    if (rg.button(rl.Rectangle.init(buttonX, buttonStartY + buttonSpacing * 3, buttonWidth, buttonHeight), "Cancel")) {
+    if (rg.button(rl.Rectangle.init(buttonX, buttonStartY + buttonSpacing * 3, buttonWidth, buttonHeight), locale.tr("Cancel", "Cancelar"))) {
         return .close;
     }
 

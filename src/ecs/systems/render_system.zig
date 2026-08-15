@@ -3,6 +3,7 @@ const std = @import("std");
 const World = @import("../world.zig").World;
 const utils = @import("../../utils.zig");
 const theme = @import("../../theme.zig");
+const clock = @import("../../clock.zig");
 
 const FlowerRenderData = struct {
     entity: u32,
@@ -58,7 +59,7 @@ pub fn draw(world: *World, gridOffset: rl.Vector2, gridScale: f32, worldTint: rl
     cachedScreenWidth = @floatFromInt(rl.getScreenWidth());
     cachedScreenHeight = @floatFromInt(rl.getScreenHeight());
 
-    const time = @as(f32, @floatCast(rl.getTime()));
+    const time = @as(f32, @floatCast(clock.time()));
 
     if (cachedBeehive == null) {
         var beehiveIter = world.entityToBeehive.keyIterator();
@@ -264,31 +265,45 @@ fn drawBeehiveAtGridPosition(texture: rl.Texture, i: f32, j: f32, width: f32, he
     rl.drawTexturePro(texture, source, destination, rl.Vector2.init(0, 0), 0, tint);
 }
 
+// A wilting flower can be saved by clicking it — shown as a soft, floating
+// "care" heart rather than a clinical green plus, to match the cozy mood.
 fn drawRebirthBubble(gridX: f32, gridY: f32, gridOffset: rl.Vector2, gridScale: f32, time: f32) void {
     const tilePosition = utils.isoToXY(gridX, gridY, 32, 32, gridOffset.x, gridOffset.y, gridScale);
     const tileWidth = 32 * gridScale;
 
     const bubbleRadius: f32 = 18 * (gridScale / 3.0);
-    const bubbleX = tilePosition.x + tileWidth / 2;
-    const bubbleY = tilePosition.y - bubbleRadius * 1.5;
+    const bx = tilePosition.x + tileWidth / 2;
+    // Gentle vertical bob so it feels like it's floating up, asking to be saved.
+    const by = tilePosition.y - bubbleRadius * 1.5 + @sin(time * 2.5) * 3.0 * (gridScale / 3.0);
 
-    const t = time * 4.0;
-    const pulse = 1.0 + @sin(t) * 0.25;
-    const animatedRadius = bubbleRadius * pulse;
+    const beat = 1.0 + @sin(time * 3.0) * 0.12; // soft heartbeat
+    const s = bubbleRadius * 0.95 * beat;
 
-    rl.drawCircle(@intFromFloat(bubbleX), @intFromFloat(bubbleY), animatedRadius + 8, rl.Color.init(0xa6, 0xe3, 0xa1, 40));
-    rl.drawCircle(@intFromFloat(bubbleX), @intFromFloat(bubbleY), animatedRadius + 4, rl.Color.init(0xa6, 0xe3, 0xa1, 80));
-    rl.drawCircle(@intFromFloat(bubbleX), @intFromFloat(bubbleY), animatedRadius, theme.CatppuccinMocha.Color.green);
+    const rose = rl.Color.init(245, 128, 160, 255);
+    const roseDeep = rl.Color.init(224, 96, 134, 255);
 
-    const ringPulse = 1.0 + @sin(t * 1.5) * 0.3;
-    const ringRadius = animatedRadius * ringPulse;
-    rl.drawCircleLines(@intFromFloat(bubbleX), @intFromFloat(bubbleY), ringRadius + 2, rl.Color.white);
+    // Warm halo.
+    rl.drawCircleGradient(rl.Vector2.init(bx, by), s * 2.6, rl.Color.init(245, 150, 175, 90), rl.Color.init(245, 150, 175, 0));
 
-    const plusSize: i32 = @intFromFloat(animatedRadius * 0.5);
-    const cx: i32 = @intFromFloat(bubbleX);
-    const cy: i32 = @intFromFloat(bubbleY);
-    rl.drawLine(cx - plusSize, cy, cx + plusSize, cy, rl.Color.white);
-    rl.drawLine(cx, cy - plusSize, cx, cy + plusSize, rl.Color.white);
+    // Heart = two lobes + a downward point. A faint deeper outline underlay
+    // gives it a little edge without a stroke pass.
+    drawHeart(bx, by, s * 1.12, roseDeep);
+    drawHeart(bx, by, s, rose);
+
+    // Glossy highlight dab.
+    rl.drawCircleV(rl.Vector2.init(bx - s * 0.34, by - s * 0.32), s * 0.17, rl.Color.init(255, 235, 240, 220));
+}
+
+/// Filled heart centred at (cx, cy). The bottom point is drawn as two triangles
+/// with both windings so it renders regardless of cull state.
+fn drawHeart(cx: f32, cy: f32, s: f32, color: rl.Color) void {
+    rl.drawCircleV(rl.Vector2.init(cx - s * 0.45, cy - s * 0.28), s * 0.5, color);
+    rl.drawCircleV(rl.Vector2.init(cx + s * 0.45, cy - s * 0.28), s * 0.5, color);
+    const l = rl.Vector2.init(cx - s * 0.92, cy - s * 0.02);
+    const r = rl.Vector2.init(cx + s * 0.92, cy - s * 0.02);
+    const tip = rl.Vector2.init(cx, cy + s * 1.02);
+    rl.drawTriangle(l, tip, r, color);
+    rl.drawTriangle(l, r, tip, color);
 }
 
 pub fn getBubbleHitArea(gridX: f32, gridY: f32, gridOffset: rl.Vector2, gridScale: f32) struct { x: f32, y: f32, radius: f32 } {
