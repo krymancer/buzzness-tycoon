@@ -105,8 +105,12 @@ pub const Grid = struct {
                 }
 
                 const isHovered = if (hovered) |h| (h.x == @as(i32, @intCast(i)) and h.y == @as(i32, @intCast(j))) else false;
-                const base = if (isHovered) rl.Color.red else rl.Color.white;
-                rl.drawTextureEx(self.tileTexture, position, 0, self.scale, rl.colorTint(base, tint));
+                rl.drawTextureEx(self.tileTexture, position, 0, self.scale, rl.colorTint(rl.Color.white, tint));
+                // Hover: a soft warm glow over the exact tile shape (a second
+                // translucent pass), instead of harshly recolouring the cube.
+                if (isHovered) {
+                    rl.drawTextureEx(self.tileTexture, position, 0, self.scale, rl.Color.init(255, 236, 150, 120));
+                }
             }
         }
     }
@@ -118,15 +122,19 @@ pub const Grid = struct {
 
     /// Returns the grid coordinates of the tile the mouse is currently hovering over, or null if off-grid.
     /// Uses the inverse isometric transform — O(1) regardless of grid size.
+    ///
+    /// `floor(xyToIso(mouse))` already maps every screen point to exactly one
+    /// tile cell (the diamonds tile the plane with no gaps), so it's both the
+    /// necessary and sufficient test. A previous extra "is-inside-diamond"
+    /// re-check used a diamond centred differently from the cell, which rejected
+    /// valid points near tile edges and produced dead zones where hover/click
+    /// silently failed.
     pub fn getHoveredTile(self: @This()) ?struct { x: i32, y: i32 } {
         const mouse = rl.getMousePosition();
         const iso = utils.xyToIso(mouse.x, mouse.y, self.tileWidth, self.tileHeight, self.offset.x, self.offset.y, self.scale);
         const gi: i32 = @intFromFloat(@floor(iso.x));
         const gj: i32 = @intFromFloat(@floor(iso.y));
         if (gi < 0 or gj < 0 or gi >= @as(i32, @intCast(self.width)) or gj >= @as(i32, @intCast(self.height))) return null;
-        // Double-check with the precise diamond hit-test — the floor rounding can
-        // land just outside the tile diamond near edges.
-        if (!utils.isPointInIsometricTile(mouse.x, mouse.y, @floatFromInt(gi), @floatFromInt(gj), self.tileWidth, self.tileHeight, self.offset.x, self.offset.y, self.scale)) return null;
         return .{ .x = gi, .y = gj };
     }
 };

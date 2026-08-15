@@ -7,7 +7,10 @@ const textures = @import("../../textures.zig");
 const Flowers = textures.Flowers;
 
 var emptyCellTimer: f32 = 0;
-const EMPTY_CELL_CHECK_INTERVAL: f32 = 5.0;
+// The meadow re-seeds itself fairly briskly so bees rarely run out of targets —
+// idle progression is bottlenecked by ripe pollen, so keeping flowers plentiful
+// is what makes buying more bees actually pay off.
+const EMPTY_CELL_CHECK_INTERVAL: f32 = 2.0;
 
 pub fn update(
     world: *World,
@@ -49,7 +52,7 @@ fn trySpawnFlowerInEmptyCell(world: *World, gridWidth: usize, gridHeight: usize,
         if (gridI == centerX and gridJ == centerY) continue;
 
         if (!world.hasFlowerAtGrid(@intCast(gridI), @intCast(gridJ))) {
-            if (rl.getRandomValue(1, 100) <= 30) {
+            if (rl.getRandomValue(1, 100) <= 55) {
                 const flowerType = getRandomFlowerType();
                 const flowerTexture = texturesRef.getFlowerTexture(flowerType);
 

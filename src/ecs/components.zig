@@ -156,9 +156,11 @@ pub const FlowerGrowth = struct {
             .state = 0,
             .timeAlive = 0,
             .growthRate = @floatFromInt(rl_module.getRandomValue(1, 10)),
-            .growthThreshold = 50,
+            // Bloom a bit faster and refill pollen ~2-3x sooner so a bee swarm
+            // stays fed and honey actually accumulates toward the late tree.
+            .growthThreshold = 35,
             .hasPollen = false,
-            .pollenCooldown = @floatFromInt(rl_module.getRandomValue(10, 50)),
+            .pollenCooldown = @floatFromInt(rl_module.getRandomValue(5, 16)),
             .pollenMultiplier = 1.0,
             .flowerType = flowerType,
         };

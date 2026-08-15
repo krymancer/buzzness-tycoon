@@ -199,7 +199,9 @@ pub fn update(ctx: UpdateCtx) !void {
                     collector.collect(1.0 * targetFlower.?.pollenMultiplier * collectionMultiplier);
                 }
 
-                beeAI.scatterTimer = @as(f32, @floatFromInt(rl.getRandomValue(20, 40))) / 10.0;
+                // Short dawdle after collecting, then head to the hive — long
+                // scatter here was the main throttle on honey throughput.
+                beeAI.scatterTimer = @as(f32, @floatFromInt(rl.getRandomValue(6, 14))) / 10.0;
             }
 
             ctx.world.decrementFlowerTarget(targetEntity);
@@ -234,7 +236,7 @@ fn buildAvailableFlowersCache(world: *World) void {
             if (growth.state != 4 or !growth.hasPollen) continue;
 
             const beesNearFlower = world.getFlowerTargetCount(entity);
-            if (beesNearFlower >= 2) continue;
+            if (beesNearFlower >= 3) continue;
 
             if (world.getGridPosition(entity)) |gridPos| {
                 if (world.getLifespan(entity)) |lifespan| {
@@ -264,7 +266,7 @@ fn findNearestFlowerFromCache(world: *World, beePosition: rl.Vector2, gridOffset
 
     for (0..availableFlowerCount) |i| {
         const flower = availableFlowers[i];
-        if (world.getFlowerTargetCount(flower.entity) >= 2) continue;
+        if (world.getFlowerTargetCount(flower.entity) >= 3) continue;
 
         const worldPos = getWorldPosFromGrid(flower.gridX, flower.gridY, gridOffset, gridScale);
         const d = rl.math.vector2DistanceSqr(worldPos, beePosition);
