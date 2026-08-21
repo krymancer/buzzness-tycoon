@@ -2,6 +2,7 @@ const rl = @import("raylib");
 const std = @import("std");
 const utils = @import("utils.zig");
 const assets = @import("assets.zig");
+const ui_scale = @import("ui_scale.zig");
 
 pub const Grid = struct {
     width: usize,
@@ -23,24 +24,18 @@ pub const Grid = struct {
 
     debug: bool,
     pub fn init(width: usize, height: usize, viewportWidth: f32, viewportHeight: f32) !@This() {
-        const tileWidth = 32;
-        const tileHeight = 32;
-        const baseScale = 3;
-
-        const offset = utils.calculateCenteredGridOffset(width, height, tileWidth, tileHeight, baseScale, viewportWidth, viewportHeight);
-
-        return .{
+        var grid: @This() = .{
             .width = width,
             .height = height,
 
-            .offset = offset,
+            .offset = rl.Vector2.init(0, 0),
 
             .tileTexture = try assets.loadTextureFromMemory(assets.grass_cube_png),
-            .tileWidth = tileWidth,
-            .tileHeight = tileHeight,
-            .scale = baseScale,
-            .baseScale = baseScale,
-            .minScale = 1.0,
+            .tileWidth = 32,
+            .tileHeight = 32,
+            .scale = 1.0,
+            .baseScale = 1.0,
+            .minScale = 0.5,
             .maxScale = 6.0,
 
             .viewportWidth = viewportWidth,
@@ -48,6 +43,28 @@ pub const Grid = struct {
 
             .debug = true,
         };
+        grid.fitToViewport();
+        return grid;
+    }
+
+    /// Scale for the starting view: the whole-grid fit, pushed 20% closer so
+    /// the meadow feels near without hiding much of it. Clamped to zoom limits.
+    fn fitScale(self: *const @This()) f32 {
+        const tiles: f32 = @floatFromInt(self.width + self.height);
+        // Extents of the iso diamond at scale 1 (see calculateCenteredGridOffset).
+        const gridW = tiles / 2.0 * self.tileWidth;
+        const gridH = (tiles - 2.0) / 4.0 * self.tileHeight + self.tileHeight;
+        const fit = @min(self.viewportWidth * 0.92 / gridW, self.viewportHeight * 0.92 / gridH);
+        return std.math.clamp(fit * 1.2, self.minScale, self.maxScale);
+    }
+
+    /// Zoom so the whole meadow is visible and centered. Used at startup, on
+    /// load, and after prestige — not during play, so it never yanks the
+    /// camera away from the player.
+    pub fn fitToViewport(self: *@This()) void {
+        self.scale = self.fitScale();
+        self.baseScale = self.scale;
+        self.updateOffset();
     }
 
     pub fn zoom(self: *@This(), zoomDelta: f32) void {
@@ -86,8 +103,8 @@ pub const Grid = struct {
     }
 
     pub fn draw(self: @This(), tint: rl.Color) void {
-        const screenWidth: f32 = @floatFromInt(rl.getScreenWidth());
-        const screenHeight: f32 = @floatFromInt(rl.getScreenHeight());
+        const screenWidth: f32 = ui_scale.width();
+        const screenHeight: f32 = ui_scale.height();
         const margin: f32 = 64 * self.scale;
 
         const hovered = if (self.debug) self.getHoveredTile() else null;
@@ -123,12 +140,10 @@ pub const Grid = struct {
     /// Returns the grid coordinates of the tile the mouse is currently hovering over, or null if off-grid.
     /// Uses the inverse isometric transform — O(1) regardless of grid size.
     ///
-    /// `floor(xyToIso(mouse))` already maps every screen point to exactly one
-    /// tile cell (the diamonds tile the plane with no gaps), so it's both the
-    /// necessary and sufficient test. A previous extra "is-inside-diamond"
-    /// re-check used a diamond centred differently from the cell, which rejected
-    /// valid points near tile edges and produced dead zones where hover/click
-    /// silently failed.
+    /// `floor(xyToIso(mouse))` maps every screen point to exactly one tile
+    /// cell (the diamonds tile the plane with no gaps), so it's both the
+    /// necessary and sufficient test — see the regression test in utils.zig
+    /// that pins the transform to the drawn diamonds.
     pub fn getHoveredTile(self: @This()) ?struct { x: i32, y: i32 } {
         const mouse = rl.getMousePosition();
         const iso = utils.xyToIso(mouse.x, mouse.y, self.tileWidth, self.tileHeight, self.offset.x, self.offset.y, self.scale);

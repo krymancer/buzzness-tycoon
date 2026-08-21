@@ -22,6 +22,7 @@ The meadow is meant to be relaxing to leave running:
 - **N** — mute / unmute audio.
 - **Esc** — close popups / open the pause menu.
 - **Alt+Enter** — toggle fullscreen.
+- **Cmd/Ctrl + / − / 0** — grow / shrink / reset the UI scale (saved with your progress). The UI also auto-scales to the screen, so text stays readable on large and Retina displays.
 
 The game autosaves every 10 seconds and whenever it is paused or closed. Save
 data is stored in the platform user-data directory so Steam installs and game
@@ -30,7 +31,7 @@ updates do not overwrite progress.
 English and Brazilian Portuguese are included. The initial language follows
 the system locale, and can be changed from the title screen or pause menu.
 
-Dev/debug env vars: `BT_WINDOWED=1` launches in a window instead of fullscreen; `BT_AUTOPLAY=1` skips the title screen; `BT_LANG=pt-BR` overrides locale detection; `BT_SAVE_PATH=/path/to/save.txt` overrides the save location; `BT_PHASE=0..1` freezes the time of day; `BT_SHOOT=N` renders N frames, writes `bt_shot.png`, then exits.
+Dev/debug env vars: `BT_WINDOWED=1` launches in a window instead of fullscreen; `BT_AUTOPLAY=1` skips the title screen; `BT_LANG=pt-BR` overrides locale detection; `BT_SAVE_PATH=/path/to/save.txt` overrides the save location; `BT_PHASE=0..1` freezes the time of day; `BT_SHOOT=N` renders N frames, writes `bt_shot.png`, then exits; `BT_UI_SCALE=X` pins the UI scale factor (in framebuffer pixels), bypassing auto-fit and the saved preference.
 
 ## Screenshot
 

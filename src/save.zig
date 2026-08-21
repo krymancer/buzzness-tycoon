@@ -23,6 +23,7 @@ pub const Flower = struct {
 
 pub const Data = struct {
     language: u8 = 0,
+    ui_scale: f32 = 1,
     honey: f32 = 100,
     honey_capacity: f32 = 500,
     storage_level: u32 = 1,
@@ -86,6 +87,7 @@ pub fn write(io: std.Io, save_path: []const u8, data: *const Data) !void {
 
     try writer.print("BUZZNESS_TYCOON {d}\n", .{VERSION});
     try writer.print("language {d}\n", .{data.language});
+    try writer.print("ui_scale {d}\n", .{data.ui_scale});
     try writer.print("resources {d} {d} {d} {d} {d} {d} {d}\n", .{
         data.honey,
         data.honey_capacity,
@@ -159,6 +161,8 @@ pub fn read(allocator: std.mem.Allocator, io: std.Io, save_path: []const u8) !Da
             saw_header = true;
         } else if (std.mem.eql(u8, key, "language")) {
             data.language = try parse(u8, tokens.next());
+        } else if (std.mem.eql(u8, key, "ui_scale")) {
+            data.ui_scale = try parse(f32, tokens.next());
         } else if (std.mem.eql(u8, key, "resources")) {
             saw_resources = true;
             data.honey = try parse(f32, tokens.next());

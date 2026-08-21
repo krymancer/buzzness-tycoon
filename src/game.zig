@@ -23,6 +23,7 @@ const Audio = @import("audio.zig").Audio;
 const text = @import("text.zig");
 const locale = @import("localization.zig");
 const save = @import("save.zig");
+const ui_scale = @import("ui_scale.zig");
 
 const World = @import("ecs/world.zig").World;
 const components = @import("ecs/components.zig");
@@ -69,6 +70,7 @@ pub const Game = struct {
 
     beehiveUpgradeCost: f32,
     cachedBeeCount: usize,
+    cachedBeeTypeCounts: [4]usize,
     cachedFlowerCount: usize,
     cachedHoneyFactor: f32,
 
@@ -155,8 +157,14 @@ pub const Game = struct {
         // Load the shared UI font (needs the GL context from initWindow).
         text.load();
 
-        const width: f32 = @floatFromInt(rl.getScreenWidth());
-        const height: f32 = @floatFromInt(rl.getScreenHeight());
+        // Dev: BT_UI_SCALE pins the UI scale (bypasses auto-fit + preference).
+        if (env.get("BT_UI_SCALE")) |s| {
+            ui_scale.setOverride(std.fmt.parseFloat(f32, s) catch null);
+        }
+        ui_scale.refresh();
+
+        const width: f32 = ui_scale.width();
+        const height: f32 = ui_scale.height();
 
         const textures = try Textures.init();
         const grid = try Grid.init(INITIAL_GRID_WIDTH, INITIAL_GRID_HEIGHT, width - ui.side_panel.PANEL_WIDTH, height);
@@ -217,6 +225,7 @@ pub const Game = struct {
 
             .beehiveUpgradeCost = 20.0,
             .cachedBeeCount = 0,
+            .cachedBeeTypeCounts = .{ 0, 0, 0, 0 },
             .cachedFlowerCount = 0,
             .cachedHoneyFactor = 1.0,
 
@@ -329,10 +338,34 @@ pub const Game = struct {
             }
         }
 
-        // Update dimensions if window size changed
-        const currentWidth: f32 = @floatFromInt(rl.getScreenWidth());
-        const currentHeight: f32 = @floatFromInt(rl.getScreenHeight());
+        // Cmd/Ctrl +/- adjusts the UI scale; Cmd/Ctrl 0 resets it.
+        const mod = rl.isKeyDown(rl.KeyboardKey.left_super) or rl.isKeyDown(rl.KeyboardKey.right_super) or
+            rl.isKeyDown(rl.KeyboardKey.left_control) or rl.isKeyDown(rl.KeyboardKey.right_control);
+        if (mod) {
+            if (rl.isKeyPressed(rl.KeyboardKey.equal) or rl.isKeyPressed(rl.KeyboardKey.kp_add)) ui_scale.adjustUser(0.1);
+            if (rl.isKeyPressed(rl.KeyboardKey.minus) or rl.isKeyPressed(rl.KeyboardKey.kp_subtract)) ui_scale.adjustUser(-0.1);
+            if (rl.isKeyPressed(rl.KeyboardKey.zero) or rl.isKeyPressed(rl.KeyboardKey.kp_0)) ui_scale.resetUser();
+        }
+        ui_scale.refresh();
+
+        // React to logical-size changes (window resize or UI-scale change):
+        // re-center the grid viewport and carry the bees along with it.
+        const currentWidth = ui_scale.width();
+        const currentHeight = ui_scale.height();
         if (currentWidth != self.width or currentHeight != self.height) {
+            const oldOffset = self.grid.offset;
+            self.grid.updateViewport(currentWidth - ui.side_panel.PANEL_WIDTH, currentHeight);
+            const offsetDelta = rl.Vector2{
+                .x = self.grid.offset.x - oldOffset.x,
+                .y = self.grid.offset.y - oldOffset.y,
+            };
+            var beeIter = self.world.iterateBees();
+            while (beeIter.next()) |entity| {
+                if (self.world.getPosition(entity)) |pos| {
+                    pos.x += offsetDelta.x;
+                    pos.y += offsetDelta.y;
+                }
+            }
             self.width = currentWidth;
             self.height = currentHeight;
         }
@@ -341,6 +374,8 @@ pub const Game = struct {
     fn drawTitleScreen(self: *@This()) void {
         rl.beginDrawing();
         defer rl.endDrawing();
+        ui_scale.begin();
+        defer ui_scale.end();
 
         rl.clearBackground(theme.CatppuccinMocha.Color.base);
 
@@ -361,25 +396,6 @@ pub const Game = struct {
 
     /// Handle input specific to playing state
     fn handlePlayingInput(self: *@This()) void {
-        // Update grid viewport and bee positions when window resizes
-        const currentWidth: f32 = @floatFromInt(rl.getScreenWidth());
-        const currentHeight: f32 = @floatFromInt(rl.getScreenHeight());
-        if (currentWidth != self.width or currentHeight != self.height) {
-            const oldOffset = self.grid.offset;
-            self.grid.updateViewport(currentWidth - ui.side_panel.PANEL_WIDTH, currentHeight);
-            const offsetDelta = rl.Vector2{
-                .x = self.grid.offset.x - oldOffset.x,
-                .y = self.grid.offset.y - oldOffset.y,
-            };
-            var beeIter = self.world.iterateBees();
-            while (beeIter.next()) |entity| {
-                if (self.world.getPosition(entity)) |pos| {
-                    pos.x += offsetDelta.x;
-                    pos.y += offsetDelta.y;
-                }
-            }
-        }
-
         // Handle Escape key - close popups first, then show/hide pause menu
         if (rl.isKeyPressed(rl.KeyboardKey.escape)) {
             if (self.showPrestigeDialog) {
@@ -539,6 +555,7 @@ pub const Game = struct {
 
         self.cachedBeeCount = self.world.entityToBeeAI.count();
         self.cachedFlowerCount = self.world.entityToFlowerGrowth.count();
+        self.recountBeeTypes();
 
         if (frameHoneyGain > 0) {
             const centerX: f32 = @floatFromInt((self.gridWidth - 1) / 2);
@@ -555,6 +572,10 @@ pub const Game = struct {
     pub fn draw(self: *@This()) !void {
         rl.beginDrawing();
         defer rl.endDrawing();
+        // The whole frame (world + UI) draws in logical pixels; the camera
+        // zooms it up to the real resolution.
+        ui_scale.begin();
+        defer ui_scale.end();
 
         rl.clearBackground(theme.CatppuccinMocha.Color.base);
 
@@ -578,7 +599,7 @@ pub const Game = struct {
 
         // Draw HUD (reuses this frame's cached factor)
         const honeyFactor = self.cachedHoneyFactor;
-        self.hud.draw(&self.resources, self.cachedBeeCount, honeyFactor);
+        self.hud.draw(&self.resources, honeyFactor);
 
         self.drawLabsWidget();
 
@@ -587,8 +608,7 @@ pub const Game = struct {
             .screenWidth = self.width,
             .screenHeight = self.height,
             .resources = &self.resources,
-            .beeCount = self.cachedBeeCount,
-            .beehiveFactor = honeyFactor,
+            .beeTypeCounts = self.cachedBeeTypeCounts,
             .treeState = &self.upgradeTree,
             .prestige = &self.prestige,
             .textures = &self.textures,
@@ -601,7 +621,9 @@ pub const Game = struct {
                 .open_prestige => self.showPrestigeDialog = true,
                 .buy => |act| {
                     var handler = self.createActionHandler();
+                    const honeyBefore = self.resources.honey;
                     const result = try handler.handlePopupAction(act, 0, 0);
+                    try self.spawnSpendFeedback(honeyBefore);
                     if (result.beeCountDelta != 0) {
                         self.cachedBeeCount = @intCast(@as(i64, @intCast(self.cachedBeeCount)) + result.beeCountDelta);
                     }
@@ -628,9 +650,9 @@ pub const Game = struct {
             }
         }
 
-        // Dev FPS/frametime readout. BT_HIDE_DEBUG suppresses it for clean
-        // store screenshots. (frameTime is still computed below for metrics.)
-        if (self.env.get("BT_HIDE_DEBUG") == null) {
+        // Dev FPS/frametime readout, hidden by default. BT_SHOW_DEBUG enables
+        // it. (frameTime is still computed below for metrics.)
+        if (self.env.get("BT_SHOW_DEBUG") != null) {
             const fpsX = @as(i32, @intFromFloat(self.width - ui.side_panel.PANEL_WIDTH - 100));
             rl.drawFPS(fpsX, 10);
             text.draw(rl.textFormat("%.2f ms", .{rl.getFrameTime() * 1000.0}), fpsX, 30, 20, rl.Color.white);
@@ -662,6 +684,9 @@ pub const Game = struct {
             }
         }
 
+        // Screen-space popups (purchase "-cost" feedback) above all UI.
+        self.floatingTexts.drawScreen();
+
         // Draw pause menu
         if (self.showPauseMenu) {
             const action = ui.pause_menu.draw(self.width, self.height);
@@ -681,6 +706,26 @@ pub const Game = struct {
         // Log metrics
         const fps: f32 = @floatFromInt(rl.getFPS());
         self.metrics.log(fps, rl.getFrameTime() * 1000.0, self.cachedBeeCount, self.cachedFlowerCount);
+    }
+
+    /// Refresh the per-type owned-bee counts shown on the shop cards.
+    fn recountBeeTypes(self: *@This()) void {
+        self.cachedBeeTypeCounts = .{ 0, 0, 0, 0 };
+        var it = self.world.iterateBees();
+        while (it.next()) |entity| {
+            const ai = self.world.getBeeAI(entity) orelse continue;
+            const index: usize = @intFromEnum(ai.beeType);
+            if (index < self.cachedBeeTypeCounts.len) self.cachedBeeTypeCounts[index] += 1;
+        }
+    }
+
+    /// If honey was spent since `honeyBefore` (a purchase just succeeded),
+    /// float a red "-cost" up from the cursor so the click visibly landed.
+    fn spawnSpendFeedback(self: *@This(), honeyBefore: f32) !void {
+        const spent = honeyBefore - self.resources.honey;
+        if (spent <= 0) return;
+        const mouse = rl.getMousePosition();
+        try self.floatingTexts.spawnScreen(mouse.x, mouse.y - 14, -spent);
     }
 
     fn createActionHandler(self: *@This()) actions.ActionHandler {
@@ -710,7 +755,9 @@ pub const Game = struct {
 
         const action = ui.popups.draw(ctx);
         var handler = self.createActionHandler();
+        const honeyBefore = self.resources.honey;
         const result = try handler.handlePopupAction(action, self.selectedTileX, self.selectedTileY);
+        try self.spawnSpendFeedback(honeyBefore);
 
         if (result.closePopup) {
             self.showTilePopup = false;
@@ -744,7 +791,8 @@ pub const Game = struct {
         const bloomUnlocked = self.upgradeTree.hasEffect(.lab_bloom);
         if (!auraOn and !burstUnlocked and !bloomUnlocked) return;
 
-        var y: i32 = 130;
+        // Below the HUD stack (honey card + bees/factor lines + grow meter).
+        var y: i32 = 208;
         if (auraOn) {
             text.draw(rl.textFormat("Aura: x%.2f", .{self.labs.auraMul}), 10, y, 18, theme.CatppuccinMocha.Color.mauve);
             y += 23;
@@ -832,7 +880,7 @@ pub const Game = struct {
         self.gridHeight = INITIAL_GRID_HEIGHT;
         self.grid.width = INITIAL_GRID_WIDTH;
         self.grid.height = INITIAL_GRID_HEIGHT;
-        self.grid.updateOffset();
+        self.grid.fitToViewport();
 
         _ = try spawners.spawnBeehive(&self.world, &self.textures, INITIAL_GRID_WIDTH, INITIAL_GRID_HEIGHT);
         for (0..INITIAL_GRID_WIDTH) |i| {
@@ -856,6 +904,7 @@ pub const Game = struct {
         self.beehiveUpgradeCost = 20.0;
         self.cachedBeeCount = self.world.entityToBeeAI.count();
         self.cachedFlowerCount = self.world.entityToFlowerGrowth.count();
+        self.recountBeeTypes();
         self.floatingTexts.items.clearRetainingCapacity();
     }
 
@@ -963,6 +1012,7 @@ pub const Game = struct {
     fn saveProgress(self: *@This()) !void {
         var data = save.Data{
             .language = @intFromEnum(locale.current()),
+            .ui_scale = ui_scale.user(),
             .honey = self.resources.honey,
             .honey_capacity = self.resources.honeyCapacity,
             .storage_level = self.resources.storageLevel,
@@ -1044,6 +1094,7 @@ pub const Game = struct {
             1 => .portuguese_br,
             else => .english,
         });
+        ui_scale.setUser(finiteInRange(data.ui_scale, 0.6, 2.5, 1.0));
 
         self.world.deinit();
         self.world = World.init(self.allocator);
@@ -1054,7 +1105,7 @@ pub const Game = struct {
         self.gridHeight = data.grid_height;
         self.grid.width = data.grid_width;
         self.grid.height = data.grid_height;
-        self.grid.updateOffset();
+        self.grid.fitToViewport();
 
         const hive = try spawners.spawnBeehive(&self.world, &self.textures, self.gridWidth, self.gridHeight);
         if (self.world.getBeehive(hive)) |beehive| {
@@ -1129,6 +1180,7 @@ pub const Game = struct {
 
         self.cachedBeeCount = self.world.entityToBeeAI.count();
         self.cachedFlowerCount = self.world.entityToFlowerGrowth.count();
+        self.recountBeeTypes();
         self.cachedHoneyFactor = self.getBeehiveHoneyFactor();
         self.floatingTexts.items.clearRetainingCapacity();
         self.autosaveTimer = 0;

@@ -6,6 +6,7 @@ const config = @import("../config.zig");
 const format = @import("../format.zig");
 const Resources = @import("../resources.zig").Resources;
 const locale = @import("../localization.zig");
+const icons = @import("icons.zig");
 
 /// HUD system for displaying game information.
 /// Shows honey count with storage bar, bee count, beehive factor, and growth boost cooldown.
@@ -21,28 +22,45 @@ pub const Hud = struct {
         _ = self;
     }
 
-    pub fn draw(self: @This(), resources: *const Resources, bees: usize, beehiveFactor: f32) void {
+    /// One condensed, outlined stat line: `🍯 1250 x4 (+12/s)` — amount,
+    /// beehive factor, rate. Outlined glyphs read over any background, so no
+    /// backing panel is needed.
+    pub fn draw(self: @This(), resources: *const Resources, beehiveFactor: f32) void {
         _ = self;
+        const C = theme.CatppuccinMocha.Color;
+        const outline = rl.Color.init(24, 24, 37, 235);
 
-        const barX: f32 = 10;
-        const barY: f32 = 10;
-
+        const x0: f32 = 12;
+        var y0: f32 = 10;
         if (config.honey_cap_enabled) {
-            drawHoneyBar(resources, barX, barY);
-        } else {
-            drawHoneyText(resources, barX, barY);
+            drawHoneyBar(resources, x0, y0);
+            y0 += 30;
         }
 
-        // Rate line
-        const rateText = rl.textFormat("+%.1f/s", .{resources.honeyPerSec});
-        text.drawShadow(rateText, @intFromFloat(barX), 42, 20, theme.CatppuccinMocha.Color.green);
+        var hbuf: [32]u8 = undefined;
+        const hstr = format.formatShort(resources.honey, &hbuf);
+        const honeyText = rl.textFormat("%s", .{hstr.ptr});
+        const factorText = rl.textFormat("x%.1f", .{beehiveFactor});
+        const rateText = rl.textFormat("(+%.1f/s)", .{resources.honeyPerSec});
 
-        // Draw bee count and beehive factor below
-        text.drawShadow(rl.textFormat(locale.tr("Bees: %d", "Abelhas: %d"), .{bees}), 10, 68, 22, rl.Color.white);
-        text.drawShadow(rl.textFormat(locale.tr("Honey Factor: %.1fx", "Fator de mel: %.1fx"), .{beehiveFactor}), 10, 96, 20, theme.CatppuccinMocha.Color.yellow);
+        const bigSize: i32 = 40;
+        const smallSize: i32 = 24;
+        // Small segments sit on the big number's baseline.
+        const smallY: i32 = @as(i32, @intFromFloat(y0)) + bigSize - smallSize - 3;
 
-        // Draw growth boost cooldown indicator
-        drawGrowthBoostIndicator(resources, barX, 122);
+        const iconR: f32 = 11;
+        // Align the drop's optical center with the digits' optical middle
+        // (digits at size 40 span roughly y0+6..y0+34).
+        const iconCy = y0 + 20 + iconR * 0.65;
+        icons.drawHoneyDropOutlined(x0 + 2 + iconR, iconCy, iconR, C.yellow, outline);
+        rl.drawCircle(@intFromFloat(x0 + 2 + iconR - 3), @intFromFloat(iconCy - 3), 3, rl.Color.init(255, 250, 220, 200));
+
+        var tx: i32 = @intFromFloat(x0 + 2 + iconR * 2 + 12);
+        text.drawOutline(honeyText, tx, @intFromFloat(y0), bigSize, C.yellow, outline);
+        tx += text.measure(honeyText, bigSize) + 10;
+        text.drawOutline(factorText, tx, smallY, smallSize, C.peach, outline);
+        tx += text.measure(factorText, smallSize) + 10;
+        text.drawOutline(rateText, tx, smallY, smallSize, C.green, outline);
     }
 
     fn drawHoneyBar(resources: *const Resources, barX: f32, barY: f32) void {
@@ -90,63 +108,4 @@ pub const Hud = struct {
         }
     }
 
-    fn drawHoneyText(resources: *const Resources, x: f32, y: f32) void {
-        var buf: [32]u8 = undefined;
-        const s = format.formatShort(resources.honey, &buf);
-        const honeyText = rl.textFormat(locale.tr("%s honey", "%s mel"), .{s.ptr});
-        text.drawShadow(honeyText, @intFromFloat(x), @intFromFloat(y), 28, theme.CatppuccinMocha.Color.yellow);
-    }
-
-    fn drawGrowthBoostIndicator(resources: *const Resources, x: f32, y: f32) void {
-        const indicatorWidth: f32 = 120;
-        const indicatorHeight: f32 = 16;
-
-        // Background
-        rl.drawRectangle(
-            @intFromFloat(x),
-            @intFromFloat(y),
-            @intFromFloat(indicatorWidth),
-            @intFromFloat(indicatorHeight),
-            theme.CatppuccinMocha.Color.surface0,
-        );
-
-        // Cooldown fill (fills up as cooldown progresses, full = ready)
-        const readyPercent = 1.0 - resources.getCooldownPercent();
-        const fillWidth = indicatorWidth * readyPercent;
-
-        const fillColor = if (resources.canUseGrowthBoost())
-            theme.CatppuccinMocha.Color.blue
-        else
-            theme.CatppuccinMocha.Color.surface2;
-
-        rl.drawRectangle(
-            @intFromFloat(x),
-            @intFromFloat(y),
-            @intFromFloat(fillWidth),
-            @intFromFloat(indicatorHeight),
-            fillColor,
-        );
-
-        // Border
-        rl.drawRectangleLines(
-            @intFromFloat(x),
-            @intFromFloat(y),
-            @intFromFloat(indicatorWidth),
-            @intFromFloat(indicatorHeight),
-            theme.CatppuccinMocha.Color.surface1,
-        );
-
-        // Text
-        const statusText = if (resources.canUseGrowthBoost())
-            locale.tr("GROW READY!", "CRESCER PRONTO!")
-        else
-            rl.textFormat(locale.tr("Grow: %.1fs", "Crescer: %.1fs"), .{resources.growthBoostCooldown});
-
-        const statusColor = if (resources.canUseGrowthBoost())
-            theme.CatppuccinMocha.Color.blue
-        else
-            theme.CatppuccinMocha.Color.subtext0;
-
-        text.draw(statusText, @as(i32, @intFromFloat(x + 5)), @as(i32, @intFromFloat(y)), 16, statusColor);
-    }
 };
