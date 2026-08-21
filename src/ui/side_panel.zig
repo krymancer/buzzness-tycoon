@@ -12,6 +12,7 @@ const prestige_mod = @import("../prestige.zig");
 const Textures = @import("../textures.zig").Textures;
 const popups = @import("popups.zig");
 const locale = @import("../localization.zig");
+const icons = @import("icons.zig");
 
 pub const PANEL_WIDTH: f32 = 360;
 
@@ -19,8 +20,8 @@ pub const SidePanelContext = struct {
     screenWidth: f32,
     screenHeight: f32,
     resources: *const Resources,
-    beeCount: usize,
-    beehiveFactor: f32,
+    // Owned bees per type, indexed by @intFromEnum(components.BeeType).
+    beeTypeCounts: [4]usize,
     treeState: *const upgrade_tree.State,
     prestige: *const prestige_mod.PrestigeState,
     textures: *const Textures,
@@ -71,15 +72,15 @@ pub fn draw(ctx: SidePanelContext) SidePanelAction {
     y = drawSectionHeader(contentX, y, contentW, locale.tr("Bees", "Abelhas"), C.yellow);
     const honey = ctx.resources.honey;
 
-    y = drawBeeCard(ctx, contentX, y, contentW, mouse, locale.tr("Worker", "Operária"), locale.tr("+pollen", "+pólen"), spawners.BEE_TYPE_COSTS.worker, C.text, true, &action, .buy_worker_bee, honey);
+    y = drawBeeCard(ctx, contentX, y, contentW, mouse, locale.tr("Worker", "Operária"), locale.tr("+pollen", "+pólen"), spawners.BEE_TYPE_COSTS.worker, C.text, ctx.beeTypeCounts[0], &action, .buy_worker_bee, honey);
     if (ctx.treeState.hasEffect(.bee_unlock_swift)) {
-        y = drawBeeCard(ctx, contentX, y, contentW, mouse, locale.tr("Swift", "Veloz"), locale.tr("2x speed", "velocidade 2x"), spawners.BEE_TYPE_COSTS.swift, C.blue, true, &action, .buy_swift_bee, honey);
+        y = drawBeeCard(ctx, contentX, y, contentW, mouse, locale.tr("Swift", "Veloz"), locale.tr("2x speed", "velocidade 2x"), spawners.BEE_TYPE_COSTS.swift, C.blue, ctx.beeTypeCounts[1], &action, .buy_swift_bee, honey);
     }
     if (ctx.treeState.hasEffect(.bee_unlock_efficient)) {
-        y = drawBeeCard(ctx, contentX, y, contentW, mouse, locale.tr("Efficient", "Eficiente"), locale.tr("2x pollen", "pólen 2x"), spawners.BEE_TYPE_COSTS.efficient, C.green, true, &action, .buy_efficient_bee, honey);
+        y = drawBeeCard(ctx, contentX, y, contentW, mouse, locale.tr("Efficient", "Eficiente"), locale.tr("2x pollen", "pólen 2x"), spawners.BEE_TYPE_COSTS.efficient, C.green, ctx.beeTypeCounts[2], &action, .buy_efficient_bee, honey);
     }
     if (ctx.treeState.hasEffect(.bee_unlock_gardener)) {
-        y = drawBeeCard(ctx, contentX, y, contentW, mouse, locale.tr("Gardener", "Jardineira"), locale.tr("plants flowers", "planta flores"), spawners.BEE_TYPE_COSTS.gardener, C.pink, true, &action, .buy_gardener_bee, honey);
+        y = drawBeeCard(ctx, contentX, y, contentW, mouse, locale.tr("Gardener", "Jardineira"), locale.tr("plants flowers", "planta flores"), spawners.BEE_TYPE_COSTS.gardener, C.pink, ctx.beeTypeCounts[3], &action, .buy_gardener_bee, honey);
     }
 
     // Prestige section
@@ -88,8 +89,8 @@ pub fn draw(ctx: SidePanelContext) SidePanelAction {
         y = drawPrestigeCard(contentX, y, contentW, mouse, ctx.prestige, &action);
     }
 
-    // Stats card at bottom
-    drawStatsFooter(panelX, ctx.screenHeight, ctx.beeCount, ctx.beehiveFactor);
+    // Growth-boost cooldown meter at bottom
+    drawGrowFooter(panelX, ctx.screenHeight, ctx.resources);
 
     return action;
 }
@@ -144,56 +145,76 @@ fn drawBeeCard(
     perk: [:0]const u8,
     cost: f32,
     accent: rl.Color,
-    unlocked: bool,
+    owned: usize,
     out: *SidePanelAction,
     buyAction: popups.TilePopupAction,
     honey: f32,
 ) f32 {
     const C = theme.CatppuccinMocha.Color;
-    _ = unlocked;
     const h: f32 = 66;
     const rect = rl.Rectangle.init(x, y, w, h);
     const afford = honey >= cost;
     const hovered = rl.checkCollisionPointRec(mouse, rect);
 
+    // Pressed cards sink a couple of pixels and darken, so a click reads as a
+    // physical push even before the "-cost" popup confirms it.
+    const pressed = hovered and afford and rl.isMouseButtonDown(rl.MouseButton.left);
+    const off: f32 = if (pressed) 2 else 0;
+    const px = x + off;
+    const py = y + off;
+    const cardRect = rl.Rectangle.init(px, py, w, h);
+
     // card bg
-    rl.drawRectangleRounded(rect, 0.18, 6, C.surface0);
+    rl.drawRectangleRounded(cardRect, 0.18, 6, if (pressed) C.surface1 else C.surface0);
 
     // accent strip on left (bee color)
-    rl.drawRectangleRounded(rl.Rectangle.init(x, y, 5, h), 0.8, 4, accent);
+    rl.drawRectangleRounded(rl.Rectangle.init(px, py, 5, h), 0.8, 4, accent);
 
     // border state
     const border = if (hovered and afford) C.yellow else if (afford) accent else C.surface2;
     const thick: f32 = if (hovered and afford) 2.5 else 1.5;
-    rl.drawRectangleRoundedLinesEx(rect, 0.18, 6, thick, border);
+    rl.drawRectangleRoundedLinesEx(cardRect, 0.18, 6, thick, border);
 
     // bee icon (tinted)
     const iconSize: f32 = 38;
-    const iconX = x + 14;
-    const iconY = y + (h - iconSize) / 2;
+    const iconX = px + 14;
+    const iconY = py + (h - iconSize) / 2;
     const src = rl.Rectangle.init(0, 0, 32, 32);
     const dst = rl.Rectangle.init(iconX, iconY, iconSize, iconSize);
     const tint = if (afford) accent else rl.Color.init(accent.r, accent.g, accent.b, 120);
     rl.drawTexturePro(ctx.textures.bee, src, dst, rl.Vector2.init(0, 0), 0, tint);
 
-    // name + perk
-    const textX = @as(i32, @intFromFloat(x + 54));
-    text.draw(name, textX, @as(i32, @intFromFloat(y + 7)), 19, if (afford) C.text else C.subtext0);
-    text.draw(perk, textX, @as(i32, @intFromFloat(y + 35)), 16, C.subtext0);
+    // name + owned count + perk
+    const textX = @as(i32, @intFromFloat(px + 54));
+    text.draw(name, textX, @as(i32, @intFromFloat(py + 7)), 19, if (afford) C.text else C.subtext0);
+    if (owned > 0) {
+        const ownedLabel = rl.textFormat("×%d", .{owned});
+        const nameW = text.measure(name, 19);
+        text.draw(ownedLabel, textX + nameW + 8, @as(i32, @intFromFloat(py + 10)), 15, accentDimmed(accent));
+    }
+    text.draw(perk, textX, @as(i32, @intFromFloat(py + 35)), 16, C.subtext0);
 
-    // cost pill on right
+    // cost pill on right: honey-drop icon + amount
     var cbuf: [32]u8 = undefined;
     const cstr = format.formatShort(cost, &cbuf);
     const costLabel = rl.textFormat("%s", .{cstr.ptr});
-    const costW = text.measure(costLabel, 17);
-    const pillW: f32 = @as(f32, @floatFromInt(costW)) + 18;
+    const costSize: i32 = 17;
+    const costW = text.measure(costLabel, costSize);
+    const dropR: f32 = 5.5;
+    const dropSpan: f32 = dropR * 2 + 6;
+    const contentW: f32 = @as(f32, @floatFromInt(costW)) + dropSpan;
+    const pillW: f32 = contentW + 22;
     const pillH: f32 = 28;
-    const pillX = x + w - pillW - 10;
-    const pillY = y + (h - pillH) / 2;
+    const pillX = px + w - pillW - 10;
+    const pillY = py + (h - pillH) / 2;
     const pillColor = if (afford) C.yellow else C.surface1;
     const pillTextColor = if (afford) C.base else C.overlay0;
     rl.drawRectangleRounded(rl.Rectangle.init(pillX, pillY, pillW, pillH), 0.6, 6, pillColor);
-    text.draw(costLabel, @as(i32, @intFromFloat(pillX + 9)), @as(i32, @intFromFloat(pillY + 3)), 17, pillTextColor);
+    // Icon + amount centered as one group inside the pill.
+    const contentX = pillX + (pillW - contentW) / 2;
+    icons.drawHoneyDrop(contentX + dropR, pillY + pillH / 2 + dropR * 0.65, dropR, pillTextColor);
+    const costY = pillY + (pillH - @as(f32, @floatFromInt(costSize))) / 2;
+    text.draw(costLabel, @as(i32, @intFromFloat(contentX + dropSpan)), @as(i32, @intFromFloat(costY)), costSize, pillTextColor);
 
     if (hovered and afford and rl.isMouseButtonPressed(rl.MouseButton.left)) {
         out.* = .{ .buy = buyAction };
@@ -243,18 +264,38 @@ fn drawPrestigeCard(x: f32, y: f32, w: f32, mouse: rl.Vector2, prestige: *const 
     return y + h + 8;
 }
 
-fn drawStatsFooter(panelX: f32, screenHeight: f32, beeCount: usize, beehiveFactor: f32) void {
+fn accentDimmed(accent: rl.Color) rl.Color {
+    return rl.Color.init(accent.r, accent.g, accent.b, 190);
+}
+
+/// Bottom card: the growth-boost cooldown meter (was in the HUD). Fills up as
+/// the cooldown recovers; full + blue = ready to click a flower.
+fn drawGrowFooter(panelX: f32, screenHeight: f32, resources: *const Resources) void {
     const C = theme.CatppuccinMocha.Color;
     const h: f32 = 44;
     const y = screenHeight - h - 10;
     const x = panelX + 14;
     const w = PANEL_WIDTH - 28;
     const rect = rl.Rectangle.init(x, y, w, h);
-    rl.drawRectangleRounded(rect, 0.4, 6, C.surface0);
-    rl.drawRectangleRoundedLinesEx(rect, 0.4, 6, 1, C.surface1);
+    const ready = resources.canUseGrowthBoost();
 
-    const stats = rl.textFormat(locale.tr("Bees %d   Factor x%.1f", "Abelhas %d   Fator x%.1f"), .{ beeCount, beehiveFactor });
-    const tw = text.measure(stats, 18);
+    rl.drawRectangleRounded(rect, 0.4, 6, C.surface0);
+
+    // Cooldown fill (fills up as the cooldown progresses; full = ready).
+    const readyPercent = 1.0 - resources.getCooldownPercent();
+    const fillW = (w - 6) * readyPercent;
+    if (fillW > 1) {
+        const fillColor = if (ready) rl.Color.init(137, 180, 250, 70) else rl.Color.init(88, 91, 112, 70);
+        rl.drawRectangleRounded(rl.Rectangle.init(x + 3, y + 3, fillW, h - 6), 0.4, 6, fillColor);
+    }
+    rl.drawRectangleRoundedLinesEx(rect, 0.4, 6, 1, if (ready) C.blue else C.surface1);
+
+    const label = if (ready)
+        locale.tr("GROW READY! Click a flower", "CRESCER PRONTO! Clique numa flor")
+    else
+        rl.textFormat(locale.tr("Grow boost: %.1fs", "Impulso de crescimento: %.1fs"), .{resources.growthBoostCooldown});
+    const labelColor = if (ready) C.blue else C.subtext1;
+    const tw = text.measure(label, 18);
     const tx = @as(i32, @intFromFloat(x + w / 2)) - @divFloor(tw, 2);
-    text.draw(stats, tx, @as(i32, @intFromFloat(y + 9)), 18, C.subtext1);
+    text.draw(label, tx, @as(i32, @intFromFloat(y + 9)), 18, labelColor);
 }

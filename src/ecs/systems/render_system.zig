@@ -4,6 +4,7 @@ const World = @import("../world.zig").World;
 const utils = @import("../../utils.zig");
 const theme = @import("../../theme.zig");
 const clock = @import("../../clock.zig");
+const ui_scale = @import("../../ui_scale.zig");
 
 const FlowerRenderData = struct {
     entity: u32,
@@ -56,8 +57,8 @@ pub fn resetCaches() void {
 }
 
 pub fn draw(world: *World, gridOffset: rl.Vector2, gridScale: f32, worldTint: rl.Color) !void {
-    cachedScreenWidth = @floatFromInt(rl.getScreenWidth());
-    cachedScreenHeight = @floatFromInt(rl.getScreenHeight());
+    cachedScreenWidth = ui_scale.width();
+    cachedScreenHeight = ui_scale.height();
 
     const time = @as(f32, @floatCast(clock.time()));
 

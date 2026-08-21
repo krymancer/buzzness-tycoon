@@ -78,6 +78,9 @@ pub fn build(b: *std.Build) void {
             .optimize = optimize,
         }),
     });
+    // utils.zig (grid-math tests) uses raylib types.
+    lib_unit_tests.root_module.linkLibrary(raylib_artifact);
+    lib_unit_tests.root_module.addImport("raylib", raylib);
 
     const run_lib_unit_tests = b.addRunArtifact(lib_unit_tests);
 

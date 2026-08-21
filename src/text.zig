@@ -8,9 +8,11 @@ const rl = @import("raylib");
 const rg = @import("raygui");
 const assets = @import("assets.zig");
 
-// Atlas is rasterized at a high base size and scaled down with bilinear
-// filtering. Include Latin-1 so Portuguese accents render correctly.
-const BASE_SIZE: i32 = 64;
+// Atlas is rasterized at a high base size and scaled down with mipmapped
+// trilinear filtering, so it stays crisp across the whole UI-scale range
+// (the global ui_scale camera can blow text up well past its nominal size).
+// Include Latin-1 so Portuguese accents render correctly.
+const BASE_SIZE: i32 = 128;
 const FONT_CHARS = blk: {
     var chars: [191]i32 = undefined;
     var index: usize = 0;
@@ -34,7 +36,8 @@ pub fn load() void {
         ready = false;
         return;
     };
-    rl.setTextureFilter(font.texture, .bilinear);
+    rl.genTextureMipmaps(&font.texture);
+    rl.setTextureFilter(font.texture, .trilinear);
     ready = true;
 }
 
@@ -66,6 +69,23 @@ pub fn draw(txt: [:0]const u8, x: i32, y: i32, size: i32, color: rl.Color) void 
 pub fn measure(txt: [:0]const u8, size: i32) i32 {
     if (!ready) return rl.measureText(txt, size);
     return @intFromFloat(rl.measureTextEx(font, txt, @floatFromInt(size), spacing(size)).x);
+}
+
+/// Like `draw`, but rings the glyphs with a dark outline (8 offset passes) so
+/// the text reads over any background without needing a backing panel.
+pub fn drawOutline(txt: [:0]const u8, x: i32, y: i32, size: i32, color: rl.Color, outline: rl.Color) void {
+    const o: i32 = @max(1, @divTrunc(size, 18));
+    var oc = outline;
+    // Outline alpha tracks the text's own alpha so fading labels fade whole.
+    oc.a = @intFromFloat(@as(f32, @floatFromInt(outline.a)) * @as(f32, @floatFromInt(color.a)) / 255.0);
+    const offsets = [_][2]i32{
+        .{ -o, 0 }, .{ o, 0 }, .{ 0, -o }, .{ 0, o },
+        .{ -o, -o }, .{ o, -o }, .{ -o, o }, .{ o, o },
+    };
+    for (offsets) |d| {
+        draw(txt, x + d[0], y + d[1], size, oc);
+    }
+    draw(txt, x, y, size, color);
 }
 
 /// Like `draw`, but lays a soft dark drop-shadow behind the text first so it
