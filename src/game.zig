@@ -113,6 +113,9 @@ pub const Game = struct {
         // Monitor queries only work once GLFW is up, so open a default-size
         // window first, then size it to the monitor. (Querying before
         // initWindow returns 0 on raylib 6 → an 800x450 fallback window.)
+        // Render at native pixel density on high-DPI displays (macOS Retina
+        // renders blurry at quarter resolution without this).
+        rl.setConfigFlags(.{ .window_highdpi = true });
         rl.initWindow(1280, 720, "Buzzness Tycoon");
         rl.setExitKey(rl.KeyboardKey.null); // Disable default ESC closing the window
         rl.setWindowState(.{ .window_resizable = true });

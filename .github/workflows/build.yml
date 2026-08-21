@@ -57,9 +57,29 @@ jobs:
           name: buzzness-tycoon-windows
           path: zig-out/bin/buzzness-tycoon.exe
 
+  build-macos:
+    runs-on: macos-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Zig
+        uses: goto-bus-stop/setup-zig@v2
+        with:
+          version: 0.16.0
+
+      - name: Build
+        run: zig build -Doptimize=ReleaseFast
+
+      - name: Upload macOS binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: buzzness-tycoon-macos
+          path: zig-out/bin/buzzness-tycoon
+
   release:
     if: github.event_name == 'release'
-    needs: [build-linux, build-windows]
+    needs: [build-linux, build-windows, build-macos]
     runs-on: ubuntu-latest
     steps:
       - name: Download Linux binary
@@ -74,10 +94,17 @@ jobs:
           name: buzzness-tycoon-windows
           path: ./windows
 
+      - name: Download macOS binary
+        uses: actions/download-artifact@v4
+        with:
+          name: buzzness-tycoon-macos
+          path: ./macos
+
       - name: Create archives
         run: |
           cd linux && tar -czf ../buzzness-tycoon-linux-x86_64.tar.gz buzzness-tycoon && cd ..
           cd windows && zip ../buzzness-tycoon-windows-x86_64.zip buzzness-tycoon.exe && cd ..
+          cd macos && chmod +x buzzness-tycoon && tar -czf ../buzzness-tycoon-macos-arm64.tar.gz buzzness-tycoon && cd ..
 
       - name: Upload release assets
         uses: softprops/action-gh-release@v1
@@ -85,3 +112,4 @@ jobs:
           files: |
             buzzness-tycoon-linux-x86_64.tar.gz
             buzzness-tycoon-windows-x86_64.zip
+            buzzness-tycoon-macos-arm64.tar.gz
