@@ -57,11 +57,17 @@ pub fn update(world: *World, deltaTime: f32) !void {
 
                     world.clearFlowerTargetCount(entity);
 
-                    // Unregister flower from spatial lookup
+                    // Unregister flower from spatial lookup (a SUPER flower
+                    // owns its whole 2x2 block, anchored at its grid position)
                     if (world.getGridPosition(entity)) |gridPos| {
                         const gridX: i32 = @intFromFloat(@floor(gridPos.x));
                         const gridY: i32 = @intFromFloat(@floor(gridPos.y));
                         world.unregisterFlowerAtGrid(gridX, gridY);
+                        if (growth.isSuper) {
+                            world.unregisterFlowerAtGrid(gridX + 1, gridY);
+                            world.unregisterFlowerAtGrid(gridX, gridY + 1);
+                            world.unregisterFlowerAtGrid(gridX + 1, gridY + 1);
+                        }
                     }
                 }
 

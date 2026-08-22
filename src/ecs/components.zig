@@ -149,6 +149,11 @@ pub const FlowerGrowth = struct {
     pollenCooldown: f32,
     pollenMultiplier: f32,
     flowerType: FlowerType,
+    // SUPER flower: a 2x2 block of same-type flowers merged into one plant.
+    // The entity sits at the block's top-left (anchor) cell but owns all four
+    // cells in the grid registry, renders at double scale over the block, and
+    // yields double the four singles' combined pollen (8x a lone flower).
+    isSuper: bool = false,
 
     pub fn init(flowerType: FlowerType) @This() {
         const rl_module = @import("raylib");

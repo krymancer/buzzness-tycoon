@@ -75,6 +75,8 @@ pub fn nodeName(id: u16, english: []const u8) []const u8 {
         17 => "Lab: Explosão",
         18 => "Lab: Florescer",
         19 => "Prestígio",
+        20 => "Crescer Instantâneo",
+        21 => "Superflores",
         else => english,
     };
 }

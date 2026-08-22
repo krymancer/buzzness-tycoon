@@ -250,6 +250,7 @@ pub const Game = struct {
             .gridHeight = INITIAL_GRID_HEIGHT,
         };
 
+        spawners.superFlowersUnlocked = false;
         game.loadProgress() catch |err| switch (err) {
             error.FileNotFound => {},
             else => std.debug.print("Could not load save '{s}': {}\n", .{ savePath, err }),
@@ -478,7 +479,12 @@ pub const Game = struct {
         while (flowerIter.next()) |entity| {
             if (render_system.isFlowerDying(&self.world, entity)) {
                 if (self.world.getGridPosition(entity)) |gridPos| {
-                    const bubble = render_system.getBubbleHitArea(gridPos.x, gridPos.y, self.grid.offset, self.grid.scale);
+                    // SUPER flowers draw (and bubble) at their 2x2 block centre.
+                    var superOffset: f32 = 0;
+                    if (self.world.getFlowerGrowth(entity)) |growth| {
+                        if (growth.isSuper) superOffset = 0.5;
+                    }
+                    const bubble = render_system.getBubbleHitArea(gridPos.x + superOffset, gridPos.y + superOffset, self.grid.offset, self.grid.scale);
                     const dx = mousePos.x - bubble.x;
                     const dy = mousePos.y - bubble.y;
                     if (dx * dx + dy * dy <= bubble.radius * bubble.radius) {
@@ -496,14 +502,6 @@ pub const Game = struct {
             const centerY = @as(i32, @intCast((self.gridHeight - 1) / 2));
             if (tile.x == centerX and tile.y == centerY) return;
 
-            if (self.world.getFlowerAtGrid(tile.x, tile.y)) |flowerEntity| {
-                if (!render_system.isFlowerDying(&self.world, flowerEntity)) {
-                    if (self.resources.canUseGrowthBoost()) {
-                        self.boostFlowerGrowth(flowerEntity);
-                        return;
-                    }
-                }
-            }
             self.selectedTileX = tile.x;
             self.selectedTileY = tile.y;
             self.showTilePopup = true;
@@ -528,6 +526,15 @@ pub const Game = struct {
         self.resources.updateCooldown(deltaTime);
         self.resources.tickRate(deltaTime);
         self.labs.update(deltaTime);
+
+        // Instant Grow: once unlocked, it fires on its own — whenever the
+        // cooldown completes, a random still-growing flower blooms instantly.
+        if (self.upgradeTree.hasEffect(.growth_boost_unlock) and self.resources.canUseGrowthBoost()) {
+            if (self.pickRandomGrowableFlower()) |flowerEntity| {
+                var handler = self.createActionHandler();
+                handler.instantGrowFlower(flowerEntity);
+            }
+        }
 
         // Cache honey factor once per frame (draw re-uses this — no double lookup).
         self.cachedHoneyFactor = self.getBeehiveHoneyFactor();
@@ -677,6 +684,7 @@ pub const Game = struct {
                     .beehiveUpgradeCost = self.beehiveUpgradeCost,
                     .textures = &self.textures,
                     .world = &self.world,
+                    .growthUnlocked = self.upgradeTree.hasEffect(.growth_boost_unlock),
                 };
                 _ = ui.popups.draw(ctx);
             } else {
@@ -706,6 +714,17 @@ pub const Game = struct {
         // Log metrics
         const fps: f32 = @floatFromInt(rl.getFPS());
         self.metrics.log(fps, rl.getFrameTime() * 1000.0, self.cachedBeeCount, self.cachedFlowerCount);
+    }
+
+    /// Sweep the whole grid for 2x2 same-type blocks and merge them. Used when
+    /// the Super Flowers node is purchased, so existing arrangements pay off
+    /// immediately instead of waiting for the next spawn next to them.
+    fn mergeExistingSuperBlocks(self: *@This()) !void {
+        for (0..self.gridWidth) |i| {
+            for (0..self.gridHeight) |j| {
+                _ = try spawners.tryMergeSuperFlower(&self.world, @intCast(i), @intCast(j));
+            }
+        }
     }
 
     /// Refresh the per-type owned-bee counts shown on the shop cards.
@@ -751,6 +770,7 @@ pub const Game = struct {
             .beehiveUpgradeCost = self.beehiveUpgradeCost,
             .textures = &self.textures,
             .world = &self.world,
+            .growthUnlocked = self.upgradeTree.hasEffect(.growth_boost_unlock),
         };
 
         const action = ui.popups.draw(ctx);
@@ -780,9 +800,28 @@ pub const Game = struct {
         handler.rebirthFlower(entity);
     }
 
-    fn boostFlowerGrowth(self: *@This(), entity: u32) void {
-        var handler = self.createActionHandler();
-        handler.boostFlowerGrowth(entity);
+    /// Uniformly random flower that hasn't fully bloomed yet, or null.
+    fn pickRandomGrowableFlower(self: *@This()) ?u32 {
+        var count: usize = 0;
+        var it = self.world.iterateFlowers();
+        while (it.next()) |entity| {
+            if (self.world.getFlowerGrowth(entity)) |growth| {
+                if (growth.state < 4) count += 1;
+            }
+        }
+        if (count == 0) return null;
+
+        var pick = rl.getRandomValue(0, @intCast(count - 1));
+        it = self.world.iterateFlowers();
+        while (it.next()) |entity| {
+            if (self.world.getFlowerGrowth(entity)) |growth| {
+                if (growth.state < 4) {
+                    if (pick == 0) return entity;
+                    pick -= 1;
+                }
+            }
+        }
+        return null;
     }
 
     fn drawLabsWidget(self: *@This()) void {
@@ -900,6 +939,7 @@ pub const Game = struct {
 
         self.upgradeTree.deinit();
         self.upgradeTree = upgrade_tree.State.init(self.allocator);
+        spawners.superFlowersUnlocked = false;
 
         self.beehiveUpgradeCost = 20.0;
         self.cachedBeeCount = self.world.entityToBeeAI.count();
@@ -933,6 +973,10 @@ pub const Game = struct {
             gp.x += 1.0;
             gp.y += 1.0;
         }
+        // The grid→flower registry's integer keys are now stale — rebuild it.
+        // (Previously skipped, which left every tile lookup after an expansion
+        // off by one diagonal.)
+        self.world.rebuildFlowerRegistry();
 
         // Shift cached target coords on locked bees so they don't chase stale tiles.
         var beeAiIt = self.world.entityToBeeAI.iterator();
@@ -1004,6 +1048,12 @@ pub const Game = struct {
             .lab_aura => self.labs.auraMul = labs.AURA_MUL,
             .lab_burst, .lab_bloom => {}, // unlock only, activation via hotkey
             .prestige_unlock => self.prestige.hasUnlockedPrestige = true,
+            .growth_boost_unlock => {}, // gate checked via hasEffect at usage
+            .super_flower_unlock => {
+                spawners.superFlowersUnlocked = true;
+                // Reward blocks the player already laid out: merge them now.
+                try self.mergeExistingSuperBlocks();
+            },
         }
 
         try self.upgradeTree.markPurchased(nodeId);
@@ -1068,6 +1118,7 @@ pub const Game = struct {
                 .lifespan_time_alive = lifespan.timeAlive,
                 .lifespan_total_time_alive = lifespan.totalTimeAlive,
                 .lifespan_time_span = lifespan.timeSpan,
+                .is_super = growth.isSuper,
             });
         }
 
@@ -1136,6 +1187,14 @@ pub const Game = struct {
                 lifespan.totalTimeAlive = finiteAtLeast(flower.lifespan_total_time_alive, 0, 0);
                 lifespan.timeSpan = finiteAtLeast(flower.lifespan_time_span, 1, 60);
             }
+            // A saved SUPER flower is only its anchor entity; restore its
+            // double-size form and 2x2 block ownership (if it still fits).
+            if (flower.is_super and
+                flower.x + 1 < @as(i32, @intCast(self.gridWidth)) and
+                flower.y + 1 < @as(i32, @intCast(self.gridHeight)))
+            {
+                spawners.applySuperForm(&self.world, entity, flower.x, flower.y);
+            }
         }
 
         for (data.bee_counts, 0..) |count, index| {
@@ -1173,6 +1232,7 @@ pub const Game = struct {
         self.prestige.royalJelly = data.royal_jelly;
         self.prestige.thisRunHoney = finiteAtLeast(data.this_run_honey, 0, 0);
         self.prestige.hasUnlockedPrestige = data.prestige_unlocked or self.upgradeTree.hasEffect(.prestige_unlock);
+        spawners.superFlowersUnlocked = self.upgradeTree.hasEffect(.super_flower_unlock);
         self.labs.auraMul = finiteAtLeast(data.aura_multiplier, 1, 1);
         self.labs.burstRemaining = finiteAtLeast(data.burst_remaining, 0, 0);
         self.labs.burstCooldown = finiteAtLeast(data.burst_cooldown, 0, 0);

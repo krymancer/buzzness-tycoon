@@ -15,6 +15,8 @@ pub const EffectKind = enum {
     lab_burst,
     lab_bloom,
     prestige_unlock,
+    growth_boost_unlock,
+    super_flower_unlock,
 };
 
 pub const Node = struct {
@@ -48,10 +50,11 @@ pub const NODES = [_]Node{
     .{ .id = 5, .name = "Efficient Bee", .cost = 400, .prereqs = &[_]NodeId{4}, .effect = .bee_unlock_efficient, .col = -1, .row = 2 },
     .{ .id = 6, .name = "Gardener Bee", .cost = 2000, .prereqs = &[_]NodeId{5}, .effect = .bee_unlock_gardener, .col = -1, .row = 3 },
 
-    // Growth branch (col 0, directly below root)
-    .{ .id = 7, .name = "Grow CD -1.5s", .cost = 60, .prereqs = r_worker, .effect = .growth_cd_sub, .value = 1.5, .col = 0, .row = 1 },
-    .{ .id = 8, .name = "Grow CD -3s", .cost = 300, .prereqs = &[_]NodeId{7}, .effect = .growth_cd_sub, .value = 1.5, .col = 0, .row = 2 },
-    .{ .id = 9, .name = "Grow CD -6s", .cost = 1800, .prereqs = &[_]NodeId{8}, .effect = .growth_cd_sub, .value = 3.0, .col = 0, .row = 3 },
+    // Growth branch (col 0, directly below root). Instant Grow (id 20) gates
+    // the whole branch: the click-a-flower boost is locked until purchased.
+    .{ .id = 7, .name = "Grow CD -1.5s", .cost = 60, .prereqs = &[_]NodeId{20}, .effect = .growth_cd_sub, .value = 1.5, .col = 0, .row = 2 },
+    .{ .id = 8, .name = "Grow CD -3s", .cost = 300, .prereqs = &[_]NodeId{7}, .effect = .growth_cd_sub, .value = 1.5, .col = 0, .row = 3 },
+    .{ .id = 9, .name = "Grow CD -6s", .cost = 1800, .prereqs = &[_]NodeId{8}, .effect = .growth_cd_sub, .value = 3.0, .col = -1, .row = 4 },
 
     // Grid branch (col 1)
     .{ .id = 10, .name = "Grid +1 ring", .cost = 150, .prereqs = r_worker, .effect = .grid_expand, .value = 1, .col = 1, .row = 1 },
@@ -68,6 +71,11 @@ pub const NODES = [_]Node{
     .{ .id = 17, .name = "Lab: Burst", .cost = 25000, .prereqs = &[_]NodeId{ 16, 9 }, .effect = .lab_burst, .col = -1, .row = 5 },
     .{ .id = 18, .name = "Lab: Bloom", .cost = 25000, .prereqs = &[_]NodeId{ 16, 12 }, .effect = .lab_bloom, .col = 1, .row = 5 },
     .{ .id = 19, .name = "Prestige", .cost = 100000, .prereqs = &[_]NodeId{ 17, 18 }, .effect = .prestige_unlock, .col = 0, .row = 6 },
+
+    // Instant Grow: unlocks the click-a-flower growth boost (was always-on).
+    .{ .id = 20, .name = "Instant Grow", .cost = 30, .prereqs = r_worker, .effect = .growth_boost_unlock, .col = 0, .row = 1 },
+    // Super Flowers: 2x2 same-type blocks merge into an 8x SUPER flower.
+    .{ .id = 21, .name = "Super Flowers", .cost = 3500, .prereqs = &[_]NodeId{ 8, 10 }, .effect = .super_flower_unlock, .col = 1, .row = 4 },
 };
 
 pub const ROOT_ID: NodeId = 0;
