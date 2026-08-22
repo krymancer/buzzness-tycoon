@@ -89,8 +89,10 @@ pub fn draw(ctx: SidePanelContext) SidePanelAction {
         y = drawPrestigeCard(contentX, y, contentW, mouse, ctx.prestige, &action);
     }
 
-    // Growth-boost cooldown meter at bottom
-    drawGrowFooter(panelX, ctx.screenHeight, ctx.resources);
+    // Growth-boost cooldown meter at bottom (once Instant Grow is unlocked)
+    if (ctx.treeState.hasEffect(.growth_boost_unlock)) {
+        drawGrowFooter(panelX, ctx.screenHeight, ctx.resources);
+    }
 
     return action;
 }
@@ -268,8 +270,9 @@ fn accentDimmed(accent: rl.Color) rl.Color {
     return rl.Color.init(accent.r, accent.g, accent.b, 190);
 }
 
-/// Bottom card: the growth-boost cooldown meter (was in the HUD). Fills up as
-/// the cooldown recovers; full + blue = ready to click a flower.
+/// Bottom card: the Instant Grow cooldown meter. The ability fires on its own
+/// (fully growing a random flower) whenever the meter fills, so this is pure
+/// status: the countdown, or "ready" while it waits for a sproutable flower.
 fn drawGrowFooter(panelX: f32, screenHeight: f32, resources: *const Resources) void {
     const C = theme.CatppuccinMocha.Color;
     const h: f32 = 44;
@@ -285,17 +288,26 @@ fn drawGrowFooter(panelX: f32, screenHeight: f32, resources: *const Resources) v
     const readyPercent = 1.0 - resources.getCooldownPercent();
     const fillW = (w - 6) * readyPercent;
     if (fillW > 1) {
-        const fillColor = if (ready) rl.Color.init(137, 180, 250, 70) else rl.Color.init(88, 91, 112, 70);
+        const fillColor = if (ready) rl.Color.init(166, 227, 161, 60) else rl.Color.init(88, 91, 112, 70);
         rl.drawRectangleRounded(rl.Rectangle.init(x + 3, y + 3, fillW, h - 6), 0.4, 6, fillColor);
     }
-    rl.drawRectangleRoundedLinesEx(rect, 0.4, 6, 1, if (ready) C.blue else C.surface1);
+    rl.drawRectangleRoundedLinesEx(rect, 0.4, 6, 1, if (ready) C.green else C.surface1);
 
     const label = if (ready)
-        locale.tr("GROW READY! Click a flower", "CRESCER PRONTO! Clique numa flor")
+        locale.tr("Instant Grow: ready", "Crescer instantâneo: pronto")
     else
-        rl.textFormat(locale.tr("Grow boost: %.1fs", "Impulso de crescimento: %.1fs"), .{resources.growthBoostCooldown});
-    const labelColor = if (ready) C.blue else C.subtext1;
-    const tw = text.measure(label, 18);
-    const tx = @as(i32, @intFromFloat(x + w / 2)) - @divFloor(tw, 2);
-    text.draw(label, tx, @as(i32, @intFromFloat(y + 9)), 18, labelColor);
+        rl.textFormat(locale.tr("Instant Grow: %.1fs", "Crescer instantâneo: %.1fs"), .{resources.growthBoostCooldown});
+    const labelColor = if (ready) C.green else C.subtext1;
+
+    // Sprout icon + label centred as one group, both axes.
+    const labelSize: i32 = 18;
+    const iconH: f32 = 19;
+    const iconW: f32 = iconH * 1.1;
+    const gap: f32 = 7;
+    const tw: f32 = @floatFromInt(text.measure(label, labelSize));
+    const groupW = iconW + gap + tw;
+    const startX = x + (w - groupW) / 2;
+    icons.drawSprout(startX + iconW / 2, y + (h + iconH) / 2 - 1, iconH, C.green);
+    const ty = y + (h - @as(f32, @floatFromInt(labelSize))) / 2;
+    text.draw(label, @intFromFloat(startX + iconW + gap), @intFromFloat(ty), labelSize, labelColor);
 }

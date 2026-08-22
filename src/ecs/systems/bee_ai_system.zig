@@ -10,6 +10,7 @@ const utils = @import("../../utils.zig");
 const Resources = @import("../../resources.zig").Resources;
 const labs_mod = @import("../../labs.zig");
 const prestige_mod = @import("../../prestige.zig");
+const spawners = @import("../../spawners.zig");
 
 var pollinationTimer: f32 = 0;
 const POLLINATION_CHECK_INTERVAL: f32 = 0.5;
@@ -243,10 +244,13 @@ fn buildAvailableFlowersCache(world: *World) void {
                     if (lifespan.isDead()) continue;
                 }
 
+                // SUPER flowers span a 2x2 block anchored at gridPos; bees
+                // should fly to the block's visual centre.
+                const superOffset: f32 = if (growth.isSuper) 0.5 else 0.0;
                 availableFlowers[availableFlowerCount] = .{
                     .entity = entity,
-                    .gridX = gridPos.x,
-                    .gridY = gridPos.y,
+                    .gridX = gridPos.x + superOffset,
+                    .gridY = gridPos.y + superOffset,
                 };
                 availableFlowerCount += 1;
             }
@@ -357,6 +361,7 @@ fn handlePollination(world: *World, beeAI: anytype, position: anytype, gridOffse
             try world.addFlowerGrowth(flowerEntity, components.FlowerGrowth.init(textures.flowersToFlowerType(flowerType)));
             try world.addLifespan(flowerEntity, components.Lifespan.init(@floatFromInt(rl.getRandomValue(60, 120))));
             world.registerFlowerAtGrid(gridX, gridY, flowerEntity);
+            _ = try spawners.tryMergeSuperFlower(world, gridX, gridY);
         }
     }
 }

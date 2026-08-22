@@ -19,6 +19,7 @@ pub const Flower = struct {
     lifespan_time_alive: f32,
     lifespan_total_time_alive: f32,
     lifespan_time_span: f32,
+    is_super: bool = false,
 };
 
 pub const Data = struct {
@@ -109,7 +110,7 @@ pub fn write(io: std.Io, save_path: []const u8, data: *const Data) !void {
         if (count > 0) try writer.print("bees {d} {d}\n", .{ bee_type, count });
     }
     for (data.flowers.items) |flower| {
-        try writer.print("flower {d} {d} {d} {d} {d} {d} {d} {d} {d} {d} {d} {d} {d}\n", .{
+        try writer.print("flower {d} {d} {d} {d} {d} {d} {d} {d} {d} {d} {d} {d} {d} {d}\n", .{
             flower.flower_type,
             flower.x,
             flower.y,
@@ -123,6 +124,7 @@ pub fn write(io: std.Io, save_path: []const u8, data: *const Data) !void {
             flower.lifespan_time_alive,
             flower.lifespan_total_time_alive,
             flower.lifespan_time_span,
+            @intFromBool(flower.is_super),
         });
     }
     try writer.writeAll("END\n");
@@ -214,6 +216,8 @@ pub fn read(allocator: std.mem.Allocator, io: std.Io, save_path: []const u8) !Da
                 .lifespan_time_alive = try parse(f32, tokens.next()),
                 .lifespan_total_time_alive = try parse(f32, tokens.next()),
                 .lifespan_time_span = try parse(f32, tokens.next()),
+                // Added after v1 shipped; absent in older saves.
+                .is_super = parseOptionalFlag(tokens.next()),
             });
         }
     }
@@ -222,6 +226,11 @@ pub fn read(allocator: std.mem.Allocator, io: std.Io, save_path: []const u8) !Da
         return error.InvalidSave;
     }
     return data;
+}
+
+fn parseOptionalFlag(token: ?[]const u8) bool {
+    const value = token orelse return false;
+    return !std.mem.eql(u8, value, "0");
 }
 
 fn parse(comptime T: type, token: ?[]const u8) !T {
@@ -267,6 +276,7 @@ test "save data survives an atomic round trip" {
         .lifespan_time_alive = 10,
         .lifespan_total_time_alive = 20,
         .lifespan_time_span = 120,
+        .is_super = true,
     });
 
     try write(std.testing.io, save_path, &original);
@@ -280,4 +290,30 @@ test "save data survives an atomic round trip" {
     try std.testing.expectEqual(@as(u32, 17), restored.bee_counts[2]);
     try std.testing.expectEqual(@as(usize, 1), restored.flowers.items.len);
     try std.testing.expectEqual(@as(f32, 3.5), restored.flowers.items[0].pollen_multiplier);
+    try std.testing.expect(restored.flowers.items[0].is_super);
+}
+
+test "flower lines without the is_super field still parse (old saves)" {
+    var temp = std.testing.tmpDir(.{});
+    defer temp.cleanup();
+
+    var path_buffer: [128]u8 = undefined;
+    const save_path = try std.fmt.bufPrint(&path_buffer, ".zig-cache/tmp/{s}/save_old.txt", .{temp.sub_path});
+
+    const old_save =
+        "BUZZNESS_TYCOON 1\n" ++
+        "resources 100 500 1 0 0 10 1\n" ++
+        "hive 1 20\n" ++
+        "grid 17 17\n" ++
+        "prestige 0 0 0\n" ++
+        "labs 1 0 0 0\n" ++
+        "flower 1 4 8 4 3 2 35 1 7 3.5 10 20 120\n" ++
+        "END\n";
+    try std.Io.Dir.cwd().writeFile(std.testing.io, .{ .sub_path = save_path, .data = old_save });
+
+    var restored = try read(std.testing.allocator, std.testing.io, save_path);
+    defer restored.deinit(std.testing.allocator);
+
+    try std.testing.expectEqual(@as(usize, 1), restored.flowers.items.len);
+    try std.testing.expect(!restored.flowers.items[0].is_super);
 }

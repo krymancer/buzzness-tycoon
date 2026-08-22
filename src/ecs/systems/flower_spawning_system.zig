@@ -5,6 +5,7 @@ const components = @import("../components.zig");
 const utils = @import("../../utils.zig");
 const textures = @import("../../textures.zig");
 const Flowers = textures.Flowers;
+const spawners = @import("../../spawners.zig");
 
 var emptyCellTimer: f32 = 0;
 // The meadow re-seeds itself fairly briskly so bees rarely run out of targets —
@@ -62,6 +63,7 @@ fn trySpawnFlowerInEmptyCell(world: *World, gridWidth: usize, gridHeight: usize,
                 try world.addFlowerGrowth(flowerEntity, components.FlowerGrowth.init(textures.flowersToFlowerType(flowerType)));
                 try world.addLifespan(flowerEntity, components.Lifespan.init(@floatFromInt(rl.getRandomValue(60, 120))));
                 world.registerFlowerAtGrid(@intCast(gridI), @intCast(gridJ), flowerEntity);
+                _ = try spawners.tryMergeSuperFlower(world, @intCast(gridI), @intCast(gridJ));
                 return;
             }
         }

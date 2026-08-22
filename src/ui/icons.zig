@@ -15,6 +15,31 @@ pub fn drawHoneyDrop(cx: f32, cy: f32, r: f32, color: rl.Color) void {
     rl.drawCircle(@intFromFloat(cx), @intFromFloat(cy), r, color);
 }
 
+/// Sprout: a stem with two leaves, standing on (cx, baseY) with height `h`.
+/// Icon for the Instant Grow ability.
+pub fn drawSprout(cx: f32, baseY: f32, h: f32, color: rl.Color) void {
+    const stemW = @max(2.0, h * 0.16);
+    rl.drawLineEx(rl.Vector2.init(cx, baseY), rl.Vector2.init(cx, baseY - h), stemW, color);
+    // Left leaf (lower) and right leaf (higher); draw each triangle in both
+    // windings so backface culling can never hide one.
+    const leafPts = [2][3]rl.Vector2{
+        .{
+            rl.Vector2.init(cx, baseY - h * 0.35),
+            rl.Vector2.init(cx - h * 0.55, baseY - h * 0.6),
+            rl.Vector2.init(cx - h * 0.12, baseY - h * 0.78),
+        },
+        .{
+            rl.Vector2.init(cx, baseY - h * 0.6),
+            rl.Vector2.init(cx + h * 0.55, baseY - h * 0.85),
+            rl.Vector2.init(cx + h * 0.12, baseY - h * 1.0),
+        },
+    };
+    for (leafPts) |p| {
+        rl.drawTriangle(p[0], p[1], p[2], color);
+        rl.drawTriangle(p[2], p[1], p[0], color);
+    }
+}
+
 /// Same drop ringed with a dark outline, to match text.drawOutline glyphs.
 pub fn drawHoneyDropOutlined(cx: f32, cy: f32, r: f32, color: rl.Color, outline: rl.Color) void {
     drawHoneyDrop(cx, cy, r + 2, outline);

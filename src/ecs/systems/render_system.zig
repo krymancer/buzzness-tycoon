@@ -12,6 +12,7 @@ const FlowerRenderData = struct {
     gridY: f32,
     sortKey: f32,
     isDying: bool,
+    isSuper: bool,
 };
 
 fn compareFlowers(context: void, a: FlowerRenderData, b: FlowerRenderData) bool {
@@ -100,13 +101,19 @@ pub fn draw(world: *World, gridOffset: rl.Vector2, gridScale: f32, worldTint: rl
                 const timeRemaining = lifespan.timeSpan - lifespan.totalTimeAlive;
                 isDying = timeRemaining <= 5.0 and timeRemaining > 0;
             }
+            // A SUPER flower anchors at the block's top-left cell but is drawn
+            // at the 2x2 block's centre, sorted with the block's front edge.
+            var isSuper = false;
+            if (world.getFlowerGrowth(entity)) |growth| isSuper = growth.isSuper;
+            const superOffset: f32 = if (isSuper) 0.5 else 0.0;
             if (flowerCount < flowerList.len) {
                 flowerList[flowerCount] = .{
                     .entity = entity,
-                    .gridX = gridPos.x,
-                    .gridY = gridPos.y,
-                    .sortKey = gridPos.x + gridPos.y,
+                    .gridX = gridPos.x + superOffset,
+                    .gridY = gridPos.y + superOffset,
+                    .sortKey = gridPos.x + gridPos.y + superOffset * 2,
                     .isDying = isDying,
+                    .isSuper = isSuper,
                 };
                 flowerCount += 1;
             }
@@ -126,8 +133,10 @@ pub fn draw(world: *World, gridOffset: rl.Vector2, gridScale: f32, worldTint: rl
                 const phase = flowerData.gridX * 1.7 + flowerData.gridY * 0.9;
                 const sway = @sin(time * 0.9 + phase) * 2.6 * growthFrac;
 
-                // Ground shadow, scaled with how grown the flower is.
-                drawGroundShadow(flowerData.gridX, flowerData.gridY, gridOffset, gridScale, 0.34 + 0.14 * growthFrac, 0.22);
+                // Ground shadow, scaled with how grown the flower is (and with
+                // the whole block for SUPER flowers).
+                const shadowMul: f32 = if (flowerData.isSuper) 2.0 else 1.0;
+                drawGroundShadow(flowerData.gridX, flowerData.gridY, gridOffset, gridScale, (0.34 + 0.14 * growthFrac) * shadowMul, 0.22);
 
                 if (growth.state == 4 and growth.hasPollen) {
                     // Pollen glow breathes and stays bright (untinted) so ready

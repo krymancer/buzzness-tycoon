@@ -460,6 +460,28 @@ pub const World = struct {
         return self.gridPosToFlower.contains(GridKey.init(gridX, gridY));
     }
 
+    /// Rebuild the grid→flower registry from the entities' current grid
+    /// positions. Needed after bulk position shifts (grid expansion), where
+    /// the registry's integer keys would otherwise go stale. SUPER flowers
+    /// re-claim their whole 2x2 block.
+    pub fn rebuildFlowerRegistry(self: *@This()) void {
+        self.gridPosToFlower.clearRetainingCapacity();
+        var iter = self.iterateFlowers();
+        while (iter.next()) |entity| {
+            const gridPos = self.getGridPosition(entity) orelse continue;
+            const gridX: i32 = @intFromFloat(@floor(gridPos.x));
+            const gridY: i32 = @intFromFloat(@floor(gridPos.y));
+            self.registerFlowerAtGrid(gridX, gridY, entity);
+            if (self.getFlowerGrowth(entity)) |growth| {
+                if (growth.isSuper) {
+                    self.registerFlowerAtGrid(gridX + 1, gridY, entity);
+                    self.registerFlowerAtGrid(gridX, gridY + 1, entity);
+                    self.registerFlowerAtGrid(gridX + 1, gridY + 1, entity);
+                }
+            }
+        }
+    }
+
     pub fn queryEntitiesWithPosition(self: *@This()) !QueryIterator {
         var entities: std.ArrayList(Entity) = .empty;
         var iter = self.entityToPosition.keyIterator();

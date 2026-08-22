@@ -88,6 +88,7 @@ pub const ActionHandler = struct {
             .plant_rose => {
                 if (self.resources.spendHoney(spawners.FLOWER_COSTS.rose)) {
                     _ = try spawners.spawnFlower(self.world, self.textures, .rose, selectedTileX, selectedTileY);
+                    _ = try spawners.tryMergeSuperFlower(self.world, selectedTileX, selectedTileY);
                     result.flowerCountDelta = 1;
                     result.closePopup = true;
                 }
@@ -95,6 +96,7 @@ pub const ActionHandler = struct {
             .plant_tulip => {
                 if (self.resources.spendHoney(spawners.FLOWER_COSTS.tulip)) {
                     _ = try spawners.spawnFlower(self.world, self.textures, .tulip, selectedTileX, selectedTileY);
+                    _ = try spawners.tryMergeSuperFlower(self.world, selectedTileX, selectedTileY);
                     result.flowerCountDelta = 1;
                     result.closePopup = true;
                 }
@@ -102,6 +104,7 @@ pub const ActionHandler = struct {
             .plant_dandelion => {
                 if (self.resources.spendHoney(spawners.FLOWER_COSTS.dandelion)) {
                     _ = try spawners.spawnFlower(self.world, self.textures, .dandelion, selectedTileX, selectedTileY);
+                    _ = try spawners.tryMergeSuperFlower(self.world, selectedTileX, selectedTileY);
                     result.flowerCountDelta = 1;
                     result.closePopup = true;
                 }
@@ -127,16 +130,13 @@ pub const ActionHandler = struct {
         }
     }
 
-    /// Boost a flower's growth by one stage
-    pub fn boostFlowerGrowth(self: *@This(), entity: u32) void {
+    /// Instant Grow: bloom a flower fully (pollen ready) and consume the
+    /// growth-boost cooldown. Fired automatically by the game loop.
+    pub fn instantGrowFlower(self: *@This(), entity: u32) void {
         if (self.resources.useGrowthBoost()) {
             if (self.world.getFlowerGrowth(entity)) |growth| {
-                if (growth.state < 4) {
-                    growth.state += 1;
-                }
-                if (growth.state >= 4) {
-                    growth.hasPollen = true;
-                }
+                growth.state = 4;
+                growth.hasPollen = true;
             }
         }
     }
