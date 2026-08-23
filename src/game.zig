@@ -68,7 +68,6 @@ pub const Game = struct {
     isDragging: bool,
     lastMousePos: rl.Vector2,
 
-    beehiveUpgradeCost: f32,
     cachedBeeCount: usize,
     cachedBeeTypeCounts: [4]usize,
     cachedFlowerCount: usize,
@@ -84,10 +83,6 @@ pub const Game = struct {
     showPrestigeDialog: bool,
 
     // Tile popup state
-    showTilePopup: bool,
-    popupJustOpened: bool, // Prevents click-through on popup open frame
-    selectedTileX: i32,
-    selectedTileY: i32,
     clickStartPos: rl.Vector2,
 
     // Pause menu state
@@ -226,16 +221,11 @@ pub const Game = struct {
             .isDragging = false,
             .lastMousePos = rl.Vector2.init(0, 0),
 
-            .beehiveUpgradeCost = 20.0,
             .cachedBeeCount = 0,
             .cachedBeeTypeCounts = .{ 0, 0, 0, 0 },
             .cachedFlowerCount = 0,
             .cachedHoneyFactor = 1.0,
 
-            .showTilePopup = false,
-            .popupJustOpened = false,
-            .selectedTileX = 0,
-            .selectedTileY = 0,
             .clickStartPos = rl.Vector2.init(0, 0),
 
             .showPauseMenu = false,
@@ -416,9 +406,6 @@ pub const Game = struct {
             } else if (self.showTree) {
                 self.showTree = false;
                 return;
-            } else if (self.showTilePopup) {
-                self.showTilePopup = false;
-                return;
             } else if (self.showPauseMenu) {
                 self.showPauseMenu = false;
                 self.isPaused = false;
@@ -432,7 +419,7 @@ pub const Game = struct {
         }
 
         // Block input when popup, pause menu, tree, or prestige dialog is open
-        if (self.showTilePopup or self.showPauseMenu or self.showTree or self.showPrestigeDialog) {
+        if (self.showPauseMenu or self.showTree or self.showPrestigeDialog) {
             return;
         }
 
@@ -486,19 +473,6 @@ pub const Game = struct {
                     }
                 }
             }
-        }
-
-        // Check if we clicked on a tile
-        if (self.grid.getHoveredTile()) |tile| {
-            // Beehive tile: side panel handles all hive actions, skip popup
-            const centerX = @as(i32, @intCast((self.gridWidth - 1) / 2));
-            const centerY = @as(i32, @intCast((self.gridHeight - 1) / 2));
-            if (tile.x == centerX and tile.y == centerY) return;
-
-            self.selectedTileX = tile.x;
-            self.selectedTileY = tile.y;
-            self.showTilePopup = true;
-            self.popupJustOpened = true;
         }
     }
 
@@ -612,7 +586,7 @@ pub const Game = struct {
             .textures = &self.textures,
         };
         const sideAction = ui.side_panel.draw(sideCtx);
-        if (!self.showTilePopup and !self.showPauseMenu and !self.showTree and !self.showPrestigeDialog) {
+        if (!self.showPauseMenu and !self.showTree and !self.showPrestigeDialog) {
             switch (sideAction) {
                 .none => {},
                 .open_tree => self.showTree = true,
@@ -624,7 +598,7 @@ pub const Game = struct {
                     // Bulk buy: repeat until the quantity is met or honey runs out.
                     var n: u32 = 0;
                     while (n < b.qty) : (n += 1) {
-                        const result = try handler.handlePopupAction(b.action, 0, 0);
+                        const result = try handler.handleBuy(b.action);
                         if (result.beeCountDelta == 0) break;
                         delta += result.beeCountDelta;
                     }
@@ -661,32 +635,6 @@ pub const Game = struct {
             const fpsX = @as(i32, @intFromFloat(self.width - ui.side_panel.PANEL_WIDTH - 100));
             rl.drawFPS(fpsX, 10);
             text.draw(rl.textFormat("%.2f ms", .{rl.getFrameTime() * 1000.0}), fpsX, 30, 20, rl.Color.white);
-        }
-
-        // Draw tile popup
-        if (self.showTilePopup) {
-            // Skip processing actions on the frame the popup was opened
-            // to prevent click-through
-            if (self.popupJustOpened) {
-                self.popupJustOpened = false;
-                // Still draw the popup, just don't process actions
-                const ctx = ui.TilePopupContext{
-                    .screenWidth = self.width,
-                    .screenHeight = self.height,
-                    .tileX = self.selectedTileX,
-                    .tileY = self.selectedTileY,
-                    .gridWidth = self.gridWidth,
-                    .gridHeight = self.gridHeight,
-                    .resources = &self.resources,
-                    .beeCount = self.cachedBeeCount,
-                    .beehiveUpgradeCost = self.beehiveUpgradeCost,
-                    .textures = &self.textures,
-                    .world = &self.world,
-                };
-                _ = ui.popups.draw(ctx);
-            } else {
-                try self.handleTilePopup();
-            }
         }
 
         // Screen-space popups (purchase "-cost" feedback) above all UI.
@@ -750,40 +698,7 @@ pub const Game = struct {
             .resources = &self.resources,
             .grid = &self.grid,
             .textures = &self.textures,
-            .beehiveUpgradeCost = &self.beehiveUpgradeCost,
         };
-    }
-
-    fn handleTilePopup(self: *@This()) !void {
-        const ctx = ui.TilePopupContext{
-            .screenWidth = self.width,
-            .screenHeight = self.height,
-            .tileX = self.selectedTileX,
-            .tileY = self.selectedTileY,
-            .gridWidth = self.gridWidth,
-            .gridHeight = self.gridHeight,
-            .resources = &self.resources,
-            .beeCount = self.cachedBeeCount,
-            .beehiveUpgradeCost = self.beehiveUpgradeCost,
-            .textures = &self.textures,
-            .world = &self.world,
-        };
-
-        const action = ui.popups.draw(ctx);
-        var handler = self.createActionHandler();
-        const honeyBefore = self.resources.honey;
-        const result = try handler.handlePopupAction(action, self.selectedTileX, self.selectedTileY);
-        try self.spawnSpendFeedback(honeyBefore);
-
-        if (result.closePopup) {
-            self.showTilePopup = false;
-        }
-        if (result.beeCountDelta != 0) {
-            self.cachedBeeCount = @intCast(@as(i64, @intCast(self.cachedBeeCount)) + result.beeCountDelta);
-        }
-        if (result.flowerCountDelta != 0) {
-            self.cachedFlowerCount = @intCast(@as(i64, @intCast(self.cachedFlowerCount)) + result.flowerCountDelta);
-        }
     }
 
     fn getBeehiveHoneyFactor(self: *@This()) f32 {
@@ -914,7 +829,6 @@ pub const Game = struct {
         bee_ai_system.gardenerPlantChance = bee_ai_system.GARDENER_BASE_CHANCE;
         bee_ai_system.gardenerCompost = false;
 
-        self.beehiveUpgradeCost = 20.0;
         self.cachedBeeCount = self.world.entityToBeeAI.count();
         self.cachedFlowerCount = self.world.entityToFlowerGrowth.count();
         self.recountBeeTypes();
@@ -1041,7 +955,7 @@ pub const Game = struct {
             .growth_max_cooldown = self.resources.growthBoostMaxCooldown,
             .growth_level = self.resources.growthBoostLevel,
             .beehive_factor = self.getBeehiveHoneyFactor(),
-            .beehive_upgrade_cost = self.beehiveUpgradeCost,
+            .beehive_upgrade_cost = 20, // legacy field, popup upgrade removed
             .grid_width = self.gridWidth,
             .grid_height = self.gridHeight,
             .royal_jelly = self.prestige.royalJelly,
@@ -1198,7 +1112,6 @@ pub const Game = struct {
         self.resources.growthBoostCooldown = finiteAtLeast(data.growth_cooldown, 0, 0);
         self.resources.growthBoostMaxCooldown = finiteAtLeast(data.growth_max_cooldown, 2, 10);
         self.resources.growthBoostLevel = @max(1, data.growth_level);
-        self.beehiveUpgradeCost = finiteAtLeast(data.beehive_upgrade_cost, 1, 20);
 
         self.upgradeTree.deinit();
         self.upgradeTree = upgrade_tree.State.init(self.allocator);

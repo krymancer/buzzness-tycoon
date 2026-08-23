@@ -11,7 +11,7 @@ const upgrade_tree = @import("../upgrade_tree.zig");
 const prestige_mod = @import("../prestige.zig");
 const labs_mod = @import("../labs.zig");
 const Textures = @import("../textures.zig").Textures;
-const popups = @import("popups.zig");
+const actions = @import("../actions.zig");
 const locale = @import("../localization.zig");
 const icons = @import("icons.zig");
 
@@ -33,7 +33,7 @@ pub const SidePanelAction = union(enum) {
     none,
     open_tree,
     open_prestige,
-    buy: struct { action: popups.TilePopupAction, qty: u32 },
+    buy: struct { action: actions.BuyAction, qty: u32 },
 };
 
 /// Bee buy quantity, toggled by the chips in the Bees header (persists for
@@ -79,9 +79,12 @@ pub fn draw(ctx: SidePanelContext) SidePanelAction {
     // Upgrade Tree card (mauve-accent)
     y = drawTreeCard(contentX, y, contentW, mouse, &action);
 
-    // Bees section, with the x1/x10/x25 quantity chips on the header row.
-    drawQtyChips(contentX + contentW, y - 2, mouse);
+    // Bees section; the x1/x10/x25 quantity chips sit under the header line,
+    // right-aligned above the cards.
     y = drawSectionHeader(contentX, y, contentW, locale.tr("Bees", "Abelhas"), C.yellow);
+    text.draw(locale.tr("Buy", "Comprar"), @intFromFloat(contentX + 2), @intFromFloat(y - 2), 15, C.subtext0);
+    drawQtyChips(contentX + contentW, y - 6, mouse);
+    y += 24;
     const honey = ctx.resources.honey;
 
     y = drawBeeCard(ctx, contentX, y, contentW, mouse, locale.tr("Worker", "Operária"), locale.tr("+pollen", "+pólen"), spawners.BEE_TYPE_COSTS.worker, C.text, ctx.beeTypeCounts[0], &action, .buy_worker_bee, honey);
@@ -249,7 +252,7 @@ fn drawBeeCard(
     accent: rl.Color,
     owned: usize,
     out: *SidePanelAction,
-    buyAction: popups.TilePopupAction,
+    buyAction: actions.BuyAction,
     honey: f32,
 ) f32 {
     const C = theme.CatppuccinMocha.Color;
