@@ -33,8 +33,17 @@ pub const SidePanelAction = union(enum) {
     none,
     open_tree,
     open_prestige,
-    buy: popups.TilePopupAction,
+    buy: struct { action: popups.TilePopupAction, qty: u32 },
 };
+
+/// Bee buy quantity, toggled by the chips in the Bees header (persists for
+/// the session). Holding Shift while clicking a card buys x10 regardless.
+pub const BUY_QTYS = [_]u32{ 1, 10, 25 };
+var buyQtyIndex: usize = 0;
+
+pub fn buyQty() u32 {
+    return BUY_QTYS[buyQtyIndex];
+}
 
 pub fn isMouseInPanel(mousePos: rl.Vector2, screenWidth: f32) bool {
     return mousePos.x >= screenWidth - PANEL_WIDTH;
@@ -70,7 +79,8 @@ pub fn draw(ctx: SidePanelContext) SidePanelAction {
     // Upgrade Tree card (mauve-accent)
     y = drawTreeCard(contentX, y, contentW, mouse, &action);
 
-    // Bees section
+    // Bees section, with the x1/x10/x25 quantity chips on the header row.
+    drawQtyChips(contentX + contentW, y - 2, mouse);
     y = drawSectionHeader(contentX, y, contentW, locale.tr("Bees", "Abelhas"), C.yellow);
     const honey = ctx.resources.honey;
 
@@ -245,7 +255,10 @@ fn drawBeeCard(
     const C = theme.CatppuccinMocha.Color;
     const h: f32 = 66;
     const rect = rl.Rectangle.init(x, y, w, h);
-    const afford = honey >= cost;
+    const shift = rl.isKeyDown(rl.KeyboardKey.left_shift) or rl.isKeyDown(rl.KeyboardKey.right_shift);
+    const qty: u32 = if (shift) @max(buyQty(), 10) else buyQty();
+    const totalCost = cost * @as(f32, @floatFromInt(qty));
+    const afford = honey >= totalCost;
     const hovered = rl.checkCollisionPointRec(mouse, rect);
 
     // Pressed cards sink a couple of pixels and darken, so a click reads as a
@@ -286,10 +299,10 @@ fn drawBeeCard(
     }
     text.draw(perk, textX, @as(i32, @intFromFloat(py + 35)), 16, C.subtext0);
 
-    // cost pill on right: honey-drop icon + amount
+    // cost pill on right: honey-drop icon + amount (x qty when buying bulk)
     var cbuf: [32]u8 = undefined;
-    const cstr = format.formatShort(cost, &cbuf);
-    const costLabel = rl.textFormat("%s", .{cstr.ptr});
+    const cstr = format.formatShort(totalCost, &cbuf);
+    const costLabel = if (qty > 1) rl.textFormat("%s  x%d", .{ cstr.ptr, qty }) else rl.textFormat("%s", .{cstr.ptr});
     const costSize: i32 = 17;
     const costW = text.measure(costLabel, costSize);
     const dropR: f32 = 5.5;
@@ -309,10 +322,33 @@ fn drawBeeCard(
     text.draw(costLabel, @as(i32, @intFromFloat(contentX + dropSpan)), @as(i32, @intFromFloat(costY)), costSize, pillTextColor);
 
     if (hovered and afford and rl.isMouseButtonPressed(rl.MouseButton.left)) {
-        out.* = .{ .buy = buyAction };
+        out.* = .{ .buy = .{ .action = buyAction, .qty = qty } };
     }
 
     return y + h + 6;
+}
+
+/// Three small toggle chips (x1 x10 x25) right-aligned at (rightX, y).
+fn drawQtyChips(rightX: f32, y: f32, mouse: rl.Vector2) void {
+    const C = theme.CatppuccinMocha.Color;
+    const chipH: f32 = 22;
+    const gap: f32 = 4;
+    var x = rightX;
+    var i: usize = BUY_QTYS.len;
+    while (i > 0) {
+        i -= 1;
+        const label = rl.textFormat("x%d", .{BUY_QTYS[i]});
+        const tw: f32 = @floatFromInt(text.measure(label, 14));
+        const chipW = tw + 14;
+        x -= chipW;
+        const rect = rl.Rectangle.init(x, y, chipW, chipH);
+        const selected = i == buyQtyIndex;
+        const hovered = rl.checkCollisionPointRec(mouse, rect);
+        rl.drawRectangleRounded(rect, 0.4, 4, if (selected) C.yellow else if (hovered) C.surface2 else C.surface1);
+        text.draw(label, @intFromFloat(x + 7), @intFromFloat(y + 4), 14, if (selected) C.base else C.subtext1);
+        if (hovered and rl.isMouseButtonPressed(rl.MouseButton.left)) buyQtyIndex = i;
+        x -= gap;
+    }
 }
 
 fn drawPrestigeCard(x: f32, y: f32, w: f32, mouse: rl.Vector2, prestige: *const prestige_mod.PrestigeState, out: *SidePanelAction) f32 {

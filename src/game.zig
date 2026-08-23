@@ -617,13 +617,20 @@ pub const Game = struct {
                 .none => {},
                 .open_tree => self.showTree = true,
                 .open_prestige => self.showPrestigeDialog = true,
-                .buy => |act| {
+                .buy => |b| {
                     var handler = self.createActionHandler();
                     const honeyBefore = self.resources.honey;
-                    const result = try handler.handlePopupAction(act, 0, 0);
+                    var delta: i32 = 0;
+                    // Bulk buy: repeat until the quantity is met or honey runs out.
+                    var n: u32 = 0;
+                    while (n < b.qty) : (n += 1) {
+                        const result = try handler.handlePopupAction(b.action, 0, 0);
+                        if (result.beeCountDelta == 0) break;
+                        delta += result.beeCountDelta;
+                    }
                     try self.spawnSpendFeedback(honeyBefore);
-                    if (result.beeCountDelta != 0) {
-                        self.cachedBeeCount = @intCast(@as(i64, @intCast(self.cachedBeeCount)) + result.beeCountDelta);
+                    if (delta != 0) {
+                        self.cachedBeeCount = @intCast(@as(i64, @intCast(self.cachedBeeCount)) + delta);
                     }
                 },
             }

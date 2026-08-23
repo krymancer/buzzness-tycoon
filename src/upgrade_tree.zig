@@ -69,10 +69,10 @@ pub const NODES = [_]Node{
     .{ .id = 1, .name = "Honey x2", .cost = 50, .prereqs = r_worker, .effect = .honey_factor_mul, .value = 2.0, .col = -2, .row = 1 },
     .{ .id = 2, .name = "Honey x4", .cost = 250, .prereqs = &[_]NodeId{1}, .effect = .honey_factor_mul, .value = 2.0, .col = -2, .row = 2 },
     .{ .id = 3, .name = "Honey x8", .cost = 1500, .prereqs = &[_]NodeId{2}, .effect = .honey_factor_mul, .value = 2.0, .col = -2, .row = 3 },
-    .{ .id = 22, .name = "Honey x16", .cost = 6000, .prereqs = &[_]NodeId{3}, .effect = .honey_factor_mul, .value = 2.0, .col = -2, .row = 4 },
-    .{ .id = 23, .name = "Honey x32", .cost = 20000, .prereqs = &[_]NodeId{22}, .effect = .honey_factor_mul, .value = 2.0, .col = -2, .row = 5 },
-    // Repeatable: +25% honey per level, cost x1.6 per level, no cap.
-    .{ .id = 24, .name = "Honey Boost", .cost = 15000, .prereqs = &[_]NodeId{23}, .effect = .honey_factor_mul, .value = 1.25, .col = -2, .row = 6, .repeat = .{ .cost_growth = 1.6 } },
+    .{ .id = 22, .name = "Honey x16", .cost = 3500, .prereqs = &[_]NodeId{3}, .effect = .honey_factor_mul, .value = 2.0, .col = -2, .row = 4 },
+    .{ .id = 23, .name = "Honey x32", .cost = 10000, .prereqs = &[_]NodeId{22}, .effect = .honey_factor_mul, .value = 2.0, .col = -2, .row = 5 },
+    // Repeatable: +25% honey per level, cost x1.5 per level, no cap.
+    .{ .id = 24, .name = "Honey Boost", .cost = 8000, .prereqs = &[_]NodeId{23}, .effect = .honey_factor_mul, .value = 1.25, .col = -2, .row = 6, .repeat = .{ .cost_growth = 1.5 } },
 
     // Bees branch (col -1)
     .{ .id = 4, .name = "Swift Bee", .cost = 80, .prereqs = r_worker, .effect = .bee_unlock_swift, .col = -1, .row = 1 },
@@ -200,8 +200,8 @@ pub const State = struct {
 
 test "repeatable node cost grows geometrically and one-shot nodes max at level 1" {
     const boost = findNode(24).?;
-    try std.testing.expectApproxEqRel(@as(f32, 15000), boost.costAtLevel(0), 1e-5);
-    try std.testing.expectApproxEqRel(@as(f32, 15000 * 1.6), boost.costAtLevel(1), 1e-5);
+    try std.testing.expectApproxEqRel(@as(f32, 8000), boost.costAtLevel(0), 1e-5);
+    try std.testing.expectApproxEqRel(@as(f32, 8000 * 1.5), boost.costAtLevel(1), 1e-5);
     try std.testing.expect(!boost.isMaxed(50));
 
     const honey2 = findNode(1).?;
@@ -227,5 +227,5 @@ test "state tracks levels and gates buying" {
     try s.markPurchased(24);
     try std.testing.expectEqual(@as(u16, 2), s.level(24));
     try std.testing.expect(s.canBuy(boost));
-    try std.testing.expectApproxEqRel(@as(f32, 15000 * 1.6 * 1.6), s.nextCost(boost), 1e-5);
+    try std.testing.expectApproxEqRel(@as(f32, 8000 * 1.5 * 1.5), s.nextCost(boost), 1e-5);
 }
