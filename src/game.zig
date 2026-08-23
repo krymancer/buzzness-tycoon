@@ -592,7 +592,7 @@ pub const Game = struct {
 
         self.grid.draw(self.sky.worldTint());
 
-        try render_system.draw(&self.world, self.grid.offset, self.grid.scale, self.sky.worldTint());
+        try render_system.draw(&self.world, self.grid.offset, self.grid.scale, self.sky.worldTint(), self.upgradeTree.level(16));
 
         self.floatingTexts.draw(self.grid.offset, self.grid.scale);
 

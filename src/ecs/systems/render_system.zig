@@ -57,7 +57,7 @@ pub fn resetCaches() void {
     beeRenderCount = 0;
 }
 
-pub fn draw(world: *World, gridOffset: rl.Vector2, gridScale: f32, worldTint: rl.Color) !void {
+pub fn draw(world: *World, gridOffset: rl.Vector2, gridScale: f32, worldTint: rl.Color, auraLevel: u16) !void {
     cachedScreenWidth = ui_scale.width();
     cachedScreenHeight = ui_scale.height();
 
@@ -83,6 +83,8 @@ pub fn draw(world: *World, gridOffset: rl.Vector2, gridScale: f32, worldTint: rl
     }
 
     if (cachedBeehive) |bh| {
+        // Lab: Aura — expanding rings on the ground so the buff is visible.
+        if (auraLevel > 0) drawAuraPulse(bh.gridX, bh.gridY, gridOffset, gridScale, auraLevel, time);
         // Soft ground shadow + a gentle "breathing" pulse so the hive feels alive.
         drawGroundShadow(bh.gridX, bh.gridY, gridOffset, gridScale, 0.6, 0.28);
         const pulse = bh.scale * (1.0 + 0.03 * @sin(time * 1.4));
@@ -203,6 +205,49 @@ fn drawGroundShadow(gridX: f32, gridY: f32, gridOffset: rl.Vector2, gridScale: f
     const rx = 26 * radiusScale * (gridScale / 3.0);
     const ry = rx * 0.5;
     drawEllipseSoft(cx, cy, rx, ry, @intFromFloat(alphaScale * 255));
+}
+
+/// Isometric rings that expand from the hive and fade out, repeating forever
+/// (think "elixir collector" aura). Higher levels reach further and run more
+/// staggered rings, so leveling Aura reads on the meadow at a glance.
+fn drawAuraPulse(gridX: f32, gridY: f32, gridOffset: rl.Vector2, gridScale: f32, level: u16, time: f32) void {
+    const tilePos = utils.isoToXY(gridX, gridY, 32, 32, gridOffset.x, gridOffset.y, gridScale);
+    const cx = tilePos.x + 16 * gridScale;
+    const cy = tilePos.y + 8 * gridScale;
+
+    const period: f32 = 2.6;
+    const tilesReach: f32 = 3.5 + 0.75 * @as(f32, @floatFromInt(@min(level, 10)));
+    const maxRx = tilesReach * 16 * gridScale; // one tile = 16*scale half-width
+    const rings: u32 = @min(@as(u32, level), 3);
+    // Lavender reads far better than mauve against the green meadow.
+    const base = theme.CatppuccinMocha.Color.lavender;
+
+    var i: u32 = 0;
+    while (i < rings) : (i += 1) {
+        const phase = @as(f32, @floatFromInt(i)) / @as(f32, @floatFromInt(rings));
+        const t = @mod(time / period + phase, 1.0);
+        const eased = @sqrt(t); // fast start, slows as it fades
+        const rx = maxRx * eased;
+        const ry = rx * 0.5;
+        const alpha: f32 = (1.0 - t) * 255.0;
+        if (alpha < 6 or rx < 2) continue;
+        const a: u8 = @intFromFloat(alpha);
+        // Faint fill + a thick ring (segmented so thickness scales with zoom).
+        rl.drawEllipse(@intFromFloat(cx), @intFromFloat(cy), rx, ry, rl.Color.init(base.r, base.g, base.b, a / 6));
+        drawEllipseRing(cx, cy, rx, ry, @max(2.0, 2.0 * gridScale), rl.Color.init(base.r, base.g, base.b, a));
+    }
+}
+
+fn drawEllipseRing(cx: f32, cy: f32, rx: f32, ry: f32, thick: f32, color: rl.Color) void {
+    const segments: u32 = 48;
+    var prev = rl.Vector2.init(cx + rx, cy);
+    var k: u32 = 1;
+    while (k <= segments) : (k += 1) {
+        const ang = @as(f32, @floatFromInt(k)) / @as(f32, @floatFromInt(segments)) * std.math.tau;
+        const p = rl.Vector2.init(cx + rx * @cos(ang), cy + ry * @sin(ang));
+        rl.drawLineEx(prev, p, thick, color);
+        prev = p;
+    }
 }
 
 fn drawEllipseSoft(cx: f32, cy: f32, rx: f32, ry: f32, alpha: u8) void {
