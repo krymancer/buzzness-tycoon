@@ -265,6 +265,7 @@ pub const Game = struct {
     }
 
     pub fn deinit(self: *@This()) void {
+        render_system.deinit();
         self.grid.deinit();
         self.textures.deinit();
         self.hud.deinit();
@@ -474,21 +475,13 @@ pub const Game = struct {
         // as a click, not a camera drag.
         if (dragDistance >= 12.0) return;
 
-        // Check if we clicked on a rebirth bubble
-        var flowerIter = self.world.iterateFlowers();
-        while (flowerIter.next()) |entity| {
-            if (render_system.isFlowerDying(&self.world, entity)) {
-                if (self.world.getGridPosition(entity)) |gridPos| {
-                    // SUPER flowers draw (and bubble) at their 2x2 block centre.
-                    var superOffset: f32 = 0;
-                    if (self.world.getFlowerGrowth(entity)) |growth| {
-                        if (growth.isSuper) superOffset = 0.5;
-                    }
-                    const bubble = render_system.getBubbleHitArea(gridPos.x + superOffset, gridPos.y + superOffset, self.grid.offset, self.grid.scale);
-                    const dx = mousePos.x - bubble.x;
-                    const dy = mousePos.y - bubble.y;
-                    if (dx * dx + dy * dy <= bubble.radius * bubble.radius) {
-                        self.rebirthFlower(entity);
+        // Rotten flower under the cursor: clear it so the cell can regrow.
+        if (self.grid.getHoveredTile()) |tile| {
+            if (self.world.getFlowerAtGrid(tile.x, tile.y)) |flowerEntity| {
+                if (self.world.getFlowerGrowth(flowerEntity)) |growth| {
+                    if (growth.isRotten) {
+                        lifespan_system.removeFlower(&self.world, flowerEntity) catch {};
+                        self.cachedFlowerCount = self.world.entityToFlowerGrowth.count();
                         return;
                     }
                 }
@@ -791,11 +784,6 @@ pub const Game = struct {
         return handler.getBeehiveHoneyFactor();
     }
 
-    fn rebirthFlower(self: *@This(), entity: u32) void {
-        var handler = self.createActionHandler();
-        handler.rebirthFlower(entity);
-    }
-
     /// Uniformly random flower that hasn't fully bloomed yet, or null.
     fn pickRandomGrowableFlower(self: *@This()) ?u32 {
         var count: usize = 0;
@@ -1093,6 +1081,7 @@ pub const Game = struct {
                 .lifespan_total_time_alive = lifespan.totalTimeAlive,
                 .lifespan_time_span = lifespan.timeSpan,
                 .is_super = growth.isSuper,
+                .is_rotten = growth.isRotten,
             });
         }
 
@@ -1168,6 +1157,13 @@ pub const Game = struct {
                 flower.y + 1 < @as(i32, @intCast(self.gridHeight)))
             {
                 spawners.applySuperForm(&self.world, entity, flower.x, flower.y);
+            }
+            if (flower.is_rotten) {
+                if (self.world.getFlowerGrowth(entity)) |growth| {
+                    if (self.world.getLifespan(entity)) |lifespan| {
+                        lifespan_system.rotFlower(&self.world, entity, growth, lifespan);
+                    }
+                }
             }
         }
 

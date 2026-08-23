@@ -20,6 +20,7 @@ pub const Flower = struct {
     lifespan_total_time_alive: f32,
     lifespan_time_span: f32,
     is_super: bool = false,
+    is_rotten: bool = false,
 };
 
 pub const Data = struct {
@@ -117,7 +118,7 @@ pub fn write(io: std.Io, save_path: []const u8, data: *const Data) !void {
         if (count > 0) try writer.print("bees {d} {d}\n", .{ bee_type, count });
     }
     for (data.flowers.items) |flower| {
-        try writer.print("flower {d} {d} {d} {d} {d} {d} {d} {d} {d} {d} {d} {d} {d} {d}\n", .{
+        try writer.print("flower {d} {d} {d} {d} {d} {d} {d} {d} {d} {d} {d} {d} {d} {d} {d}\n", .{
             flower.flower_type,
             flower.x,
             flower.y,
@@ -132,6 +133,7 @@ pub fn write(io: std.Io, save_path: []const u8, data: *const Data) !void {
             flower.lifespan_total_time_alive,
             flower.lifespan_time_span,
             @intFromBool(flower.is_super),
+            @intFromBool(flower.is_rotten),
         });
     }
     try writer.writeAll("END\n");
@@ -232,6 +234,7 @@ pub fn read(allocator: std.mem.Allocator, io: std.Io, save_path: []const u8) !Da
                 .lifespan_time_span = try parse(f32, tokens.next()),
                 // Added after v1 shipped; absent in older saves.
                 .is_super = parseOptionalFlag(tokens.next()),
+                .is_rotten = parseOptionalFlag(tokens.next()),
             });
         }
     }
@@ -293,6 +296,7 @@ test "save data survives an atomic round trip" {
         .lifespan_total_time_alive = 20,
         .lifespan_time_span = 120,
         .is_super = true,
+        .is_rotten = true,
     });
 
     try write(std.testing.io, save_path, &original);
@@ -310,6 +314,7 @@ test "save data survives an atomic round trip" {
     try std.testing.expectEqual(@as(usize, 1), restored.flowers.items.len);
     try std.testing.expectEqual(@as(f32, 3.5), restored.flowers.items[0].pollen_multiplier);
     try std.testing.expect(restored.flowers.items[0].is_super);
+    try std.testing.expect(restored.flowers.items[0].is_rotten);
 }
 
 test "flower lines without the is_super field still parse (old saves)" {

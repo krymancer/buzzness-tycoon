@@ -291,7 +291,7 @@ pub fn tryMergeSuperFlower(world: *World, gridX: i32, gridY: i32) !bool {
                 valid = false;
                 break;
             };
-            if (growth.isSuper) {
+            if (growth.isSuper or growth.isRotten) {
                 valid = false;
                 break;
             }

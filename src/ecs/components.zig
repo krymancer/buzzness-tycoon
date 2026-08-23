@@ -154,6 +154,9 @@ pub const FlowerGrowth = struct {
     // cells in the grid registry, renders at double scale over the block, and
     // yields double the four singles' combined pollen (8x a lone flower).
     isSuper: bool = false,
+    // Rotten: the flower reached the end of its life and withered in place.
+    // It yields no pollen and blocks its cell until the player clears it.
+    isRotten: bool = false,
 
     pub fn init(flowerType: FlowerType) @This() {
         const rl_module = @import("raylib");

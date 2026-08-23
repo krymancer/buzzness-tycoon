@@ -12,6 +12,8 @@ pub fn update(world: *World, deltaTime: f32) !void {
                 }
             }
 
+            if (growth.isRotten) continue;
+
             if (growth.state == 4) {
                 if (!growth.hasPollen) {
                     growth.timeAlive += growth.growthRate * deltaTime;

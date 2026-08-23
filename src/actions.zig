@@ -109,21 +109,6 @@ pub const ActionHandler = struct {
         return result;
     }
 
-    /// Rebirth a dying flower - reset lifespan and give bonuses
-    pub fn rebirthFlower(self: *@This(), entity: u32) void {
-        if (self.world.getLifespan(entity)) |lifespan| {
-            const baseLifespan = lifespan.timeSpan;
-            lifespan.timeAlive = 0;
-            lifespan.totalTimeAlive = 0;
-            lifespan.timeSpan = baseLifespan * 1.2; // 20% longer life on rebirth
-        }
-
-        if (self.world.getFlowerGrowth(entity)) |growth| {
-            growth.pollenMultiplier += 0.25; // +0.25 bonus on rebirth
-            growth.hasPollen = true; // Restore pollen
-        }
-    }
-
     /// Instant Grow: bloom a flower fully (pollen ready) and consume the
     /// growth-boost cooldown. Fired automatically by the game loop.
     pub fn instantGrowFlower(self: *@This(), entity: u32) void {
