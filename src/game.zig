@@ -592,7 +592,7 @@ pub const Game = struct {
 
         self.grid.draw(self.sky.worldTint());
 
-        try render_system.draw(&self.world, self.grid.offset, self.grid.scale, self.sky.worldTint(), self.upgradeTree.level(16));
+        try render_system.draw(&self.world, self.grid.offset, self.grid.scale, self.sky.worldTint(), self.upgradeTree.level(upgrade_tree.AURA_ID));
 
         self.floatingTexts.draw(self.grid.offset, self.grid.scale);
 
@@ -1016,7 +1016,8 @@ pub const Game = struct {
             .growth_cd_sub => self.resources.growthBoostMaxCooldown = @max(2.0, self.resources.growthBoostMaxCooldown - node.value),
             .bee_unlock_worker, .bee_unlock_swift, .bee_unlock_efficient, .bee_unlock_gardener => {},
             .grid_expand => try self.expandGrid(),
-            .lab_aura => self.labs.auraMul = labs.AURA_MUL,
+            // +1 because the level is bumped after this switch.
+            .lab_aura => self.labs.auraMul = labs.auraMultiplierForLevel(self.upgradeTree.level(nodeId) + 1),
             .lab_burst, .lab_bloom => {}, // unlock only, activation via hotkey
             .prestige_unlock => self.prestige.hasUnlockedPrestige = true,
             .growth_boost_unlock => {}, // gate checked via hasEffect at usage
@@ -1213,7 +1214,8 @@ pub const Game = struct {
         self.prestige.thisRunHoney = finiteAtLeast(data.this_run_honey, 0, 0);
         self.prestige.hasUnlockedPrestige = data.prestige_unlocked or self.upgradeTree.hasEffect(.prestige_unlock);
         spawners.superFlowersUnlocked = self.upgradeTree.hasEffect(.super_flower_unlock);
-        self.labs.auraMul = finiteAtLeast(data.aura_multiplier, 1, 1);
+        // Derived from the tree level (the saved multiplier is legacy).
+        self.labs.auraMul = labs.auraMultiplierForLevel(self.upgradeTree.level(upgrade_tree.AURA_ID));
         self.labs.burstRemaining = finiteAtLeast(data.burst_remaining, 0, 0);
         self.labs.burstCooldown = finiteAtLeast(data.burst_cooldown, 0, 0);
         self.labs.bloomCooldown = finiteAtLeast(data.bloom_cooldown, 0, 0);

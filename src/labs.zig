@@ -4,7 +4,12 @@ pub const BURST_DURATION: f32 = 10.0;
 pub const BURST_COOLDOWN: f32 = 60.0;
 pub const BURST_MUL: f32 = 4.0;
 pub const BLOOM_COOLDOWN: f32 = 60.0;
-pub const AURA_MUL: f32 = 1.25;
+/// Aura honey bonus per tree level: x1.25 at Lv1, x1.50 at Lv2, ...
+pub const AURA_PER_LEVEL: f32 = 0.25;
+
+pub fn auraMultiplierForLevel(level: u16) f32 {
+    return 1.0 + AURA_PER_LEVEL * @as(f32, @floatFromInt(level));
+}
 
 pub const LabState = struct {
     auraMul: f32 = 1.0,

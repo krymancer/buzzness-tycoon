@@ -95,7 +95,9 @@ pub const NODES = [_]Node{
     .{ .id = 15, .name = "Storage +2K", .cost = 1000, .prereqs = &[_]NodeId{14}, .effect = .storage_add, .value = 2000, .col = 2, .row = 3 },
 
     // Labs branch (col 0, rows 4-6) — gated behind cross-branch t3 nodes
-    .{ .id = 16, .name = "Lab: Aura", .cost = 8000, .prereqs = &[_]NodeId{ 3, 6 }, .effect = .lab_aura, .col = 0, .row = 4 },
+    // Repeatable: each level adds +25% honey (see labs.AURA_PER_LEVEL) and
+    // widens the pulse rings around the hive.
+    .{ .id = 16, .name = "Lab: Aura", .cost = 8000, .prereqs = &[_]NodeId{ 3, 6 }, .effect = .lab_aura, .col = 0, .row = 4, .repeat = .{ .cost_growth = 1.8 } },
     .{ .id = 17, .name = "Lab: Burst", .cost = 25000, .prereqs = &[_]NodeId{ 16, 9 }, .effect = .lab_burst, .col = -1, .row = 5 },
     .{ .id = 18, .name = "Lab: Bloom", .cost = 25000, .prereqs = &[_]NodeId{ 16, 12 }, .effect = .lab_bloom, .col = 1, .row = 5 },
     .{ .id = 19, .name = "Prestige", .cost = 100000, .prereqs = &[_]NodeId{ 17, 18 }, .effect = .prestige_unlock, .col = 0, .row = 6 },
@@ -107,6 +109,7 @@ pub const NODES = [_]Node{
 };
 
 pub const ROOT_ID: NodeId = 0;
+pub const AURA_ID: NodeId = 16;
 
 pub fn findNode(id: NodeId) ?*const Node {
     for (&NODES) |*n| {
