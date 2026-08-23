@@ -40,6 +40,45 @@ pub const GameState = enum {
     playing,
 };
 
+/// Whether the window currently fills its monitor as an undecorated window.
+var borderless: bool = false;
+
+/// Cover the current monitor with an undecorated, normal-level window. Unlike
+/// exclusive fullscreen this leaves the window manager in charge, so
+/// Alt-Tab / Cmd-Tab, notifications and other displays keep working.
+fn enterBorderless() void {
+    const monitor = rl.getCurrentMonitor();
+    const mpos = rl.getMonitorPosition(monitor);
+    const mw = rl.getMonitorWidth(monitor);
+    const mh = rl.getMonitorHeight(monitor);
+    if (mw <= 0 or mh <= 0) return;
+    const mx: i32 = @intFromFloat(mpos.x);
+    const my: i32 = @intFromFloat(mpos.y);
+
+    rl.setWindowState(.{ .window_undecorated = true });
+    rl.setWindowSize(mw, mh);
+    rl.setWindowPosition(mx, my);
+    // macOS keeps normal windows below the menu bar: if the WM pushed us
+    // down, give up that strip instead of letting the bottom get clipped.
+    const got = rl.getWindowPosition();
+    const pushed: i32 = @as(i32, @intFromFloat(got.y)) - my;
+    if (pushed > 0) rl.setWindowSize(mw, mh - pushed);
+    rl.setWindowFocused();
+    borderless = true;
+}
+
+/// Back to a decorated, centred 1280x720 window.
+fn leaveBorderless() void {
+    const monitor = rl.getCurrentMonitor();
+    const mpos = rl.getMonitorPosition(monitor);
+    const mw = rl.getMonitorWidth(monitor);
+    const mh = rl.getMonitorHeight(monitor);
+    rl.clearWindowState(.{ .window_undecorated = true });
+    rl.setWindowSize(1280, 720);
+    rl.setWindowPosition(@as(i32, @intFromFloat(mpos.x)) + @divFloor(mw - 1280, 2), @as(i32, @intFromFloat(mpos.y)) + @divFloor(mh - 720, 2));
+    borderless = false;
+}
+
 pub const Game = struct {
     const INITIAL_GRID_WIDTH = 17;
     const INITIAL_GRID_HEIGHT = 17;
@@ -122,11 +161,12 @@ pub const Game = struct {
         // Dev: BT_WINDOWED runs in a plain window (no fullscreen takeover) so
         // the game can be launched/screenshotted without hijacking the desktop.
         if (env.get("BT_WINDOWED") == null) {
-            // Borderless windowed rather than exclusive fullscreen: same look,
-            // but Alt-Tab / Cmd-Tab behave like any other app (GLFW exclusive
-            // mode fights the window manager; see raylib #3865, fixed for the
-            // borderless path in raylib 6.0 which we vendor).
-            rl.toggleBorderlessWindowed();
+            // Borderless windowed rather than exclusive fullscreen, so
+            // Alt-Tab / Cmd-Tab behave like any other app. Done by hand:
+            // raylib 6.0's ToggleBorderlessWindowed() still calls
+            // glfwSetWindowMonitor() with a real monitor (= exclusive mode,
+            // which captures the display on macOS); see raylib #3865.
+            enterBorderless();
         } else {
             // Dev: BT_W/BT_H override the windowed size (e.g. 1920x1080 for
             // store screenshots); default to the handy 1366x820 work size.
@@ -337,15 +377,7 @@ pub const Game = struct {
 
         // Alt+Enter toggles borderless fullscreen <-> a centred 1280x720 window.
         if (rl.isKeyPressed(rl.KeyboardKey.enter) and rl.isKeyDown(rl.KeyboardKey.left_alt)) {
-            const wasFullscreen = rl.isWindowState(.{ .borderless_windowed_mode = true });
-            rl.toggleBorderlessWindowed();
-            if (wasFullscreen) {
-                rl.setWindowSize(1280, 720);
-                const monitor = rl.getCurrentMonitor();
-                const monitorWidth = rl.getMonitorWidth(monitor);
-                const monitorHeight = rl.getMonitorHeight(monitor);
-                rl.setWindowPosition(@divFloor(monitorWidth - 1280, 2), @divFloor(monitorHeight - 720, 2));
-            }
+            if (borderless) leaveBorderless() else enterBorderless();
         }
 
         // Cmd/Ctrl +/- adjusts the UI scale; Cmd/Ctrl 0 resets it.
