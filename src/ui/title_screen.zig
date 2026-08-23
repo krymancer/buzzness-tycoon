@@ -127,7 +127,7 @@ pub fn draw(screenWidth: f32, screenHeight: f32, hasSave: bool) TitleScreenActio
     }
 
     // Version text
-    const versionText = "v0.2.0";
+    const versionText = "v0.2.1";
     const versionFontSize: i32 = 16;
     text.draw(versionText, 10, @as(i32, @intFromFloat(screenHeight)) - 26, versionFontSize, theme.CatppuccinMocha.Color.overlay0);
 

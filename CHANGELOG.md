@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased (next version — bump title-screen version before release)
+## 0.2.1 — 2026-08-23
 
 Merged in PRs #31, #34, #35, #36, #37. Steam Deploy workflow in PR #32.
 

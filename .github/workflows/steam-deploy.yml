@@ -1,7 +1,9 @@
-# Manual Steam upload: takes an existing GitHub Release tag, stages its
-# binaries in the same depot layout as steam/stage.sh, and pushes them to
-# SteamPipe via game-ci/steam-deploy. Nothing is set live — review the
-# build in Steamworks > SteamPipe > Builds and flip it to 'default' there.
+# Manual Steam upload. Pick the release TAG in "Use workflow from" and hit
+# Run — that tag's GitHub Release assets are staged in the same depot layout
+# as steam/stage.sh and pushed to SteamPipe via game-ci/steam-deploy. (The
+# optional `tag` input only matters when running from a branch.) Nothing is
+# set live — review the build in Steamworks > SteamPipe > Builds and flip it
+# to 'default' there.
 #
 # One-time setup (repo secrets):
 #   STEAM_USERNAME    builder account login (Edit App Metadata + Publish App Changes)
@@ -15,9 +17,10 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: "GitHub Release tag to ship (e.g. 0.3.0)"
-        required: true
+        description: "Release tag to ship. Leave empty to use the tag selected in 'Use workflow from'."
+        required: false
         type: string
+        default: ""
       include_macos:
         description: "Also upload the macOS depot (4980572 must exist in Steamworks)"
         required: false
@@ -31,6 +34,21 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     steps:
+      - name: Resolve release tag
+        id: tag
+        run: |
+          set -euo pipefail
+          TAG="${{ inputs.tag }}"
+          if [ -z "$TAG" ]; then
+            if [ "${{ github.ref_type }}" != "tag" ]; then
+              echo "::error::Run this workflow from a release tag, or fill in the 'tag' input." >&2
+              exit 1
+            fi
+            TAG="${{ github.ref_name }}"
+          fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "Shipping release $TAG"
+
       - name: Download release assets
         env:
           GH_TOKEN: ${{ github.token }}
@@ -38,7 +56,7 @@ jobs:
           set -euo pipefail
           mkdir -p content/all content/macos
           cd content
-          gh release download "${{ inputs.tag }}" -R "${{ github.repository }}" -p "*windows*" -p "*linux*" -p "*macos*"
+          gh release download "${{ steps.tag.outputs.tag }}" -R "${{ github.repository }}" -p "*windows*" -p "*linux*" -p "*macos*"
           tar xzf buzzness-tycoon-linux-*.tar.gz -C all
           unzip -oq buzzness-tycoon-windows-*.zip -d all
           tar xzf buzzness-tycoon-macos-*.tar.gz -C macos
@@ -53,7 +71,7 @@ jobs:
           username: ${{ secrets.STEAM_USERNAME }}
           configVdf: ${{ secrets.STEAM_CONFIG_VDF }}
           appId: 4980570
-          buildDescription: v${{ inputs.tag }}
+          buildDescription: v${{ steps.tag.outputs.tag }}
           rootPath: content
           depot1Path: all
 
@@ -64,7 +82,7 @@ jobs:
           username: ${{ secrets.STEAM_USERNAME }}
           configVdf: ${{ secrets.STEAM_CONFIG_VDF }}
           appId: 4980570
-          buildDescription: v${{ inputs.tag }}
+          buildDescription: v${{ steps.tag.outputs.tag }}
           rootPath: content
           depot1Path: all
           depot2Path: macos
