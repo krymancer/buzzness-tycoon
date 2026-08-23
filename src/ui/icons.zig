@@ -45,3 +45,13 @@ pub fn drawHoneyDropOutlined(cx: f32, cy: f32, r: f32, color: rl.Color, outline:
     drawHoneyDrop(cx, cy, r + 2, outline);
     drawHoneyDrop(cx, cy, r, color);
 }
+
+/// Aura: a dot with two concentric rings, centered on (cx, cy), outer radius `r`.
+/// Icon for the Lab: Aura passive.
+pub fn drawAura(cx: f32, cy: f32, r: f32, color: rl.Color) void {
+    rl.drawCircle(@intFromFloat(cx), @intFromFloat(cy), r * 0.22, color);
+    rl.drawRing(rl.Vector2.init(cx, cy), r * 0.5, r * 0.5 + @max(1.5, r * 0.14), 0, 360, 24, color);
+    var faint = color;
+    faint.a = @intFromFloat(@as(f32, @floatFromInt(color.a)) * 0.55);
+    rl.drawRing(rl.Vector2.init(cx, cy), r - @max(1.5, r * 0.12), r, 0, 360, 28, faint);
+}

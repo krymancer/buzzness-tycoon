@@ -12,6 +12,10 @@ var emptyCellTimer: f32 = 0;
 // idle progression is bottlenecked by ripe pollen, so keeping flowers plentiful
 // is what makes buying more bees actually pay off.
 const EMPTY_CELL_CHECK_INTERVAL: f32 = 2.0;
+// Spawn rolls per check scale with the meadow so Grid Rings actually raise
+// flower supply (a flat rate capped the field at ~25 flowers, whatever the
+// size). 17x17 = 289 cells -> 2 rolls; 37x37 (10 rings) -> 9.
+const SPAWN_ROLLS_PER_CELL: f32 = 0.0065;
 
 pub fn update(
     world: *World,
@@ -28,7 +32,11 @@ pub fn update(
     emptyCellTimer += deltaTime;
     if (emptyCellTimer >= EMPTY_CELL_CHECK_INTERVAL) {
         emptyCellTimer = 0;
-        try trySpawnFlowerInEmptyCell(world, gridWidth, gridHeight, texturesRef);
+        const cells: f32 = @floatFromInt(gridWidth * gridHeight);
+        const rolls: usize = @intFromFloat(@max(1.0, @ceil(cells * SPAWN_ROLLS_PER_CELL)));
+        for (0..rolls) |_| {
+            try trySpawnFlowerInEmptyCell(world, gridWidth, gridHeight, texturesRef);
+        }
     }
 }
 

@@ -10,13 +10,22 @@ pub const EffectKind = enum {
     bee_unlock_swift,
     bee_unlock_efficient,
     bee_unlock_gardener,
+    gardener_chance,
+    gardener_compost,
     grid_expand,
     lab_aura,
-    lab_burst,
-    lab_bloom,
+    aura_reach,
     prestige_unlock,
     growth_boost_unlock,
     super_flower_unlock,
+};
+
+/// Marks a node as re-buyable. Each purchase raises its level and re-applies
+/// the node's effect; the cost scales geometrically: cost * cost_growth^level.
+pub const Repeat = struct {
+    cost_growth: f32,
+    /// 0 = unlimited.
+    max_level: u16 = 0,
 };
 
 pub const Node = struct {
@@ -28,6 +37,22 @@ pub const Node = struct {
     value: f32 = 0,
     col: i8,
     row: i8,
+    repeat: ?Repeat = null,
+
+    pub fn isRepeatable(self: *const @This()) bool {
+        return self.repeat != null;
+    }
+
+    /// Cost to buy the node when it's currently at `level` (0 = not owned).
+    pub fn costAtLevel(self: *const @This(), level: u16) f32 {
+        const r = self.repeat orelse return self.cost;
+        return self.cost * std.math.pow(f32, r.cost_growth, @floatFromInt(level));
+    }
+
+    pub fn isMaxed(self: *const @This(), level: u16) bool {
+        const r = self.repeat orelse return level > 0;
+        return r.max_level != 0 and level >= r.max_level;
+    }
 };
 
 const no_prereqs = &[_]NodeId{};
@@ -44,41 +69,63 @@ pub const NODES = [_]Node{
     .{ .id = 1, .name = "Honey x2", .cost = 50, .prereqs = r_worker, .effect = .honey_factor_mul, .value = 2.0, .col = -2, .row = 1 },
     .{ .id = 2, .name = "Honey x4", .cost = 250, .prereqs = &[_]NodeId{1}, .effect = .honey_factor_mul, .value = 2.0, .col = -2, .row = 2 },
     .{ .id = 3, .name = "Honey x8", .cost = 1500, .prereqs = &[_]NodeId{2}, .effect = .honey_factor_mul, .value = 2.0, .col = -2, .row = 3 },
+    .{ .id = 22, .name = "Honey x16", .cost = 3500, .prereqs = &[_]NodeId{3}, .effect = .honey_factor_mul, .value = 2.0, .col = -2, .row = 4 },
+    .{ .id = 23, .name = "Honey x32", .cost = 10000, .prereqs = &[_]NodeId{22}, .effect = .honey_factor_mul, .value = 2.0, .col = -2, .row = 5 },
+    // Repeatable: +25% honey per level, cost x1.5 per level, no cap.
+    .{ .id = 24, .name = "Honey Boost", .cost = 8000, .prereqs = &[_]NodeId{23}, .effect = .honey_factor_mul, .value = 1.25, .col = -2, .row = 6, .repeat = .{ .cost_growth = 1.5 } },
 
     // Bees branch (col -1)
     .{ .id = 4, .name = "Swift Bee", .cost = 80, .prereqs = r_worker, .effect = .bee_unlock_swift, .col = -1, .row = 1 },
     .{ .id = 5, .name = "Efficient Bee", .cost = 400, .prereqs = &[_]NodeId{4}, .effect = .bee_unlock_efficient, .col = -1, .row = 2 },
     .{ .id = 6, .name = "Gardener Bee", .cost = 2000, .prereqs = &[_]NodeId{5}, .effect = .bee_unlock_gardener, .col = -1, .row = 3 },
+    // Repeatable: gardener plant chance 20% -> +10%/level (caps at 100%).
+    .{ .id = 26, .name = "Green Thumb", .cost = 2500, .prereqs = &[_]NodeId{6}, .effect = .gardener_chance, .col = -1, .row = 4, .repeat = .{ .cost_growth = 1.5, .max_level = 8 } },
+    // Gardeners clear rotten flowers they fly over (then may replant there).
+    .{ .id = 27, .name = "Composting", .cost = 6000, .prereqs = &[_]NodeId{26}, .effect = .gardener_compost, .col = -1, .row = 5 },
 
-    // Growth branch (col 0, directly below root). Instant Grow (id 20) gates
-    // the whole branch: the click-a-flower boost is locked until purchased.
-    .{ .id = 7, .name = "Grow CD -1.5s", .cost = 60, .prereqs = &[_]NodeId{20}, .effect = .growth_cd_sub, .value = 1.5, .col = 0, .row = 2 },
-    .{ .id = 8, .name = "Grow CD -3s", .cost = 300, .prereqs = &[_]NodeId{7}, .effect = .growth_cd_sub, .value = 1.5, .col = 0, .row = 3 },
-    .{ .id = 9, .name = "Grow CD -6s", .cost = 1800, .prereqs = &[_]NodeId{8}, .effect = .growth_cd_sub, .value = 3.0, .col = -1, .row = 4 },
+    // Growth (col 0, below Instant Grow which gates it). Repeatable: each
+    // level shaves `value` seconds off the Instant Grow cooldown (floor 2s).
+    .{ .id = 7, .name = "Grow Speed", .cost = 60, .prereqs = &[_]NodeId{20}, .effect = .growth_cd_sub, .value = 1.0, .col = 0, .row = 2, .repeat = .{ .cost_growth = 1.7, .max_level = 8 } },
+    // (ids 8/9 were Grow CD -3s/-6s — folded into 7's levels on load.)
 
-    // Grid branch (col 1)
-    .{ .id = 10, .name = "Grid +1 ring", .cost = 150, .prereqs = r_worker, .effect = .grid_expand, .value = 1, .col = 1, .row = 1 },
-    .{ .id = 11, .name = "Grid +2 ring", .cost = 800, .prereqs = &[_]NodeId{10}, .effect = .grid_expand, .value = 1, .col = 1, .row = 2 },
-    .{ .id = 12, .name = "Grid +3 ring", .cost = 5000, .prereqs = &[_]NodeId{11}, .effect = .grid_expand, .value = 1, .col = 1, .row = 3 },
+    // Grid (col 1). Repeatable: +1 ring per level.
+    .{ .id = 10, .name = "Grid Ring", .cost = 150, .prereqs = r_worker, .effect = .grid_expand, .value = 1, .col = 1, .row = 1, .repeat = .{ .cost_growth = 3.0, .max_level = 10 } },
+    // (ids 11/12 were Grid +2/+3 ring — folded into 10's levels on load.)
 
-    // Storage branch (col 2)
-    .{ .id = 13, .name = "Storage +500", .cost = 40, .prereqs = r_worker, .effect = .storage_add, .value = 500, .col = 2, .row = 1 },
-    .{ .id = 14, .name = "Storage +1K", .cost = 200, .prereqs = &[_]NodeId{13}, .effect = .storage_add, .value = 1000, .col = 2, .row = 2 },
-    .{ .id = 15, .name = "Storage +2K", .cost = 1000, .prereqs = &[_]NodeId{14}, .effect = .storage_add, .value = 2000, .col = 2, .row = 3 },
+    // Storage (col 2). Repeatable: adds value * 1.6^level capacity per level.
+    .{ .id = 13, .name = "Storage", .cost = 40, .prereqs = r_worker, .effect = .storage_add, .value = 500, .col = 2, .row = 1, .repeat = .{ .cost_growth = 1.8 } },
+    // (ids 14/15 were Storage +1K/+2K — folded into 13's levels on load.)
 
     // Labs branch (col 0, rows 4-6) — gated behind cross-branch t3 nodes
-    .{ .id = 16, .name = "Lab: Aura", .cost = 8000, .prereqs = &[_]NodeId{ 3, 6 }, .effect = .lab_aura, .col = 0, .row = 4 },
-    .{ .id = 17, .name = "Lab: Burst", .cost = 25000, .prereqs = &[_]NodeId{ 16, 9 }, .effect = .lab_burst, .col = -1, .row = 5 },
-    .{ .id = 18, .name = "Lab: Bloom", .cost = 25000, .prereqs = &[_]NodeId{ 16, 12 }, .effect = .lab_bloom, .col = 1, .row = 5 },
-    .{ .id = 19, .name = "Prestige", .cost = 100000, .prereqs = &[_]NodeId{ 17, 18 }, .effect = .prestige_unlock, .col = 0, .row = 6 },
+    // Aura: flowers inside the rings around the hive yield more pollen.
+    // Lab: Aura levels the factor (+25%/level); Aura Reach widens the rings
+    // (+1 tile/level). Both repeatable.
+    .{ .id = 16, .name = "Lab: Aura", .cost = 8000, .prereqs = &[_]NodeId{ 3, 6 }, .effect = .lab_aura, .col = 0, .row = 4, .repeat = .{ .cost_growth = 1.8 } },
+    .{ .id = 25, .name = "Aura Reach", .cost = 5000, .prereqs = &[_]NodeId{16}, .effect = .aura_reach, .col = 0, .row = 5, .repeat = .{ .cost_growth = 1.6 } },
+    // (ids 17/18 were Lab: Burst / Lab: Bloom — removed; stale save entries are ignored.)
+    .{ .id = 19, .name = "Prestige", .cost = 100000, .prereqs = &[_]NodeId{ 25, 21 }, .effect = .prestige_unlock, .col = 0, .row = 6 },
 
     // Instant Grow: unlocks the click-a-flower growth boost (was always-on).
     .{ .id = 20, .name = "Instant Grow", .cost = 30, .prereqs = r_worker, .effect = .growth_boost_unlock, .col = 0, .row = 1 },
     // Super Flowers: 2x2 same-type blocks merge into an 8x SUPER flower.
-    .{ .id = 21, .name = "Super Flowers", .cost = 3500, .prereqs = &[_]NodeId{ 8, 10 }, .effect = .super_flower_unlock, .col = 1, .row = 4 },
+    .{ .id = 21, .name = "Super Flowers", .cost = 3500, .prereqs = &[_]NodeId{ 7, 10 }, .effect = .super_flower_unlock, .col = 1, .row = 4 },
 };
 
 pub const ROOT_ID: NodeId = 0;
+pub const AURA_ID: NodeId = 16;
+pub const AURA_REACH_ID: NodeId = 25;
+pub const GREEN_THUMB_ID: NodeId = 26;
+
+/// Old one-shot chains that are now single repeatable nodes. Each legacy id
+/// purchased in an old save counts as +1 level on its target.
+pub const LEGACY_LEVEL_MAP = [_]struct { legacy: NodeId, target: NodeId }{
+    .{ .legacy = 8, .target = 7 },
+    .{ .legacy = 9, .target = 7 },
+    .{ .legacy = 11, .target = 10 },
+    .{ .legacy = 12, .target = 10 },
+    .{ .legacy = 14, .target = 13 },
+    .{ .legacy = 15, .target = 13 },
+};
 
 pub fn findNode(id: NodeId) ?*const Node {
     for (&NODES) |*n| {
@@ -88,20 +135,25 @@ pub fn findNode(id: NodeId) ?*const Node {
 }
 
 pub const State = struct {
-    purchased: std.AutoHashMap(NodeId, void),
+    /// node id -> level (absent or 0 = not owned; one-shot nodes are 0 or 1).
+    levels: std.AutoHashMap(NodeId, u16),
 
     pub fn init(allocator: std.mem.Allocator) @This() {
-        var s: @This() = .{ .purchased = std.AutoHashMap(NodeId, void).init(allocator) };
-        s.purchased.put(ROOT_ID, {}) catch {};
+        var s: @This() = .{ .levels = std.AutoHashMap(NodeId, u16).init(allocator) };
+        s.levels.put(ROOT_ID, 1) catch {};
         return s;
     }
 
     pub fn deinit(self: *@This()) void {
-        self.purchased.deinit();
+        self.levels.deinit();
+    }
+
+    pub fn level(self: *const @This(), id: NodeId) u16 {
+        return self.levels.get(id) orelse 0;
     }
 
     pub fn isPurchased(self: *const @This(), id: NodeId) bool {
-        return self.purchased.contains(id);
+        return self.level(id) > 0;
     }
 
     pub fn isUnlocked(self: *const @This(), node: *const Node) bool {
@@ -111,8 +163,27 @@ pub const State = struct {
         return true;
     }
 
+    /// True when the node can be bought (first purchase) or leveled up again.
+    pub fn canBuy(self: *const @This(), node: *const Node) bool {
+        return self.isUnlocked(node) and !node.isMaxed(self.level(node.id));
+    }
+
+    /// Honey price of the next purchase of this node.
+    pub fn nextCost(self: *const @This(), node: *const Node) f32 {
+        return node.costAtLevel(self.level(node.id));
+    }
+
+    /// Raise the node by one level (first purchase = level 1).
     pub fn markPurchased(self: *@This(), id: NodeId) !void {
-        try self.purchased.put(id, {});
+        try self.levels.put(id, self.level(id) + 1);
+    }
+
+    pub fn setLevel(self: *@This(), id: NodeId, lvl: u16) !void {
+        if (lvl == 0) {
+            _ = self.levels.remove(id);
+        } else {
+            try self.levels.put(id, lvl);
+        }
     }
 
     pub fn hasEffect(self: *const @This(), kind: EffectKind) bool {
@@ -126,3 +197,35 @@ pub const State = struct {
         return self.hasEffect(kind);
     }
 };
+
+test "repeatable node cost grows geometrically and one-shot nodes max at level 1" {
+    const boost = findNode(24).?;
+    try std.testing.expectApproxEqRel(@as(f32, 8000), boost.costAtLevel(0), 1e-5);
+    try std.testing.expectApproxEqRel(@as(f32, 8000 * 1.5), boost.costAtLevel(1), 1e-5);
+    try std.testing.expect(!boost.isMaxed(50));
+
+    const honey2 = findNode(1).?;
+    try std.testing.expectEqual(@as(f32, 50), honey2.costAtLevel(0));
+    try std.testing.expect(!honey2.isMaxed(0));
+    try std.testing.expect(honey2.isMaxed(1));
+}
+
+test "state tracks levels and gates buying" {
+    var s = State.init(std.testing.allocator);
+    defer s.deinit();
+    const honey2 = findNode(1).?;
+    try std.testing.expect(s.canBuy(honey2));
+    try s.markPurchased(1);
+    try std.testing.expect(!s.canBuy(honey2));
+    try std.testing.expectEqual(@as(u16, 1), s.level(1));
+
+    const boost = findNode(24).?;
+    try std.testing.expect(!s.canBuy(boost)); // prereqs missing
+    try s.setLevel(23, 1);
+    try std.testing.expect(s.canBuy(boost));
+    try s.markPurchased(24);
+    try s.markPurchased(24);
+    try std.testing.expectEqual(@as(u16, 2), s.level(24));
+    try std.testing.expect(s.canBuy(boost));
+    try std.testing.expectApproxEqRel(@as(f32, 8000 * 1.5 * 1.5), s.nextCost(boost), 1e-5);
+}

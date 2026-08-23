@@ -11,9 +11,36 @@ const FlowerRenderData = struct {
     gridX: f32,
     gridY: f32,
     sortKey: f32,
-    isDying: bool,
+    isRotten: bool,
     isSuper: bool,
 };
+
+// Grayscale post-tint for rotten flowers (lazily compiled; GLSL 330 on
+// desktop which is what raylib targets on macOS/Linux/Windows here).
+var grayShader: ?rl.Shader = null;
+const GRAY_FS: [:0]const u8 =
+    \\#version 330
+    \\in vec2 fragTexCoord;
+    \\in vec4 fragColor;
+    \\out vec4 finalColor;
+    \\uniform sampler2D texture0;
+    \\uniform vec4 colDiffuse;
+    \\void main() {
+    \\    vec4 t = texture(texture0, fragTexCoord);
+    \\    float g = dot(t.rgb, vec3(0.299, 0.587, 0.114));
+    \\    finalColor = vec4(vec3(g), t.a) * colDiffuse * fragColor;
+    \\}
+;
+
+fn grayscaleShader() ?rl.Shader {
+    if (grayShader == null) grayShader = rl.loadShaderFromMemory(null, GRAY_FS) catch null;
+    return grayShader;
+}
+
+pub fn deinit() void {
+    if (grayShader) |sh| rl.unloadShader(sh);
+    grayShader = null;
+}
 
 fn compareFlowers(context: void, a: FlowerRenderData, b: FlowerRenderData) bool {
     _ = context;
@@ -57,7 +84,7 @@ pub fn resetCaches() void {
     beeRenderCount = 0;
 }
 
-pub fn draw(world: *World, gridOffset: rl.Vector2, gridScale: f32, worldTint: rl.Color) !void {
+pub fn draw(world: *World, gridOffset: rl.Vector2, gridScale: f32, worldTint: rl.Color, auraLevel: u16, auraReach: f32) !void {
     cachedScreenWidth = ui_scale.width();
     cachedScreenHeight = ui_scale.height();
 
@@ -83,6 +110,8 @@ pub fn draw(world: *World, gridOffset: rl.Vector2, gridScale: f32, worldTint: rl
     }
 
     if (cachedBeehive) |bh| {
+        // Lab: Aura — expanding rings on the ground so the buff is visible.
+        if (auraLevel > 0) drawAuraPulse(bh.gridX, bh.gridY, gridOffset, gridScale, auraLevel, auraReach, time);
         // Soft ground shadow + a gentle "breathing" pulse so the hive feels alive.
         drawGroundShadow(bh.gridX, bh.gridY, gridOffset, gridScale, 0.6, 0.28);
         const pulse = bh.scale * (1.0 + 0.03 * @sin(time * 1.4));
@@ -95,16 +124,17 @@ pub fn draw(world: *World, gridOffset: rl.Vector2, gridScale: f32, worldTint: rl
     var flowerIter = world.iterateFlowers();
     while (flowerIter.next()) |entity| {
         if (world.getGridPosition(entity)) |gridPos| {
-            var isDying = false;
             if (world.getLifespan(entity)) |lifespan| {
                 if (lifespan.isDead()) continue;
-                const timeRemaining = lifespan.timeSpan - lifespan.totalTimeAlive;
-                isDying = timeRemaining <= 5.0 and timeRemaining > 0;
             }
             // A SUPER flower anchors at the block's top-left cell but is drawn
             // at the 2x2 block's centre, sorted with the block's front edge.
             var isSuper = false;
-            if (world.getFlowerGrowth(entity)) |growth| isSuper = growth.isSuper;
+            var isRotten = false;
+            if (world.getFlowerGrowth(entity)) |growth| {
+                isSuper = growth.isSuper;
+                isRotten = growth.isRotten;
+            }
             const superOffset: f32 = if (isSuper) 0.5 else 0.0;
             if (flowerCount < flowerList.len) {
                 flowerList[flowerCount] = .{
@@ -112,7 +142,7 @@ pub fn draw(world: *World, gridOffset: rl.Vector2, gridScale: f32, worldTint: rl
                     .gridX = gridPos.x + superOffset,
                     .gridY = gridPos.y + superOffset,
                     .sortKey = gridPos.x + gridPos.y + superOffset * 2,
-                    .isDying = isDying,
+                    .isRotten = isRotten,
                     .isSuper = isSuper,
                 };
                 flowerCount += 1;
@@ -121,6 +151,11 @@ pub fn draw(world: *World, gridOffset: rl.Vector2, gridScale: f32, worldTint: rl
     }
 
     std.mem.sort(FlowerRenderData, flowerList[0..flowerCount], {}, compareFlowers);
+
+    // Cell under the mouse, for the rotten-flower hover hint.
+    const mouseIso = utils.xyToIso(rl.getMousePosition().x, rl.getMousePosition().y, 32, 32, gridOffset.x, gridOffset.y, gridScale);
+    const hoverX: f32 = @floor(mouseIso.x);
+    const hoverY: f32 = @floor(mouseIso.y);
 
     for (flowerList[0..flowerCount]) |flowerData| {
         if (world.getFlowerGrowth(flowerData.entity)) |growth| {
@@ -138,6 +173,29 @@ pub fn draw(world: *World, gridOffset: rl.Vector2, gridScale: f32, worldTint: rl
                 const shadowMul: f32 = if (flowerData.isSuper) 2.0 else 1.0;
                 drawGroundShadow(flowerData.gridX, flowerData.gridY, gridOffset, gridScale, (0.34 + 0.14 * growthFrac) * shadowMul, 0.22);
 
+                if (flowerData.isRotten) {
+                    // Withered: grayscale, a touch darker and slumped, no sway.
+                    // Hovering brightens it and shows a clear-me ring so the
+                    // player learns it's clickable.
+                    const anchorX = flowerData.gridX - (if (flowerData.isSuper) @as(f32, 0.5) else 0.0);
+                    const anchorY = flowerData.gridY - (if (flowerData.isSuper) @as(f32, 0.5) else 0.0);
+                    const span: f32 = if (flowerData.isSuper) 2 else 1;
+                    const hovered = hoverX >= anchorX and hoverX < anchorX + span and hoverY >= anchorY and hoverY < anchorY + span;
+                    const dim: f32 = if (hovered) 1.0 else 0.7;
+                    const tint = rl.Color.init(
+                        @intFromFloat(@as(f32, @floatFromInt(worldTint.r)) * dim),
+                        @intFromFloat(@as(f32, @floatFromInt(worldTint.g)) * dim),
+                        @intFromFloat(@as(f32, @floatFromInt(worldTint.b)) * dim),
+                        worldTint.a,
+                    );
+                    if (hovered) drawClearHint(flowerData.gridX, flowerData.gridY, gridOffset, gridScale, time);
+                    const sh = grayscaleShader();
+                    if (sh) |shader| rl.beginShaderMode(shader);
+                    drawSpriteAtGridPosition(sprite.texture, flowerData.gridX, flowerData.gridY, source, sprite.scale * 0.92, tint, gridOffset, gridScale, 0);
+                    if (sh != null) rl.endShaderMode();
+                    continue;
+                }
+
                 if (growth.state == 4 and growth.hasPollen) {
                     // Pollen glow breathes and stays bright (untinted) so ready
                     // flowers pop, even at night.
@@ -146,10 +204,6 @@ pub fn draw(world: *World, gridOffset: rl.Vector2, gridScale: f32, worldTint: rl
                 }
 
                 drawSpriteAtGridPosition(sprite.texture, flowerData.gridX, flowerData.gridY, source, sprite.scale, worldTint, gridOffset, gridScale, sway);
-
-                if (flowerData.isDying) {
-                    drawRebirthBubble(flowerData.gridX, flowerData.gridY, gridOffset, gridScale, time);
-                }
             }
         }
     }
@@ -203,6 +257,50 @@ fn drawGroundShadow(gridX: f32, gridY: f32, gridOffset: rl.Vector2, gridScale: f
     const rx = 26 * radiusScale * (gridScale / 3.0);
     const ry = rx * 0.5;
     drawEllipseSoft(cx, cy, rx, ry, @intFromFloat(alphaScale * 255));
+}
+
+/// Isometric rings that expand from the hive and fade out, repeating forever
+/// (think "elixir collector" aura). Higher levels reach further and run more
+/// staggered rings, so leveling Aura reads on the meadow at a glance.
+fn drawAuraPulse(gridX: f32, gridY: f32, gridOffset: rl.Vector2, gridScale: f32, level: u16, reachTiles: f32, time: f32) void {
+    const tilePos = utils.isoToXY(gridX, gridY, 32, 32, gridOffset.x, gridOffset.y, gridScale);
+    const cx = tilePos.x + 16 * gridScale;
+    const cy = tilePos.y + 8 * gridScale;
+
+    const period: f32 = 2.6;
+    // A circle of radius r (tiles) in grid space projects to an ellipse whose
+    // horizontal semi-axis is r*sqrt(2)*halfTileWidth — matches labs.isInAura.
+    const maxRx = reachTiles * std.math.sqrt2 * 16 * gridScale;
+    const rings: u32 = @min(@as(u32, level), 3);
+    // Lavender reads far better than mauve against the green meadow.
+    const base = theme.CatppuccinMocha.Color.lavender;
+
+    var i: u32 = 0;
+    while (i < rings) : (i += 1) {
+        const phase = @as(f32, @floatFromInt(i)) / @as(f32, @floatFromInt(rings));
+        const t = @mod(time / period + phase, 1.0);
+        const eased = @sqrt(t); // fast start, slows as it fades
+        const rx = maxRx * eased;
+        const ry = rx * 0.5;
+        const alpha: f32 = (1.0 - t) * 255.0;
+        if (alpha < 6 or rx < 2) continue;
+        const a: u8 = @intFromFloat(alpha);
+        // Faint fill + a thick ring (segmented so thickness scales with zoom).
+        rl.drawEllipse(@intFromFloat(cx), @intFromFloat(cy), rx, ry, rl.Color.init(base.r, base.g, base.b, a / 6));
+        drawEllipseRing(cx, cy, rx, ry, @max(2.0, 2.0 * gridScale), rl.Color.init(base.r, base.g, base.b, a));
+    }
+}
+
+fn drawEllipseRing(cx: f32, cy: f32, rx: f32, ry: f32, thick: f32, color: rl.Color) void {
+    const segments: u32 = 48;
+    var prev = rl.Vector2.init(cx + rx, cy);
+    var k: u32 = 1;
+    while (k <= segments) : (k += 1) {
+        const ang = @as(f32, @floatFromInt(k)) / @as(f32, @floatFromInt(segments)) * std.math.tau;
+        const p = rl.Vector2.init(cx + rx * @cos(ang), cy + ry * @sin(ang));
+        rl.drawLineEx(prev, p, thick, color);
+        prev = p;
+    }
 }
 
 fn drawEllipseSoft(cx: f32, cy: f32, rx: f32, ry: f32, alpha: u8) void {
@@ -275,67 +373,12 @@ fn drawBeehiveAtGridPosition(texture: rl.Texture, i: f32, j: f32, width: f32, he
     rl.drawTexturePro(texture, source, destination, rl.Vector2.init(0, 0), 0, tint);
 }
 
-// A wilting flower can be saved by clicking it — shown as a soft, floating
-// "care" heart rather than a clinical green plus, to match the cozy mood.
-fn drawRebirthBubble(gridX: f32, gridY: f32, gridOffset: rl.Vector2, gridScale: f32, time: f32) void {
-    const tilePosition = utils.isoToXY(gridX, gridY, 32, 32, gridOffset.x, gridOffset.y, gridScale);
-    const tileWidth = 32 * gridScale;
-
-    const bubbleRadius: f32 = 18 * (gridScale / 3.0);
-    const bx = tilePosition.x + tileWidth / 2;
-    // Gentle vertical bob so it feels like it's floating up, asking to be saved.
-    const by = tilePosition.y - bubbleRadius * 1.5 + @sin(time * 2.5) * 3.0 * (gridScale / 3.0);
-
-    const beat = 1.0 + @sin(time * 3.0) * 0.12; // soft heartbeat
-    const s = bubbleRadius * 0.95 * beat;
-
-    const rose = rl.Color.init(245, 128, 160, 255);
-    const roseDeep = rl.Color.init(224, 96, 134, 255);
-
-    // Warm halo.
-    rl.drawCircleGradient(rl.Vector2.init(bx, by), s * 2.6, rl.Color.init(245, 150, 175, 90), rl.Color.init(245, 150, 175, 0));
-
-    // Heart = two lobes + a downward point. A faint deeper outline underlay
-    // gives it a little edge without a stroke pass.
-    drawHeart(bx, by, s * 1.12, roseDeep);
-    drawHeart(bx, by, s, rose);
-
-    // Glossy highlight dab.
-    rl.drawCircleV(rl.Vector2.init(bx - s * 0.34, by - s * 0.32), s * 0.17, rl.Color.init(255, 235, 240, 220));
-}
-
-/// Filled heart centred at (cx, cy). The bottom point is drawn as two triangles
-/// with both windings so it renders regardless of cull state.
-fn drawHeart(cx: f32, cy: f32, s: f32, color: rl.Color) void {
-    rl.drawCircleV(rl.Vector2.init(cx - s * 0.45, cy - s * 0.28), s * 0.5, color);
-    rl.drawCircleV(rl.Vector2.init(cx + s * 0.45, cy - s * 0.28), s * 0.5, color);
-    const l = rl.Vector2.init(cx - s * 0.92, cy - s * 0.02);
-    const r = rl.Vector2.init(cx + s * 0.92, cy - s * 0.02);
-    const tip = rl.Vector2.init(cx, cy + s * 1.02);
-    rl.drawTriangle(l, tip, r, color);
-    rl.drawTriangle(l, r, tip, color);
-}
-
-pub fn getBubbleHitArea(gridX: f32, gridY: f32, gridOffset: rl.Vector2, gridScale: f32) struct { x: f32, y: f32, radius: f32 } {
-    const tilePosition = utils.isoToXY(gridX, gridY, 32, 32, gridOffset.x, gridOffset.y, gridScale);
-    const tileWidth = 32 * gridScale;
-    const bubbleRadius: f32 = 18 * (gridScale / 3.0);
-    const bubbleX = tilePosition.x + tileWidth / 2;
-    const bubbleY = tilePosition.y - bubbleRadius * 1.5;
-
-    return .{ .x = bubbleX, .y = bubbleY, .radius = bubbleRadius * 2.5 };
-}
-
-pub fn isFlowerDying(world: *World, entity: u32) bool {
-    if (world.getFlowerGrowth(entity)) |growth| {
-        if (growth.state < 4) return false;
-    } else {
-        return false;
-    }
-
-    if (world.getLifespan(entity)) |lifespan| {
-        const timeRemaining = lifespan.timeSpan - lifespan.totalTimeAlive;
-        return timeRemaining <= 5.0 and timeRemaining > 0;
-    }
-    return false;
+/// Pulsing ring on the ground under a hovered rotten flower: "click to clear".
+fn drawClearHint(gridX: f32, gridY: f32, gridOffset: rl.Vector2, gridScale: f32, time: f32) void {
+    const tilePos = utils.isoToXY(gridX, gridY, 32, 32, gridOffset.x, gridOffset.y, gridScale);
+    const cx = tilePos.x + 16 * gridScale;
+    const cy = tilePos.y + 8 * gridScale;
+    const pulse = 1.0 + 0.08 * @sin(time * 5.0);
+    const rx = 15 * gridScale / 3.0 * 3.0 * pulse;
+    drawEllipseRing(cx, cy, rx, rx * 0.5, @max(1.5, 1.2 * gridScale), rl.Color.init(243, 139, 168, 220));
 }

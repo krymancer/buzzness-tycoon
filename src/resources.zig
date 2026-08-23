@@ -69,22 +69,6 @@ pub const Resources = struct {
         return false;
     }
 
-    pub fn getStorageUpgradeCost(self: *const @This()) f32 {
-        // Cost doubles each level: 50, 100, 200, 400...
-        const multiplier = std.math.pow(f32, 2.0, @as(f32, @floatFromInt(self.storageLevel - 1)));
-        return BASE_STORAGE_COST * multiplier;
-    }
-
-    pub fn upgradeStorage(self: *@This()) bool {
-        const cost = self.getStorageUpgradeCost();
-        if (self.spendHoney(cost)) {
-            self.storageLevel += 1;
-            self.honeyCapacity += CAPACITY_PER_LEVEL;
-            return true;
-        }
-        return false;
-    }
-
     pub fn getCapacityPercent(self: *const @This()) f32 {
         if (!config.honey_cap_enabled) return 0;
         return self.honey / self.honeyCapacity;
@@ -109,24 +93,6 @@ pub const Resources = struct {
     pub fn useGrowthBoost(self: *@This()) bool {
         if (self.canUseGrowthBoost()) {
             self.growthBoostCooldown = self.growthBoostMaxCooldown;
-            return true;
-        }
-        return false;
-    }
-
-    pub fn getGrowthBoostUpgradeCost(self: *const @This()) f32 {
-        // Cost increases: 30, 60, 120, 240...
-        const multiplier = std.math.pow(f32, 2.0, @as(f32, @floatFromInt(self.growthBoostLevel - 1)));
-        return BASE_GROWTH_UPGRADE_COST * multiplier;
-    }
-
-    pub fn upgradeGrowthBoost(self: *@This()) bool {
-        const cost = self.getGrowthBoostUpgradeCost();
-        if (self.spendHoney(cost)) {
-            self.growthBoostLevel += 1;
-            // Reduce max cooldown
-            const newCooldown = BASE_GROWTH_COOLDOWN - (@as(f32, @floatFromInt(self.growthBoostLevel - 1)) * COOLDOWN_REDUCTION_PER_LEVEL);
-            self.growthBoostMaxCooldown = @max(MIN_COOLDOWN, newCooldown);
             return true;
         }
         return false;

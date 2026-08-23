@@ -40,6 +40,45 @@ pub const GameState = enum {
     playing,
 };
 
+/// Whether the window currently fills its monitor as an undecorated window.
+var borderless: bool = false;
+
+/// Cover the current monitor with an undecorated, normal-level window. Unlike
+/// exclusive fullscreen this leaves the window manager in charge, so
+/// Alt-Tab / Cmd-Tab, notifications and other displays keep working.
+fn enterBorderless() void {
+    const monitor = rl.getCurrentMonitor();
+    const mpos = rl.getMonitorPosition(monitor);
+    const mw = rl.getMonitorWidth(monitor);
+    const mh = rl.getMonitorHeight(monitor);
+    if (mw <= 0 or mh <= 0) return;
+    const mx: i32 = @intFromFloat(mpos.x);
+    const my: i32 = @intFromFloat(mpos.y);
+
+    rl.setWindowState(.{ .window_undecorated = true });
+    rl.setWindowSize(mw, mh);
+    rl.setWindowPosition(mx, my);
+    // macOS keeps normal windows below the menu bar: if the WM pushed us
+    // down, give up that strip instead of letting the bottom get clipped.
+    const got = rl.getWindowPosition();
+    const pushed: i32 = @as(i32, @intFromFloat(got.y)) - my;
+    if (pushed > 0) rl.setWindowSize(mw, mh - pushed);
+    rl.setWindowFocused();
+    borderless = true;
+}
+
+/// Back to a decorated, centred 1280x720 window.
+fn leaveBorderless() void {
+    const monitor = rl.getCurrentMonitor();
+    const mpos = rl.getMonitorPosition(monitor);
+    const mw = rl.getMonitorWidth(monitor);
+    const mh = rl.getMonitorHeight(monitor);
+    rl.clearWindowState(.{ .window_undecorated = true });
+    rl.setWindowSize(1280, 720);
+    rl.setWindowPosition(@as(i32, @intFromFloat(mpos.x)) + @divFloor(mw - 1280, 2), @as(i32, @intFromFloat(mpos.y)) + @divFloor(mh - 720, 2));
+    borderless = false;
+}
+
 pub const Game = struct {
     const INITIAL_GRID_WIDTH = 17;
     const INITIAL_GRID_HEIGHT = 17;
@@ -68,7 +107,6 @@ pub const Game = struct {
     isDragging: bool,
     lastMousePos: rl.Vector2,
 
-    beehiveUpgradeCost: f32,
     cachedBeeCount: usize,
     cachedBeeTypeCounts: [4]usize,
     cachedFlowerCount: usize,
@@ -79,15 +117,12 @@ pub const Game = struct {
     floatingTexts: floating_text.Manager,
     upgradeTree: upgrade_tree.State,
     showTree: bool,
+    plantMenu: ui.plant_menu.State,
     labs: labs.LabState,
     prestige: prestige_mod.PrestigeState,
     showPrestigeDialog: bool,
 
     // Tile popup state
-    showTilePopup: bool,
-    popupJustOpened: bool, // Prevents click-through on popup open frame
-    selectedTileX: i32,
-    selectedTileY: i32,
     clickStartPos: rl.Vector2,
 
     // Pause menu state
@@ -102,6 +137,8 @@ pub const Game = struct {
     io: std.Io,
     env: *std.process.Environ.Map,
     savePath: []u8,
+    /// True when a save was loaded at startup (title shows Continue/New Game).
+    hasSavedGame: bool,
     autosaveTimer: f32,
 
     pub fn init(allocator: std.mem.Allocator, io: std.Io, env: *std.process.Environ.Map) !@This() {
@@ -124,11 +161,12 @@ pub const Game = struct {
         // Dev: BT_WINDOWED runs in a plain window (no fullscreen takeover) so
         // the game can be launched/screenshotted without hijacking the desktop.
         if (env.get("BT_WINDOWED") == null) {
-            const monitor = rl.getCurrentMonitor();
-            const mw = rl.getMonitorWidth(monitor);
-            const mh = rl.getMonitorHeight(monitor);
-            if (mw > 0 and mh > 0) rl.setWindowSize(mw, mh);
-            rl.toggleFullscreen();
+            // Borderless windowed rather than exclusive fullscreen, so
+            // Alt-Tab / Cmd-Tab behave like any other app. Done by hand:
+            // raylib 6.0's ToggleBorderlessWindowed() still calls
+            // glfwSetWindowMonitor() with a real monitor (= exclusive mode,
+            // which captures the display on macOS); see raylib #3865.
+            enterBorderless();
         } else {
             // Dev: BT_W/BT_H override the windowed size (e.g. 1920x1080 for
             // store screenshots); default to the handy 1366x820 work size.
@@ -214,7 +252,19 @@ pub const Game = struct {
             .metrics = Metrics.init(io),
             .floatingTexts = floating_text.Manager.init(allocator),
             .upgradeTree = upgrade_tree.State.init(allocator),
-            .showTree = false,
+            // Dev: BT_OPEN_TREE starts with the upgrade tree open (screenshots).
+            .showTree = env.get("BT_OPEN_TREE") != null,
+            // Dev: BT_OPEN_PLANT=x,y starts with the plant chooser open on a tile.
+            .plantMenu = blk: {
+                var st: ui.plant_menu.State = .{};
+                if (env.get("BT_OPEN_PLANT")) |v| {
+                    var it = std.mem.splitScalar(u8, v, ',');
+                    const xs = it.next() orelse "0";
+                    const ys = it.next() orelse "0";
+                    st.openAt(std.fmt.parseInt(i32, xs, 10) catch 0, std.fmt.parseInt(i32, ys, 10) catch 0);
+                }
+                break :blk st;
+            },
             .labs = .{},
             .prestige = .{},
             .showPrestigeDialog = false,
@@ -223,16 +273,11 @@ pub const Game = struct {
             .isDragging = false,
             .lastMousePos = rl.Vector2.init(0, 0),
 
-            .beehiveUpgradeCost = 20.0,
             .cachedBeeCount = 0,
             .cachedBeeTypeCounts = .{ 0, 0, 0, 0 },
             .cachedFlowerCount = 0,
             .cachedHoneyFactor = 1.0,
 
-            .showTilePopup = false,
-            .popupJustOpened = false,
-            .selectedTileX = 0,
-            .selectedTileY = 0,
             .clickStartPos = rl.Vector2.init(0, 0),
 
             .showPauseMenu = false,
@@ -242,6 +287,7 @@ pub const Game = struct {
             .state = if (env.get("BT_AUTOPLAY") != null) .playing else .title_screen,
             .env = env,
             .savePath = savePath,
+            .hasSavedGame = false,
             .autosaveTimer = 0,
 
             .width = width,
@@ -251,14 +297,17 @@ pub const Game = struct {
         };
 
         spawners.superFlowersUnlocked = false;
-        game.loadProgress() catch |err| switch (err) {
+        if (game.loadProgress()) {
+            game.hasSavedGame = true;
+        } else |err| switch (err) {
             error.FileNotFound => {},
             else => std.debug.print("Could not load save '{s}': {}\n", .{ savePath, err }),
-        };
+        }
         return game;
     }
 
     pub fn deinit(self: *@This()) void {
+        render_system.deinit();
         self.grid.deinit();
         self.textures.deinit();
         self.hud.deinit();
@@ -295,7 +344,7 @@ pub const Game = struct {
         while (!rl.windowShouldClose() and !self.shouldExit) {
             self.handleCommonInput();
             switch (self.state) {
-                .title_screen => self.drawTitleScreen(),
+                .title_screen => try self.drawTitleScreen(),
                 .playing => {
                     self.handlePlayingInput();
                     try self.update();
@@ -326,17 +375,9 @@ pub const Game = struct {
         self.audio.update(clock.frameTime());
         if (rl.isKeyPressed(rl.KeyboardKey.n)) self.audio.toggleMute();
 
-        // Alt+Enter to toggle fullscreen
+        // Alt+Enter toggles borderless fullscreen <-> a centred 1280x720 window.
         if (rl.isKeyPressed(rl.KeyboardKey.enter) and rl.isKeyDown(rl.KeyboardKey.left_alt)) {
-            const wasFullscreen = rl.isWindowFullscreen();
-            rl.toggleFullscreen();
-            if (wasFullscreen) {
-                rl.setWindowSize(1280, 720);
-                const monitor = rl.getCurrentMonitor();
-                const monitorWidth = rl.getMonitorWidth(monitor);
-                const monitorHeight = rl.getMonitorHeight(monitor);
-                rl.setWindowPosition(@divFloor(monitorWidth - 1280, 2), @divFloor(monitorHeight - 720, 2));
-            }
+            if (borderless) leaveBorderless() else enterBorderless();
         }
 
         // Cmd/Ctrl +/- adjusts the UI scale; Cmd/Ctrl 0 resets it.
@@ -372,7 +413,7 @@ pub const Game = struct {
         }
     }
 
-    fn drawTitleScreen(self: *@This()) void {
+    fn drawTitleScreen(self: *@This()) !void {
         rl.beginDrawing();
         defer rl.endDrawing();
         ui_scale.begin();
@@ -386,9 +427,13 @@ pub const Game = struct {
         self.sky.drawCelestial(self.width, self.height);
         rl.drawRectangle(0, 0, @intFromFloat(self.width), @intFromFloat(self.height), rl.Color.init(20, 20, 40, 90));
 
-        const action = ui.title_screen.draw(self.width, self.height);
+        const action = ui.title_screen.draw(self.width, self.height, self.hasSavedGame);
         switch (action) {
             .play => self.state = .playing,
+            .new_game => {
+                try self.startNewGame();
+                self.state = .playing;
+            },
             .quit => self.shouldExit = true,
             .toggle_language => locale.toggle(),
             .none => {},
@@ -405,8 +450,8 @@ pub const Game = struct {
             } else if (self.showTree) {
                 self.showTree = false;
                 return;
-            } else if (self.showTilePopup) {
-                self.showTilePopup = false;
+            } else if (self.plantMenu.open) {
+                self.plantMenu.open = false;
                 return;
             } else if (self.showPauseMenu) {
                 self.showPauseMenu = false;
@@ -421,19 +466,11 @@ pub const Game = struct {
         }
 
         // Block input when popup, pause menu, tree, or prestige dialog is open
-        if (self.showTilePopup or self.showPauseMenu or self.showTree or self.showPrestigeDialog) {
+        if (self.showPauseMenu or self.showTree or self.showPrestigeDialog) {
             return;
         }
-
-        // Lab hotkeys
-        if (rl.isKeyPressed(rl.KeyboardKey.b)) {
-            _ = self.labs.tryActivateBurst(self.upgradeTree.hasEffect(.lab_burst));
-        }
-        if (rl.isKeyPressed(rl.KeyboardKey.m)) {
-            if (self.labs.tryActivateBloom(self.upgradeTree.hasEffect(.lab_bloom))) {
-                self.triggerBloom();
-            }
-        }
+        // The plant chooser owns the mouse while open (draw() handles it).
+        if (self.plantMenu.open) return;
 
         const mousePos = rl.getMousePosition();
         const mouseInPanel = ui.side_panel.isMouseInPanel(mousePos, self.width);
@@ -474,38 +511,57 @@ pub const Game = struct {
         // as a click, not a camera drag.
         if (dragDistance >= 12.0) return;
 
-        // Check if we clicked on a rebirth bubble
-        var flowerIter = self.world.iterateFlowers();
-        while (flowerIter.next()) |entity| {
-            if (render_system.isFlowerDying(&self.world, entity)) {
-                if (self.world.getGridPosition(entity)) |gridPos| {
-                    // SUPER flowers draw (and bubble) at their 2x2 block centre.
-                    var superOffset: f32 = 0;
-                    if (self.world.getFlowerGrowth(entity)) |growth| {
-                        if (growth.isSuper) superOffset = 0.5;
-                    }
-                    const bubble = render_system.getBubbleHitArea(gridPos.x + superOffset, gridPos.y + superOffset, self.grid.offset, self.grid.scale);
-                    const dx = mousePos.x - bubble.x;
-                    const dy = mousePos.y - bubble.y;
-                    if (dx * dx + dy * dy <= bubble.radius * bubble.radius) {
-                        self.rebirthFlower(entity);
+        // Rotten flower under the cursor: clear it so the cell can regrow.
+        if (self.grid.getHoveredTile()) |tile| {
+            if (self.world.getFlowerAtGrid(tile.x, tile.y)) |flowerEntity| {
+                if (self.world.getFlowerGrowth(flowerEntity)) |growth| {
+                    if (growth.isRotten) {
+                        lifespan_system.removeFlower(&self.world, flowerEntity) catch {};
+                        self.cachedFlowerCount = self.world.entityToFlowerGrowth.count();
                         return;
                     }
                 }
+                return; // live flower: nothing to do
             }
-        }
-
-        // Check if we clicked on a tile
-        if (self.grid.getHoveredTile()) |tile| {
-            // Beehive tile: side panel handles all hive actions, skip popup
+            // Empty tile (not the hive, inside the meadow): open the planter.
             const centerX = @as(i32, @intCast((self.gridWidth - 1) / 2));
             const centerY = @as(i32, @intCast((self.gridHeight - 1) / 2));
-            if (tile.x == centerX and tile.y == centerY) return;
+            const inBounds = tile.x >= 0 and tile.y >= 0 and tile.x < @as(i32, @intCast(self.gridWidth)) and tile.y < @as(i32, @intCast(self.gridHeight));
+            if (inBounds and !(tile.x == centerX and tile.y == centerY)) {
+                self.plantMenu.openAt(tile.x, tile.y);
+            }
+        }
+    }
 
-            self.selectedTileX = tile.x;
-            self.selectedTileY = tile.y;
-            self.showTilePopup = true;
-            self.popupJustOpened = true;
+    fn drawAndHandlePlantMenu(self: *@This()) !void {
+        const action = ui.plant_menu.draw(&self.plantMenu, .{
+            .screenWidth = self.width,
+            .screenHeight = self.height,
+            .gridOffset = self.grid.offset,
+            .gridScale = self.grid.scale,
+            .resources = &self.resources,
+            .textures = &self.textures,
+        });
+        switch (action) {
+            .none => {},
+            .close => self.plantMenu.open = false,
+            .plant => |flower| {
+                const cost = switch (flower) {
+                    .rose => spawners.FLOWER_COSTS.rose,
+                    .tulip => spawners.FLOWER_COSTS.tulip,
+                    .dandelion => spawners.FLOWER_COSTS.dandelion,
+                };
+                const x = self.plantMenu.tileX;
+                const y = self.plantMenu.tileY;
+                if (!self.world.hasFlowerAtGrid(x, y) and self.resources.spendHoney(cost)) {
+                    const honeyBefore = self.resources.honey + cost;
+                    _ = try spawners.spawnFlower(&self.world, &self.textures, flower, x, y);
+                    _ = try spawners.tryMergeSuperFlower(&self.world, x, y);
+                    self.cachedFlowerCount = self.world.entityToFlowerGrowth.count();
+                    try self.spawnSpendFeedback(honeyBefore);
+                }
+                self.plantMenu.open = false;
+            },
         }
     }
 
@@ -525,7 +581,6 @@ pub const Game = struct {
 
         self.resources.updateCooldown(deltaTime);
         self.resources.tickRate(deltaTime);
-        self.labs.update(deltaTime);
 
         // Instant Grow: once unlocked, it fires on its own — whenever the
         // cooldown completes, a random still-growing flower blooms instantly.
@@ -591,7 +646,7 @@ pub const Game = struct {
 
         self.grid.draw(self.sky.worldTint());
 
-        try render_system.draw(&self.world, self.grid.offset, self.grid.scale, self.sky.worldTint());
+        try render_system.draw(&self.world, self.grid.offset, self.grid.scale, self.sky.worldTint(), self.upgradeTree.level(upgrade_tree.AURA_ID), self.labs.auraReach);
 
         self.floatingTexts.draw(self.grid.offset, self.grid.scale);
 
@@ -608,8 +663,6 @@ pub const Game = struct {
         const honeyFactor = self.cachedHoneyFactor;
         self.hud.draw(&self.resources, honeyFactor);
 
-        self.drawLabsWidget();
-
         // Draw side panel (shop)
         const sideCtx = ui.SidePanelContext{
             .screenWidth = self.width,
@@ -618,21 +671,29 @@ pub const Game = struct {
             .beeTypeCounts = self.cachedBeeTypeCounts,
             .treeState = &self.upgradeTree,
             .prestige = &self.prestige,
+            .labs = &self.labs,
             .textures = &self.textures,
         };
         const sideAction = ui.side_panel.draw(sideCtx);
-        if (!self.showTilePopup and !self.showPauseMenu and !self.showTree and !self.showPrestigeDialog) {
+        if (!self.showPauseMenu and !self.showTree and !self.showPrestigeDialog) {
             switch (sideAction) {
                 .none => {},
                 .open_tree => self.showTree = true,
                 .open_prestige => self.showPrestigeDialog = true,
-                .buy => |act| {
+                .buy => |b| {
                     var handler = self.createActionHandler();
                     const honeyBefore = self.resources.honey;
-                    const result = try handler.handlePopupAction(act, 0, 0);
+                    var delta: i32 = 0;
+                    // Bulk buy: repeat until the quantity is met or honey runs out.
+                    var n: u32 = 0;
+                    while (n < b.qty) : (n += 1) {
+                        const result = try handler.handleBuy(b.action);
+                        if (result.beeCountDelta == 0) break;
+                        delta += result.beeCountDelta;
+                    }
                     try self.spawnSpendFeedback(honeyBefore);
-                    if (result.beeCountDelta != 0) {
-                        self.cachedBeeCount = @intCast(@as(i64, @intCast(self.cachedBeeCount)) + result.beeCountDelta);
+                    if (delta != 0) {
+                        self.cachedBeeCount = @intCast(@as(i64, @intCast(self.cachedBeeCount)) + delta);
                     }
                 },
             }
@@ -665,32 +726,7 @@ pub const Game = struct {
             text.draw(rl.textFormat("%.2f ms", .{rl.getFrameTime() * 1000.0}), fpsX, 30, 20, rl.Color.white);
         }
 
-        // Draw tile popup
-        if (self.showTilePopup) {
-            // Skip processing actions on the frame the popup was opened
-            // to prevent click-through
-            if (self.popupJustOpened) {
-                self.popupJustOpened = false;
-                // Still draw the popup, just don't process actions
-                const ctx = ui.TilePopupContext{
-                    .screenWidth = self.width,
-                    .screenHeight = self.height,
-                    .tileX = self.selectedTileX,
-                    .tileY = self.selectedTileY,
-                    .gridWidth = self.gridWidth,
-                    .gridHeight = self.gridHeight,
-                    .resources = &self.resources,
-                    .beeCount = self.cachedBeeCount,
-                    .beehiveUpgradeCost = self.beehiveUpgradeCost,
-                    .textures = &self.textures,
-                    .world = &self.world,
-                    .growthUnlocked = self.upgradeTree.hasEffect(.growth_boost_unlock),
-                };
-                _ = ui.popups.draw(ctx);
-            } else {
-                try self.handleTilePopup();
-            }
-        }
+        if (self.plantMenu.open) try self.drawAndHandlePlantMenu();
 
         // Screen-space popups (purchase "-cost" feedback) above all UI.
         self.floatingTexts.drawScreen();
@@ -753,51 +789,12 @@ pub const Game = struct {
             .resources = &self.resources,
             .grid = &self.grid,
             .textures = &self.textures,
-            .beehiveUpgradeCost = &self.beehiveUpgradeCost,
         };
-    }
-
-    fn handleTilePopup(self: *@This()) !void {
-        const ctx = ui.TilePopupContext{
-            .screenWidth = self.width,
-            .screenHeight = self.height,
-            .tileX = self.selectedTileX,
-            .tileY = self.selectedTileY,
-            .gridWidth = self.gridWidth,
-            .gridHeight = self.gridHeight,
-            .resources = &self.resources,
-            .beeCount = self.cachedBeeCount,
-            .beehiveUpgradeCost = self.beehiveUpgradeCost,
-            .textures = &self.textures,
-            .world = &self.world,
-            .growthUnlocked = self.upgradeTree.hasEffect(.growth_boost_unlock),
-        };
-
-        const action = ui.popups.draw(ctx);
-        var handler = self.createActionHandler();
-        const honeyBefore = self.resources.honey;
-        const result = try handler.handlePopupAction(action, self.selectedTileX, self.selectedTileY);
-        try self.spawnSpendFeedback(honeyBefore);
-
-        if (result.closePopup) {
-            self.showTilePopup = false;
-        }
-        if (result.beeCountDelta != 0) {
-            self.cachedBeeCount = @intCast(@as(i64, @intCast(self.cachedBeeCount)) + result.beeCountDelta);
-        }
-        if (result.flowerCountDelta != 0) {
-            self.cachedFlowerCount = @intCast(@as(i64, @intCast(self.cachedFlowerCount)) + result.flowerCountDelta);
-        }
     }
 
     fn getBeehiveHoneyFactor(self: *@This()) f32 {
         var handler = self.createActionHandler();
         return handler.getBeehiveHoneyFactor();
-    }
-
-    fn rebirthFlower(self: *@This(), entity: u32) void {
-        var handler = self.createActionHandler();
-        handler.rebirthFlower(entity);
     }
 
     /// Uniformly random flower that hasn't fully bloomed yet, or null.
@@ -822,38 +819,6 @@ pub const Game = struct {
             }
         }
         return null;
-    }
-
-    fn drawLabsWidget(self: *@This()) void {
-        const auraOn = self.upgradeTree.hasEffect(.lab_aura);
-        const burstUnlocked = self.upgradeTree.hasEffect(.lab_burst);
-        const bloomUnlocked = self.upgradeTree.hasEffect(.lab_bloom);
-        if (!auraOn and !burstUnlocked and !bloomUnlocked) return;
-
-        // Below the HUD stack (honey card + bees/factor lines + grow meter).
-        var y: i32 = 208;
-        if (auraOn) {
-            text.draw(rl.textFormat("Aura: x%.2f", .{self.labs.auraMul}), 10, y, 18, theme.CatppuccinMocha.Color.mauve);
-            y += 23;
-        }
-        if (burstUnlocked) {
-            const txt = if (self.labs.burstRemaining > 0)
-                rl.textFormat(locale.tr("[B] Burst: ACTIVE %.1fs", "[B] Explosão: ATIVA %.1fs"), .{self.labs.burstRemaining})
-            else if (self.labs.burstCooldown > 0)
-                rl.textFormat(locale.tr("[B] Burst: %.1fs", "[B] Explosão: %.1fs"), .{self.labs.burstCooldown})
-            else
-                rl.textFormat(locale.tr("[B] Burst: READY", "[B] Explosão: PRONTA"), .{});
-            text.draw(txt, 10, y, 18, theme.CatppuccinMocha.Color.red);
-            y += 23;
-        }
-        if (bloomUnlocked) {
-            const txt = if (self.labs.bloomCooldown > 0)
-                rl.textFormat(locale.tr("[M] Bloom: %.1fs", "[M] Florescer: %.1fs"), .{self.labs.bloomCooldown})
-            else
-                rl.textFormat(locale.tr("[M] Bloom: READY", "[M] Florescer: PRONTO"), .{});
-            text.draw(txt, 10, y, 18, theme.CatppuccinMocha.Color.pink);
-            y += 23;
-        }
     }
 
     fn drawAndHandlePrestigeDialog(self: *@This()) !void {
@@ -906,7 +871,19 @@ pub const Game = struct {
 
     fn doPrestige(self: *@This(), gain: u32) !void {
         self.prestige.resetRun(gain);
+        try self.resetRun();
+    }
 
+    /// Wipe everything, including prestige, and overwrite the save on disk.
+    fn startNewGame(self: *@This()) !void {
+        self.prestige = .{};
+        try self.resetRun();
+        self.hasSavedGame = false;
+        self.saveProgress() catch |err| std.debug.print("Could not save new game: {}\n", .{err});
+    }
+
+    /// Tear down the world and restore a fresh run (keeps prestige state).
+    fn resetRun(self: *@This()) !void {
         // Reset world: full teardown + respawn
         self.world.deinit();
         self.world = World.init(self.allocator);
@@ -940,21 +917,13 @@ pub const Game = struct {
         self.upgradeTree.deinit();
         self.upgradeTree = upgrade_tree.State.init(self.allocator);
         spawners.superFlowersUnlocked = false;
+        bee_ai_system.gardenerPlantChance = bee_ai_system.GARDENER_BASE_CHANCE;
+        bee_ai_system.gardenerCompost = false;
 
-        self.beehiveUpgradeCost = 20.0;
         self.cachedBeeCount = self.world.entityToBeeAI.count();
         self.cachedFlowerCount = self.world.entityToFlowerGrowth.count();
         self.recountBeeTypes();
         self.floatingTexts.items.clearRetainingCapacity();
-    }
-
-    fn triggerBloom(self: *@This()) void {
-        var it = self.world.entityToFlowerGrowth.iterator();
-        while (it.next()) |entry| {
-            const g = &self.world.flowerGrowths.items[entry.value_ptr.*];
-            g.state = 4;
-            g.hasPollen = true;
-        }
     }
 
     fn expandGrid(self: *@This()) !void {
@@ -1029,10 +998,9 @@ pub const Game = struct {
     }
 
     fn purchaseUpgrade(self: *@This(), nodeId: upgrade_tree.NodeId) !void {
-        if (self.upgradeTree.isPurchased(nodeId)) return;
         const node = upgrade_tree.findNode(nodeId) orelse return;
-        if (!self.upgradeTree.isUnlocked(node)) return;
-        if (!self.resources.spendHoney(node.cost)) return;
+        if (!self.upgradeTree.canBuy(node)) return;
+        if (!self.resources.spendHoney(self.upgradeTree.nextCost(node))) return;
 
         switch (node.effect) {
             .honey_factor_mul => {
@@ -1041,12 +1009,19 @@ pub const Game = struct {
                     if (self.world.getBeehive(e.*)) |bh| bh.honeyConversionFactor *= node.value;
                 }
             },
-            .storage_add => self.resources.honeyCapacity += node.value,
+            // Capacity scales with level so storage keeps pace with honey growth.
+            .storage_add => self.resources.honeyCapacity += node.value * std.math.pow(f32, 1.6, @floatFromInt(self.upgradeTree.level(nodeId))),
             .growth_cd_sub => self.resources.growthBoostMaxCooldown = @max(2.0, self.resources.growthBoostMaxCooldown - node.value),
             .bee_unlock_worker, .bee_unlock_swift, .bee_unlock_efficient, .bee_unlock_gardener => {},
+            .gardener_chance => bee_ai_system.gardenerPlantChance = bee_ai_system.gardenerChanceForLevel(self.upgradeTree.level(nodeId) + 1),
+            .gardener_compost => bee_ai_system.gardenerCompost = true,
             .grid_expand => try self.expandGrid(),
-            .lab_aura => self.labs.auraMul = labs.AURA_MUL,
-            .lab_burst, .lab_bloom => {}, // unlock only, activation via hotkey
+            // +1 because the level is bumped after this switch.
+            .lab_aura => {
+                self.labs.auraMul = labs.auraMultiplierForLevel(self.upgradeTree.level(nodeId) + 1);
+                self.labs.auraReach = labs.auraReachForLevel(self.upgradeTree.level(upgrade_tree.AURA_REACH_ID));
+            },
+            .aura_reach => self.labs.auraReach = labs.auraReachForLevel(self.upgradeTree.level(nodeId) + 1),
             .prestige_unlock => self.prestige.hasUnlockedPrestige = true,
             .growth_boost_unlock => {}, // gate checked via hasEffect at usage
             .super_flower_unlock => {
@@ -1071,22 +1046,23 @@ pub const Game = struct {
             .growth_max_cooldown = self.resources.growthBoostMaxCooldown,
             .growth_level = self.resources.growthBoostLevel,
             .beehive_factor = self.getBeehiveHoneyFactor(),
-            .beehive_upgrade_cost = self.beehiveUpgradeCost,
+            .beehive_upgrade_cost = 20, // legacy field, popup upgrade removed
             .grid_width = self.gridWidth,
             .grid_height = self.gridHeight,
             .royal_jelly = self.prestige.royalJelly,
             .this_run_honey = self.prestige.thisRunHoney,
             .prestige_unlocked = self.prestige.hasUnlockedPrestige,
             .aura_multiplier = self.labs.auraMul,
-            .burst_remaining = self.labs.burstRemaining,
-            .burst_cooldown = self.labs.burstCooldown,
-            .bloom_cooldown = self.labs.bloomCooldown,
         };
         defer data.deinit(self.allocator);
 
-        var upgrade_it = self.upgradeTree.purchased.keyIterator();
-        while (upgrade_it.next()) |id| {
-            if (id.* < data.purchased.len) data.purchased[id.*] = true;
+        var upgrade_it = self.upgradeTree.levels.iterator();
+        while (upgrade_it.next()) |entry| {
+            const id = entry.key_ptr.*;
+            if (id < data.purchased.len and entry.value_ptr.* > 0) {
+                data.purchased[id] = true;
+                data.levels[id] = entry.value_ptr.*;
+            }
         }
 
         var bee_it = self.world.iterateBees();
@@ -1119,6 +1095,7 @@ pub const Game = struct {
                 .lifespan_total_time_alive = lifespan.totalTimeAlive,
                 .lifespan_time_span = lifespan.timeSpan,
                 .is_super = growth.isSuper,
+                .is_rotten = growth.isRotten,
             });
         }
 
@@ -1195,6 +1172,13 @@ pub const Game = struct {
             {
                 spawners.applySuperForm(&self.world, entity, flower.x, flower.y);
             }
+            if (flower.is_rotten) {
+                if (self.world.getFlowerGrowth(entity)) |growth| {
+                    if (self.world.getLifespan(entity)) |lifespan| {
+                        lifespan_system.rotFlower(&self.world, entity, growth, lifespan);
+                    }
+                }
+            }
         }
 
         for (data.bee_counts, 0..) |count, index| {
@@ -1219,13 +1203,29 @@ pub const Game = struct {
         self.resources.growthBoostCooldown = finiteAtLeast(data.growth_cooldown, 0, 0);
         self.resources.growthBoostMaxCooldown = finiteAtLeast(data.growth_max_cooldown, 2, 10);
         self.resources.growthBoostLevel = @max(1, data.growth_level);
-        self.beehiveUpgradeCost = finiteAtLeast(data.beehive_upgrade_cost, 1, 20);
 
         self.upgradeTree.deinit();
         self.upgradeTree = upgrade_tree.State.init(self.allocator);
         for (data.purchased, 0..) |purchased, id| {
-            if (purchased and upgrade_tree.findNode(@intCast(id)) != null) {
-                try self.upgradeTree.markPurchased(@intCast(id));
+            if (!purchased) continue;
+            const node = upgrade_tree.findNode(@intCast(id)) orelse continue;
+            // Legacy ids are folded into their target's level below.
+            var is_legacy = false;
+            for (upgrade_tree.LEGACY_LEVEL_MAP) |m| {
+                if (m.legacy == id) is_legacy = true;
+            }
+            if (is_legacy) continue;
+            // Old saves only have the "upgrade" flag -> level 1; clamp to max.
+            var lvl: u16 = @max(1, data.levels[id]);
+            if (node.repeat) |r| {
+                if (r.max_level != 0) lvl = @min(lvl, r.max_level);
+            } else lvl = 1;
+            try self.upgradeTree.setLevel(@intCast(id), lvl);
+        }
+        // Old saves: "Grid +2 ring" etc. become extra levels on the single node.
+        for (upgrade_tree.LEGACY_LEVEL_MAP) |m| {
+            if (m.legacy < data.purchased.len and data.purchased[m.legacy] and self.upgradeTree.isPurchased(m.target)) {
+                try self.upgradeTree.setLevel(m.target, self.upgradeTree.level(m.target) + 1);
             }
         }
 
@@ -1233,10 +1233,14 @@ pub const Game = struct {
         self.prestige.thisRunHoney = finiteAtLeast(data.this_run_honey, 0, 0);
         self.prestige.hasUnlockedPrestige = data.prestige_unlocked or self.upgradeTree.hasEffect(.prestige_unlock);
         spawners.superFlowersUnlocked = self.upgradeTree.hasEffect(.super_flower_unlock);
-        self.labs.auraMul = finiteAtLeast(data.aura_multiplier, 1, 1);
-        self.labs.burstRemaining = finiteAtLeast(data.burst_remaining, 0, 0);
-        self.labs.burstCooldown = finiteAtLeast(data.burst_cooldown, 0, 0);
-        self.labs.bloomCooldown = finiteAtLeast(data.bloom_cooldown, 0, 0);
+        bee_ai_system.gardenerPlantChance = bee_ai_system.gardenerChanceForLevel(self.upgradeTree.level(upgrade_tree.GREEN_THUMB_ID));
+        bee_ai_system.gardenerCompost = self.upgradeTree.hasEffect(.gardener_compost);
+        // Derived from the tree levels (the saved multiplier is legacy).
+        self.labs.auraMul = labs.auraMultiplierForLevel(self.upgradeTree.level(upgrade_tree.AURA_ID));
+        self.labs.auraReach = if (self.upgradeTree.isPurchased(upgrade_tree.AURA_ID))
+            labs.auraReachForLevel(self.upgradeTree.level(upgrade_tree.AURA_REACH_ID))
+        else
+            0;
 
         self.cachedBeeCount = self.world.entityToBeeAI.count();
         self.cachedFlowerCount = self.world.entityToFlowerGrowth.count();

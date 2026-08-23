@@ -9,6 +9,7 @@ const Flowers = textures.Flowers;
 const utils = @import("../../utils.zig");
 const Resources = @import("../../resources.zig").Resources;
 const labs_mod = @import("../../labs.zig");
+const lifespan_system = @import("lifespan_system.zig");
 const prestige_mod = @import("../../prestige.zig");
 const spawners = @import("../../spawners.zig");
 
@@ -119,6 +120,12 @@ pub fn update(ctx: UpdateCtx) !void {
             continue;
         }
 
+        // Composting runs on every cell a gardener crosses, whatever it is
+        // doing — rot must be clearable even when there's no pollen around.
+        if (gardenerCompost and beeAI.beeType.canSpawnFlowers()) {
+            try handleComposting(ctx.world, beeAI, position, ctx.gridOffset, ctx.gridScale, ctx.gridWidth, ctx.gridHeight);
+        }
+
         if (checkPollination and beeAI.carryingPollen) {
             try handlePollination(ctx.world, beeAI, position, ctx.gridOffset, ctx.gridScale, ctx.gridWidth, ctx.gridHeight, ctx.texturesRef);
         }
@@ -137,7 +144,7 @@ pub fn update(ctx: UpdateCtx) !void {
             if (distance < 30.0) {
                 if (ctx.world.getPollenCollector(entity)) |collector| {
                     if (collector.pollenCollected > 0) {
-                        const newHoney = collector.pollenCollected * ctx.honeyFactor * ctx.labs.honeyMultiplier() * ctx.prestige.globalMul();
+                        const newHoney = collector.pollenCollected * ctx.honeyFactor * ctx.prestige.globalMul();
                         ctx.resources.addHoney(newHoney);
                         ctx.prestige.trackHoney(newHoney);
                         ctx.frameHoneyGain.* += newHoney;
@@ -197,7 +204,9 @@ pub fn update(ctx: UpdateCtx) !void {
 
                 if (ctx.world.getPollenCollector(entity)) |collector| {
                     const collectionMultiplier = beeAI.beeType.getCollectionMultiplier();
-                    collector.collect(1.0 * targetFlower.?.pollenMultiplier * collectionMultiplier);
+                    // Lab: Aura boosts flowers inside its rings around the hive.
+                    const auraMul = ctx.labs.pollenMultiplierAt(beeAI.targetGridX, beeAI.targetGridY, cachedBeehiveGridX, cachedBeehiveGridY);
+                    collector.collect(1.0 * targetFlower.?.pollenMultiplier * collectionMultiplier * auraMul);
                 }
 
                 // Short dawdle after collecting, then head to the hive — long
@@ -324,6 +333,34 @@ fn performRandomWalk(beeAI: anytype, position: anytype, deltaTime: f32) void {
     position.y += @sin(beeAI.wanderAngle) * wanderSpeed * deltaTime;
 }
 
+/// Percent chance a gardener plants a flower on each fresh empty cell it
+/// crosses. Raised by the Green Thumb tree node (see game.zig).
+pub var gardenerPlantChance: i32 = GARDENER_BASE_CHANCE;
+pub const GARDENER_BASE_CHANCE: i32 = 20;
+pub const GARDENER_CHANCE_PER_LEVEL: i32 = 10;
+
+/// Composting node: gardeners clear rotten flowers on cells they cross.
+pub var gardenerCompost: bool = false;
+
+pub fn gardenerChanceForLevel(level: u16) i32 {
+    return @min(100, GARDENER_BASE_CHANCE + GARDENER_CHANCE_PER_LEVEL * @as(i32, level));
+}
+
+/// Gardener flies over a rotten flower: clear it so the cell can regrow.
+fn handleComposting(world: *World, beeAI: anytype, position: anytype, gridOffset: rl.Vector2, gridScale: f32, gridWidth: usize, gridHeight: usize) !void {
+    const gridPos = utils.worldToGrid(position.toVector2(), gridOffset, gridScale);
+    const gridX: i32 = @intFromFloat(@floor(gridPos.x));
+    const gridY: i32 = @intFromFloat(@floor(gridPos.y));
+    if (gridX == beeAI.lastCompostX and gridY == beeAI.lastCompostY) return;
+    beeAI.lastCompostX = gridX;
+    beeAI.lastCompostY = gridY;
+    if (gridX < 0 or gridY < 0 or gridX >= @as(i32, @intCast(gridWidth)) or gridY >= @as(i32, @intCast(gridHeight))) return;
+
+    const flowerEntity = world.getFlowerAtGrid(gridX, gridY) orelse return;
+    const growth = world.getFlowerGrowth(flowerEntity) orelse return;
+    if (growth.isRotten) try lifespan_system.removeFlower(world, flowerEntity);
+}
+
 fn handlePollination(world: *World, beeAI: anytype, position: anytype, gridOffset: rl.Vector2, gridScale: f32, gridWidth: usize, gridHeight: usize, texturesRef: Textures) !void {
     if (!beeAI.beeType.canSpawnFlowers()) return;
 
@@ -343,7 +380,7 @@ fn handlePollination(world: *World, beeAI: anytype, position: anytype, gridOffse
     if (gridX == centerX and gridY == centerY) return;
 
     if (!world.hasFlowerAtGrid(gridX, gridY)) {
-        if (rl.getRandomValue(1, 100) <= 20) {
+        if (rl.getRandomValue(1, 100) <= gardenerPlantChance) {
             const flowerType = switch (rl.getRandomValue(1, 3)) {
                 1 => Flowers.rose,
                 2 => Flowers.dandelion,

@@ -9,8 +9,9 @@ const Resources = @import("../resources.zig").Resources;
 const spawners = @import("../spawners.zig");
 const upgrade_tree = @import("../upgrade_tree.zig");
 const prestige_mod = @import("../prestige.zig");
+const labs_mod = @import("../labs.zig");
 const Textures = @import("../textures.zig").Textures;
-const popups = @import("popups.zig");
+const actions = @import("../actions.zig");
 const locale = @import("../localization.zig");
 const icons = @import("icons.zig");
 
@@ -24,6 +25,7 @@ pub const SidePanelContext = struct {
     beeTypeCounts: [4]usize,
     treeState: *const upgrade_tree.State,
     prestige: *const prestige_mod.PrestigeState,
+    labs: *const labs_mod.LabState,
     textures: *const Textures,
 };
 
@@ -31,8 +33,17 @@ pub const SidePanelAction = union(enum) {
     none,
     open_tree,
     open_prestige,
-    buy: popups.TilePopupAction,
+    buy: struct { action: actions.BuyAction, qty: u32 },
 };
+
+/// Bee buy quantity, toggled by the chips in the Bees header (persists for
+/// the session). Holding Shift while clicking a card buys x10 regardless.
+pub const BUY_QTYS = [_]u32{ 1, 10, 25 };
+var buyQtyIndex: usize = 0;
+
+pub fn buyQty() u32 {
+    return BUY_QTYS[buyQtyIndex];
+}
 
 pub fn isMouseInPanel(mousePos: rl.Vector2, screenWidth: f32) bool {
     return mousePos.x >= screenWidth - PANEL_WIDTH;
@@ -68,8 +79,12 @@ pub fn draw(ctx: SidePanelContext) SidePanelAction {
     // Upgrade Tree card (mauve-accent)
     y = drawTreeCard(contentX, y, contentW, mouse, &action);
 
-    // Bees section
+    // Bees section; the x1/x10/x25 quantity chips sit under the header line,
+    // right-aligned above the cards.
     y = drawSectionHeader(contentX, y, contentW, locale.tr("Bees", "Abelhas"), C.yellow);
+    text.draw(locale.tr("Buy", "Comprar"), @intFromFloat(contentX + 2), @intFromFloat(y - 2), 15, C.subtext0);
+    drawQtyChips(contentX + contentW, y - 6, mouse);
+    y += 24;
     const honey = ctx.resources.honey;
 
     y = drawBeeCard(ctx, contentX, y, contentW, mouse, locale.tr("Worker", "Operária"), locale.tr("+pollen", "+pólen"), spawners.BEE_TYPE_COSTS.worker, C.text, ctx.beeTypeCounts[0], &action, .buy_worker_bee, honey);
@@ -89,12 +104,100 @@ pub fn draw(ctx: SidePanelContext) SidePanelAction {
         y = drawPrestigeCard(contentX, y, contentW, mouse, ctx.prestige, &action);
     }
 
-    // Growth-boost cooldown meter at bottom (once Instant Grow is unlocked)
-    if (ctx.treeState.hasEffect(.growth_boost_unlock)) {
-        drawGrowFooter(panelX, ctx.screenHeight, ctx.resources);
-    }
+    drawFooter(ctx, panelX, mouse);
 
     return action;
+}
+
+const FOOTER_H: f32 = 44;
+const FOOTER_GAP: f32 = 8;
+
+const MeterIcon = enum { sprout, aura };
+
+/// Bottom-anchored status stack (grows upward): Instant Grow, then Aura as
+/// they unlock. Every row is "[icon] Name: state".
+fn drawFooter(ctx: SidePanelContext, panelX: f32, mouse: rl.Vector2) void {
+    const C = theme.CatppuccinMocha.Color;
+    const x = panelX + 14;
+    const w = PANEL_WIDTH - 28;
+    var y = ctx.screenHeight - FOOTER_H - 10;
+
+    if (ctx.treeState.hasEffect(.growth_boost_unlock)) {
+        const ready = ctx.resources.canUseGrowthBoost();
+        const label = if (ready)
+            locale.tr("Instant Grow: ready", "Crescer instantâneo: pronto")
+        else
+            rl.textFormat(locale.tr("Instant Grow: %.1fs", "Crescer instantâneo: %.1fs"), .{ctx.resources.growthBoostCooldown});
+        const fill = 1.0 - ctx.resources.getCooldownPercent();
+        _ = drawMeter(.{ .x = x, .y = y, .w = w, .icon = .sprout, .label = label, .ready = ready, .fill = fill, .accent = C.green, .mouse = mouse });
+        y -= FOOTER_H + FOOTER_GAP;
+    }
+
+    if (ctx.treeState.hasEffect(.lab_aura)) {
+        const label = rl.textFormat("Aura x%.2f", .{ctx.labs.auraMul});
+        _ = drawMeter(.{ .x = x, .y = y, .w = w, .icon = .aura, .label = label, .ready = true, .fill = 1.0, .accent = C.lavender, .mouse = mouse });
+    }
+}
+
+const Meter = struct {
+    x: f32,
+    y: f32,
+    w: f32,
+    icon: MeterIcon,
+    label: [:0]const u8,
+    ready: bool,
+    fill: f32,
+    accent: rl.Color,
+    clickable: bool = false,
+    /// Hotkey hint drawn at the right edge (e.g. "B").
+    hotkey: ?[:0]const u8 = null,
+    mouse: rl.Vector2,
+};
+
+/// Rounded status row: proportional fill, "[icon] label" centred as a group,
+/// optional hotkey chip. Returns true when clicked (only if clickable+ready).
+fn drawMeter(m: Meter) bool {
+    const C = theme.CatppuccinMocha.Color;
+    const h = FOOTER_H;
+    const rect = rl.Rectangle.init(m.x, m.y, m.w, h);
+    const hovered = m.clickable and m.ready and rl.checkCollisionPointRec(m.mouse, rect);
+
+    rl.drawRectangleRounded(rect, 0.4, 6, if (hovered) C.surface1 else C.surface0);
+
+    const fillW = (m.w - 6) * std.math.clamp(m.fill, 0, 1);
+    if (fillW > 1) {
+        const fillColor = if (m.ready) rl.Color.init(m.accent.r, m.accent.g, m.accent.b, 60) else rl.Color.init(88, 91, 112, 70);
+        rl.drawRectangleRounded(rl.Rectangle.init(m.x + 3, m.y + 3, fillW, h - 6), 0.4, 6, fillColor);
+    }
+    rl.drawRectangleRoundedLinesEx(rect, 0.4, 6, if (hovered) 2 else 1, if (m.ready) m.accent else C.surface1);
+
+    const labelSize: i32 = 18;
+    const iconH: f32 = 19;
+    const iconW: f32 = iconH * 1.1;
+    const gap: f32 = 7;
+    const tw: f32 = @floatFromInt(text.measure(m.label, labelSize));
+    const groupW = iconW + gap + tw;
+    const startX = m.x + (m.w - groupW) / 2;
+    const iconCx = startX + iconW / 2;
+    const midY = m.y + h / 2;
+    const iconColor = if (m.ready) m.accent else C.overlay1;
+    switch (m.icon) {
+        .sprout => icons.drawSprout(iconCx, midY + iconH / 2 - 1, iconH, iconColor),
+        .aura => icons.drawAura(iconCx, midY, iconH / 2, iconColor),
+    }
+    const ty = m.y + (h - @as(f32, @floatFromInt(labelSize))) / 2;
+    text.draw(m.label, @intFromFloat(startX + iconW + gap), @intFromFloat(ty), labelSize, if (m.ready) m.accent else C.subtext1);
+
+    if (m.hotkey) |key| {
+        const chip: f32 = 20;
+        const kx = m.x + m.w - chip - 8;
+        const ky = midY - chip / 2;
+        rl.drawRectangleRounded(rl.Rectangle.init(kx, ky, chip, chip), 0.3, 4, C.surface2);
+        const kw = text.measure(key, 13);
+        text.draw(key, @as(i32, @intFromFloat(kx + chip / 2)) - @divFloor(kw, 2), @intFromFloat(ky + 3), 13, C.subtext0);
+    }
+
+    return hovered and rl.isMouseButtonPressed(rl.MouseButton.left);
 }
 
 fn drawSectionHeader(x: f32, y: f32, w: f32, label: [:0]const u8, color: rl.Color) f32 {
@@ -149,13 +252,16 @@ fn drawBeeCard(
     accent: rl.Color,
     owned: usize,
     out: *SidePanelAction,
-    buyAction: popups.TilePopupAction,
+    buyAction: actions.BuyAction,
     honey: f32,
 ) f32 {
     const C = theme.CatppuccinMocha.Color;
     const h: f32 = 66;
     const rect = rl.Rectangle.init(x, y, w, h);
-    const afford = honey >= cost;
+    const shift = rl.isKeyDown(rl.KeyboardKey.left_shift) or rl.isKeyDown(rl.KeyboardKey.right_shift);
+    const qty: u32 = if (shift) @max(buyQty(), 10) else buyQty();
+    const totalCost = cost * @as(f32, @floatFromInt(qty));
+    const afford = honey >= totalCost;
     const hovered = rl.checkCollisionPointRec(mouse, rect);
 
     // Pressed cards sink a couple of pixels and darken, so a click reads as a
@@ -196,10 +302,10 @@ fn drawBeeCard(
     }
     text.draw(perk, textX, @as(i32, @intFromFloat(py + 35)), 16, C.subtext0);
 
-    // cost pill on right: honey-drop icon + amount
+    // cost pill on right: honey-drop icon + amount (x qty when buying bulk)
     var cbuf: [32]u8 = undefined;
-    const cstr = format.formatShort(cost, &cbuf);
-    const costLabel = rl.textFormat("%s", .{cstr.ptr});
+    const cstr = format.formatShort(totalCost, &cbuf);
+    const costLabel = if (qty > 1) rl.textFormat("%s  x%d", .{ cstr.ptr, qty }) else rl.textFormat("%s", .{cstr.ptr});
     const costSize: i32 = 17;
     const costW = text.measure(costLabel, costSize);
     const dropR: f32 = 5.5;
@@ -219,10 +325,33 @@ fn drawBeeCard(
     text.draw(costLabel, @as(i32, @intFromFloat(contentX + dropSpan)), @as(i32, @intFromFloat(costY)), costSize, pillTextColor);
 
     if (hovered and afford and rl.isMouseButtonPressed(rl.MouseButton.left)) {
-        out.* = .{ .buy = buyAction };
+        out.* = .{ .buy = .{ .action = buyAction, .qty = qty } };
     }
 
     return y + h + 6;
+}
+
+/// Three small toggle chips (x1 x10 x25) right-aligned at (rightX, y).
+fn drawQtyChips(rightX: f32, y: f32, mouse: rl.Vector2) void {
+    const C = theme.CatppuccinMocha.Color;
+    const chipH: f32 = 22;
+    const gap: f32 = 4;
+    var x = rightX;
+    var i: usize = BUY_QTYS.len;
+    while (i > 0) {
+        i -= 1;
+        const label = rl.textFormat("x%d", .{BUY_QTYS[i]});
+        const tw: f32 = @floatFromInt(text.measure(label, 14));
+        const chipW = tw + 14;
+        x -= chipW;
+        const rect = rl.Rectangle.init(x, y, chipW, chipH);
+        const selected = i == buyQtyIndex;
+        const hovered = rl.checkCollisionPointRec(mouse, rect);
+        rl.drawRectangleRounded(rect, 0.4, 4, if (selected) C.yellow else if (hovered) C.surface2 else C.surface1);
+        text.draw(label, @intFromFloat(x + 7), @intFromFloat(y + 4), 14, if (selected) C.base else C.subtext1);
+        if (hovered and rl.isMouseButtonPressed(rl.MouseButton.left)) buyQtyIndex = i;
+        x -= gap;
+    }
 }
 
 fn drawPrestigeCard(x: f32, y: f32, w: f32, mouse: rl.Vector2, prestige: *const prestige_mod.PrestigeState, out: *SidePanelAction) f32 {
@@ -268,46 +397,4 @@ fn drawPrestigeCard(x: f32, y: f32, w: f32, mouse: rl.Vector2, prestige: *const 
 
 fn accentDimmed(accent: rl.Color) rl.Color {
     return rl.Color.init(accent.r, accent.g, accent.b, 190);
-}
-
-/// Bottom card: the Instant Grow cooldown meter. The ability fires on its own
-/// (fully growing a random flower) whenever the meter fills, so this is pure
-/// status: the countdown, or "ready" while it waits for a sproutable flower.
-fn drawGrowFooter(panelX: f32, screenHeight: f32, resources: *const Resources) void {
-    const C = theme.CatppuccinMocha.Color;
-    const h: f32 = 44;
-    const y = screenHeight - h - 10;
-    const x = panelX + 14;
-    const w = PANEL_WIDTH - 28;
-    const rect = rl.Rectangle.init(x, y, w, h);
-    const ready = resources.canUseGrowthBoost();
-
-    rl.drawRectangleRounded(rect, 0.4, 6, C.surface0);
-
-    // Cooldown fill (fills up as the cooldown progresses; full = ready).
-    const readyPercent = 1.0 - resources.getCooldownPercent();
-    const fillW = (w - 6) * readyPercent;
-    if (fillW > 1) {
-        const fillColor = if (ready) rl.Color.init(166, 227, 161, 60) else rl.Color.init(88, 91, 112, 70);
-        rl.drawRectangleRounded(rl.Rectangle.init(x + 3, y + 3, fillW, h - 6), 0.4, 6, fillColor);
-    }
-    rl.drawRectangleRoundedLinesEx(rect, 0.4, 6, 1, if (ready) C.green else C.surface1);
-
-    const label = if (ready)
-        locale.tr("Instant Grow: ready", "Crescer instantâneo: pronto")
-    else
-        rl.textFormat(locale.tr("Instant Grow: %.1fs", "Crescer instantâneo: %.1fs"), .{resources.growthBoostCooldown});
-    const labelColor = if (ready) C.green else C.subtext1;
-
-    // Sprout icon + label centred as one group, both axes.
-    const labelSize: i32 = 18;
-    const iconH: f32 = 19;
-    const iconW: f32 = iconH * 1.1;
-    const gap: f32 = 7;
-    const tw: f32 = @floatFromInt(text.measure(label, labelSize));
-    const groupW = iconW + gap + tw;
-    const startX = x + (w - groupW) / 2;
-    icons.drawSprout(startX + iconW / 2, y + (h + iconH) / 2 - 1, iconH, C.green);
-    const ty = y + (h - @as(f32, @floatFromInt(labelSize))) / 2;
-    text.draw(label, @intFromFloat(startX + iconW + gap), @intFromFloat(ty), labelSize, labelColor);
 }

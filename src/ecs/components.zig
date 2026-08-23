@@ -69,6 +69,10 @@ pub const BeeAI = struct {
     wanderChangeTimer: f32,
     lastGridX: i32,
     lastGridY: i32,
+    // Last cell checked for composting (separate from lastGridX/Y so the
+    // planting pass still sees "new cell" transitions).
+    lastCompostX: i32 = -1,
+    lastCompostY: i32 = -1,
     scatterTimer: f32,
     searchCooldown: f32,
     beeType: BeeType,
@@ -154,6 +158,9 @@ pub const FlowerGrowth = struct {
     // cells in the grid registry, renders at double scale over the block, and
     // yields double the four singles' combined pollen (8x a lone flower).
     isSuper: bool = false,
+    // Rotten: the flower reached the end of its life and withered in place.
+    // It yields no pollen and blocks its cell until the player clears it.
+    isRotten: bool = false,
 
     pub fn init(flowerType: FlowerType) @This() {
         const rl_module = @import("raylib");

@@ -79,7 +79,7 @@ pub fn drawOutline(txt: [:0]const u8, x: i32, y: i32, size: i32, color: rl.Color
     // Outline alpha tracks the text's own alpha so fading labels fade whole.
     oc.a = @intFromFloat(@as(f32, @floatFromInt(outline.a)) * @as(f32, @floatFromInt(color.a)) / 255.0);
     const offsets = [_][2]i32{
-        .{ -o, 0 }, .{ o, 0 }, .{ 0, -o }, .{ 0, o },
+        .{ -o, 0 },  .{ o, 0 },  .{ 0, -o }, .{ 0, o },
         .{ -o, -o }, .{ o, -o }, .{ -o, o }, .{ o, o },
     };
     for (offsets) |d| {

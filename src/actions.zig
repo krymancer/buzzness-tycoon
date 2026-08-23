@@ -5,129 +5,41 @@ const Grid = @import("grid.zig").Grid;
 const Textures = @import("textures.zig").Textures;
 const spawners = @import("spawners.zig");
 const components = @import("ecs/components.zig");
-const ui = @import("ui.zig");
 
-/// Result of handling a popup action
+/// Result of a shop purchase.
 pub const ActionResult = struct {
-    closePopup: bool = false,
     beeCountDelta: i32 = 0,
-    flowerCountDelta: i32 = 0,
 };
 
-/// Handles all game actions triggered from popups
+/// Shop purchases (side panel bee cards).
+pub const BuyAction = enum {
+    buy_worker_bee,
+    buy_swift_bee,
+    buy_efficient_bee,
+    buy_gardener_bee,
+};
+
+/// Handles game actions triggered from the UI.
 pub const ActionHandler = struct {
     world: *World,
     resources: *Resources,
     grid: *const Grid,
     textures: *const Textures,
-    beehiveUpgradeCost: *f32,
 
-    pub fn handlePopupAction(
-        self: *@This(),
-        action: ui.TilePopupAction,
-        selectedTileX: i32,
-        selectedTileY: i32,
-    ) !ActionResult {
+    /// Buy one bee of the given type; beeCountDelta is 0 when unaffordable.
+    pub fn handleBuy(self: *@This(), action: BuyAction) !ActionResult {
         var result = ActionResult{};
-
-        switch (action) {
-            .close => {
-                result.closePopup = true;
-            },
-            .buy_worker_bee => {
-                if (self.resources.spendHoney(spawners.BEE_TYPE_COSTS.worker)) {
-                    _ = try spawners.spawnBeeWithType(self.world, self.grid, self.textures, .worker);
-                    result.beeCountDelta = 1;
-                }
-            },
-            .buy_swift_bee => {
-                if (self.resources.spendHoney(spawners.BEE_TYPE_COSTS.swift)) {
-                    _ = try spawners.spawnBeeWithType(self.world, self.grid, self.textures, .swift);
-                    result.beeCountDelta = 1;
-                }
-            },
-            .buy_efficient_bee => {
-                if (self.resources.spendHoney(spawners.BEE_TYPE_COSTS.efficient)) {
-                    _ = try spawners.spawnBeeWithType(self.world, self.grid, self.textures, .efficient);
-                    result.beeCountDelta = 1;
-                }
-            },
-            .buy_gardener_bee => {
-                if (self.resources.spendHoney(spawners.BEE_TYPE_COSTS.gardener)) {
-                    _ = try spawners.spawnBeeWithType(self.world, self.grid, self.textures, .gardener);
-                    result.beeCountDelta = 1;
-                }
-            },
-            .upgrade_beehive => {
-                if (self.resources.spendHoney(self.beehiveUpgradeCost.*)) {
-                    var beehiveIter = self.world.entityToBeehive.keyIterator();
-                    if (beehiveIter.next()) |beehiveEntity| {
-                        if (self.world.getBeehive(beehiveEntity.*)) |beehive| {
-                            beehive.honeyConversionFactor *= 2.0;
-                            self.beehiveUpgradeCost.* *= 2.0;
-                        }
-                    }
-                }
-            },
-            .upgrade_storage => {
-                _ = self.resources.upgradeStorage();
-            },
-            .upgrade_growth_boost => {
-                _ = self.resources.upgradeGrowthBoost();
-            },
-            .upgrade_flower => {
-                if (self.world.getFlowerAtGrid(selectedTileX, selectedTileY)) |flowerEntity| {
-                    if (self.world.getFlowerGrowth(flowerEntity)) |growth| {
-                        const upgradeCost = 20.0 * growth.pollenMultiplier;
-                        if (self.resources.spendHoney(upgradeCost)) {
-                            growth.pollenMultiplier += 0.5;
-                        }
-                    }
-                }
-            },
-            .plant_rose => {
-                if (self.resources.spendHoney(spawners.FLOWER_COSTS.rose)) {
-                    _ = try spawners.spawnFlower(self.world, self.textures, .rose, selectedTileX, selectedTileY);
-                    _ = try spawners.tryMergeSuperFlower(self.world, selectedTileX, selectedTileY);
-                    result.flowerCountDelta = 1;
-                    result.closePopup = true;
-                }
-            },
-            .plant_tulip => {
-                if (self.resources.spendHoney(spawners.FLOWER_COSTS.tulip)) {
-                    _ = try spawners.spawnFlower(self.world, self.textures, .tulip, selectedTileX, selectedTileY);
-                    _ = try spawners.tryMergeSuperFlower(self.world, selectedTileX, selectedTileY);
-                    result.flowerCountDelta = 1;
-                    result.closePopup = true;
-                }
-            },
-            .plant_dandelion => {
-                if (self.resources.spendHoney(spawners.FLOWER_COSTS.dandelion)) {
-                    _ = try spawners.spawnFlower(self.world, self.textures, .dandelion, selectedTileX, selectedTileY);
-                    _ = try spawners.tryMergeSuperFlower(self.world, selectedTileX, selectedTileY);
-                    result.flowerCountDelta = 1;
-                    result.closePopup = true;
-                }
-            },
-            .none => {},
+        const beeType: components.BeeType = switch (action) {
+            .buy_worker_bee => .worker,
+            .buy_swift_bee => .swift,
+            .buy_efficient_bee => .efficient,
+            .buy_gardener_bee => .gardener,
+        };
+        if (self.resources.spendHoney(spawners.BEE_TYPE_COSTS.get(beeType))) {
+            _ = try spawners.spawnBeeWithType(self.world, self.grid, self.textures, beeType);
+            result.beeCountDelta = 1;
         }
-
         return result;
-    }
-
-    /// Rebirth a dying flower - reset lifespan and give bonuses
-    pub fn rebirthFlower(self: *@This(), entity: u32) void {
-        if (self.world.getLifespan(entity)) |lifespan| {
-            const baseLifespan = lifespan.timeSpan;
-            lifespan.timeAlive = 0;
-            lifespan.totalTimeAlive = 0;
-            lifespan.timeSpan = baseLifespan * 1.2; // 20% longer life on rebirth
-        }
-
-        if (self.world.getFlowerGrowth(entity)) |growth| {
-            growth.pollenMultiplier += 0.25; // +0.25 bonus on rebirth
-            growth.hasPollen = true; // Restore pollen
-        }
     }
 
     /// Instant Grow: bloom a flower fully (pollen ready) and consume the

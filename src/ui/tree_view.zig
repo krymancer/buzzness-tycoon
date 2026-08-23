@@ -36,9 +36,9 @@ const NodeStyle = struct {
     showOwned: bool = false,
 };
 
-fn styleFor(purchased: bool, unlocked: bool, afford: bool) NodeStyle {
+fn styleFor(purchased: bool, maxed: bool, unlocked: bool, afford: bool) NodeStyle {
     const C = theme.CatppuccinMocha.Color;
-    if (purchased) return .{
+    if (maxed) return .{
         .fill = C.surface0,
         .border = C.green,
         .borderThick = 3,
@@ -53,16 +53,17 @@ fn styleFor(purchased: bool, unlocked: bool, afford: bool) NodeStyle {
         .nameColor = C.overlay0,
         .costColor = C.overlay0,
     };
+    // Owned repeatable nodes keep a green tint so "leveled" reads at a glance.
     if (afford) return .{
         .fill = C.surface0,
-        .border = C.blue,
+        .border = if (purchased) C.teal else C.blue,
         .borderThick = 3,
         .nameColor = C.text,
         .costColor = C.yellow,
     };
     return .{
         .fill = C.surface0,
-        .border = C.surface2,
+        .border = if (purchased) C.green else C.surface2,
         .borderThick = 2,
         .nameColor = C.subtext1,
         .costColor = C.red,
@@ -128,17 +129,21 @@ pub fn draw(ctx: TreeContext) TreeAction {
     for (&upgrade_tree.NODES) |*node| {
         const pos = nodePos(node, centerX, topY);
         const rect = rl.Rectangle.init(pos.x, pos.y, NODE_W, NODE_H);
-        const purchased = ctx.state.isPurchased(node.id);
+        const lvl = ctx.state.level(node.id);
+        const purchased = lvl > 0;
+        const maxed = node.isMaxed(lvl);
         const unlocked = ctx.state.isUnlocked(node);
-        const afford = ctx.resources.honey >= node.cost;
-        const style = styleFor(purchased, unlocked, afford);
+        const cost = ctx.state.nextCost(node);
+        const afford = ctx.resources.honey >= cost;
+        const buyable = !maxed and unlocked;
+        const style = styleFor(purchased, maxed, unlocked, afford);
 
         rl.drawRectangleRounded(rect, 0.22, 6, style.fill);
         rl.drawRectangleRoundedLinesEx(rect, 0.22, 6, style.borderThick, style.border);
 
         // Hover highlight on actionable nodes
         const hovered = rl.checkCollisionPointRec(mouse, rect);
-        if (!purchased and unlocked and afford and hovered) {
+        if (buyable and afford and hovered) {
             var glow = C.blue;
             glow.a = 40;
             rl.drawRectangleRounded(rect, 0.22, 6, glow);
@@ -147,7 +152,10 @@ pub fn draw(ctx: TreeContext) TreeAction {
         // Name
         var nameBuf: [64]u8 = undefined;
         const localizedName = locale.nodeName(node.id, node.name);
-        const nameZ = std.fmt.bufPrintZ(&nameBuf, "{s}", .{localizedName}) catch continue;
+        const nameZ = if (node.isRepeatable() and lvl > 0)
+            std.fmt.bufPrintZ(&nameBuf, "{s} {s}{d}", .{ localizedName, locale.tr("Lv", "Nv"), lvl }) catch continue
+        else
+            std.fmt.bufPrintZ(&nameBuf, "{s}", .{localizedName}) catch continue;
         const nameW = text.measure(nameZ, 17);
         const nameX = @as(i32, @intFromFloat(pos.x + NODE_W / 2)) - @divFloor(nameW, 2);
         text.draw(nameZ, nameX, @as(i32, @intFromFloat(pos.y + 8)), 17, style.nameColor);
@@ -165,13 +173,13 @@ pub fn draw(ctx: TreeContext) TreeAction {
             text.draw(locked, lx, @as(i32, @intFromFloat(pos.y + 39)), 15, style.costColor);
         } else {
             var cbuf: [32]u8 = undefined;
-            const cstr = format.formatShort(node.cost, &cbuf);
+            const cstr = format.formatShort(cost, &cbuf);
             const cw = text.measure(cstr, 16);
             const cx = @as(i32, @intFromFloat(pos.x + NODE_W / 2)) - @divFloor(cw, 2);
             text.draw(cstr, cx, @as(i32, @intFromFloat(pos.y + 38)), 16, style.costColor);
         }
 
-        if (!purchased and unlocked and afford and hovered and rl.isMouseButtonPressed(rl.MouseButton.left)) {
+        if (buyable and afford and hovered and rl.isMouseButtonPressed(rl.MouseButton.left)) {
             action = .{ .purchase = node.id };
         }
     }

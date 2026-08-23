@@ -20,6 +20,7 @@ pub const Flower = struct {
     lifespan_total_time_alive: f32,
     lifespan_time_span: f32,
     is_super: bool = false,
+    is_rotten: bool = false,
 };
 
 pub const Data = struct {
@@ -39,11 +40,16 @@ pub const Data = struct {
     royal_jelly: u32 = 0,
     this_run_honey: f32 = 0,
     prestige_unlocked: bool = false,
+    // Legacy labs line. aura_multiplier is derived from tree levels on load;
+    // the three cooldown slots belonged to the removed Burst/Bloom labs and
+    // are written as 0 to keep the line shape stable.
     aura_multiplier: f32 = 1,
     burst_remaining: f32 = 0,
     burst_cooldown: f32 = 0,
     bloom_cooldown: f32 = 0,
     purchased: [MAX_UPGRADES]bool = [_]bool{false} ** MAX_UPGRADES,
+    /// Level per upgrade (repeatable nodes). 0/absent with purchased=true means level 1.
+    levels: [MAX_UPGRADES]u16 = [_]u16{0} ** MAX_UPGRADES,
     bee_counts: [4]u32 = [_]u32{0} ** 4,
     flowers: std.ArrayList(Flower) = .empty,
 
@@ -104,13 +110,15 @@ pub fn write(io: std.Io, save_path: []const u8, data: *const Data) !void {
     try writer.print("labs {d} {d} {d} {d}\n", .{ data.aura_multiplier, data.burst_remaining, data.burst_cooldown, data.bloom_cooldown });
 
     for (data.purchased, 0..) |purchased, id| {
-        if (purchased) try writer.print("upgrade {d}\n", .{id});
+        if (!purchased) continue;
+        try writer.print("upgrade {d}\n", .{id});
+        if (data.levels[id] > 1) try writer.print("level {d} {d}\n", .{ id, data.levels[id] });
     }
     for (data.bee_counts, 0..) |count, bee_type| {
         if (count > 0) try writer.print("bees {d} {d}\n", .{ bee_type, count });
     }
     for (data.flowers.items) |flower| {
-        try writer.print("flower {d} {d} {d} {d} {d} {d} {d} {d} {d} {d} {d} {d} {d} {d}\n", .{
+        try writer.print("flower {d} {d} {d} {d} {d} {d} {d} {d} {d} {d} {d} {d} {d} {d} {d}\n", .{
             flower.flower_type,
             flower.x,
             flower.y,
@@ -125,6 +133,7 @@ pub fn write(io: std.Io, save_path: []const u8, data: *const Data) !void {
             flower.lifespan_total_time_alive,
             flower.lifespan_time_span,
             @intFromBool(flower.is_super),
+            @intFromBool(flower.is_rotten),
         });
     }
     try writer.writeAll("END\n");
@@ -196,6 +205,13 @@ pub fn read(allocator: std.mem.Allocator, io: std.Io, save_path: []const u8) !Da
         } else if (std.mem.eql(u8, key, "upgrade")) {
             const id = try parse(usize, tokens.next());
             if (id < data.purchased.len) data.purchased[id] = true;
+        } else if (std.mem.eql(u8, key, "level")) {
+            const id = try parse(usize, tokens.next());
+            const lvl = try parse(u16, tokens.next());
+            if (id < data.levels.len) {
+                data.levels[id] = lvl;
+                if (lvl > 0) data.purchased[id] = true;
+            }
         } else if (std.mem.eql(u8, key, "bees")) {
             const bee_type = try parse(usize, tokens.next());
             const count = try parse(u32, tokens.next());
@@ -218,6 +234,7 @@ pub fn read(allocator: std.mem.Allocator, io: std.Io, save_path: []const u8) !Da
                 .lifespan_time_span = try parse(f32, tokens.next()),
                 // Added after v1 shipped; absent in older saves.
                 .is_super = parseOptionalFlag(tokens.next()),
+                .is_rotten = parseOptionalFlag(tokens.next()),
             });
         }
     }
@@ -261,6 +278,8 @@ test "save data survives an atomic round trip" {
     };
     defer original.deinit(std.testing.allocator);
     original.purchased[19] = true;
+    original.purchased[24] = true;
+    original.levels[24] = 7;
     original.bee_counts[2] = 17;
     try original.flowers.append(std.testing.allocator, .{
         .flower_type = 1,
@@ -277,6 +296,7 @@ test "save data survives an atomic round trip" {
         .lifespan_total_time_alive = 20,
         .lifespan_time_span = 120,
         .is_super = true,
+        .is_rotten = true,
     });
 
     try write(std.testing.io, save_path, &original);
@@ -287,10 +307,14 @@ test "save data survives an atomic round trip" {
     try std.testing.expectEqual(@as(f32, 128), restored.beehive_factor);
     try std.testing.expectEqual(@as(u32, 42), restored.royal_jelly);
     try std.testing.expect(restored.purchased[19]);
+    try std.testing.expectEqual(@as(u16, 0), restored.levels[19]);
+    try std.testing.expect(restored.purchased[24]);
+    try std.testing.expectEqual(@as(u16, 7), restored.levels[24]);
     try std.testing.expectEqual(@as(u32, 17), restored.bee_counts[2]);
     try std.testing.expectEqual(@as(usize, 1), restored.flowers.items.len);
     try std.testing.expectEqual(@as(f32, 3.5), restored.flowers.items[0].pollen_multiplier);
     try std.testing.expect(restored.flowers.items[0].is_super);
+    try std.testing.expect(restored.flowers.items[0].is_rotten);
 }
 
 test "flower lines without the is_super field still parse (old saves)" {
