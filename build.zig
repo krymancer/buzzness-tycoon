@@ -18,6 +18,19 @@ pub fn build(b: *std.Build) void {
         .root_source_file = b.path("sprites/sprite_index.zig"),
     });
 
+    // Game version shown on the title screen. CI passes the release tag via
+    // -Dversion=...; local builds fall back to `git describe` (e.g.
+    // "0.2.1-3-gabc1234-dirty"), then "dev".
+    const version = b.option([]const u8, "version", "Version string baked into the build (CI passes the release tag)") orelse blk: {
+        var code: u8 = 0;
+        const out = b.runAllowFail(&.{ "git", "describe", "--tags", "--always", "--dirty" }, &code, .ignore) catch break :blk "dev";
+        const trimmed = std.mem.trim(u8, out, " \n\r\t");
+        break :blk if (code == 0 and trimmed.len > 0) trimmed else "dev";
+    };
+    const build_options = b.addOptions();
+    build_options.addOption([]const u8, "version", version);
+    const build_options_module = build_options.createModule();
+
     const exe = b.addExecutable(.{
         .name = "buzzness-tycoon",
         .root_module = b.createModule(.{
@@ -31,6 +44,7 @@ pub fn build(b: *std.Build) void {
     exe.root_module.addImport("raylib", raylib);
     exe.root_module.addImport("raygui", raygui);
     exe.root_module.addImport("sprites", sprites_module);
+    exe.root_module.addImport("build_options", build_options_module);
 
     // Add path to the sprites directory for @embedFile
     exe.root_module.addIncludePath(b.path(".")); // Makes the project root accessible
@@ -67,6 +81,7 @@ pub fn build(b: *std.Build) void {
     exe_check.root_module.addImport("raylib", raylib);
     exe_check.root_module.addImport("raygui", raygui);
     exe_check.root_module.addImport("sprites", sprites_module);
+    exe_check.root_module.addImport("build_options", build_options_module);
 
     const check_step = b.step("check", "Check if the app compiles without linking");
     check_step.dependOn(&exe_check.step);
@@ -81,6 +96,7 @@ pub fn build(b: *std.Build) void {
     // utils.zig (grid-math tests) uses raylib types.
     lib_unit_tests.root_module.linkLibrary(raylib_artifact);
     lib_unit_tests.root_module.addImport("raylib", raylib);
+    lib_unit_tests.root_module.addImport("build_options", build_options_module);
 
     const run_lib_unit_tests = b.addRunArtifact(lib_unit_tests);
 

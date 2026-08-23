@@ -5,6 +5,7 @@ const std = @import("std");
 const theme = @import("../theme.zig");
 const assets = @import("../assets.zig");
 const locale = @import("../localization.zig");
+const build_options = @import("build_options");
 
 pub const TitleScreenAction = enum {
     none,
@@ -127,7 +128,7 @@ pub fn draw(screenWidth: f32, screenHeight: f32, hasSave: bool) TitleScreenActio
     }
 
     // Version text
-    const versionText = "v0.2.1";
+    const versionText = "v" ++ build_options.version;
     const versionFontSize: i32 = 16;
     text.draw(versionText, 10, @as(i32, @intFromFloat(screenHeight)) - 26, versionFontSize, theme.CatppuccinMocha.Color.overlay0);
 
