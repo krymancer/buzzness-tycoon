@@ -137,7 +137,7 @@ pub fn update(ctx: UpdateCtx) !void {
             if (distance < 30.0) {
                 if (ctx.world.getPollenCollector(entity)) |collector| {
                     if (collector.pollenCollected > 0) {
-                        const newHoney = collector.pollenCollected * ctx.honeyFactor * ctx.labs.honeyMultiplier() * ctx.prestige.globalMul();
+                        const newHoney = collector.pollenCollected * ctx.honeyFactor * ctx.prestige.globalMul();
                         ctx.resources.addHoney(newHoney);
                         ctx.prestige.trackHoney(newHoney);
                         ctx.frameHoneyGain.* += newHoney;
@@ -197,7 +197,9 @@ pub fn update(ctx: UpdateCtx) !void {
 
                 if (ctx.world.getPollenCollector(entity)) |collector| {
                     const collectionMultiplier = beeAI.beeType.getCollectionMultiplier();
-                    collector.collect(1.0 * targetFlower.?.pollenMultiplier * collectionMultiplier);
+                    // Lab: Aura boosts flowers inside its rings around the hive.
+                    const auraMul = ctx.labs.pollenMultiplierAt(beeAI.targetGridX, beeAI.targetGridY, cachedBeehiveGridX, cachedBeehiveGridY);
+                    collector.collect(1.0 * targetFlower.?.pollenMultiplier * collectionMultiplier * auraMul);
                 }
 
                 // Short dawdle after collecting, then head to the hive — long

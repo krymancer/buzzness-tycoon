@@ -426,16 +426,6 @@ pub const Game = struct {
             return;
         }
 
-        // Lab hotkeys
-        if (rl.isKeyPressed(rl.KeyboardKey.b)) {
-            _ = self.labs.tryActivateBurst(self.upgradeTree.hasEffect(.lab_burst));
-        }
-        if (rl.isKeyPressed(rl.KeyboardKey.m)) {
-            if (self.labs.tryActivateBloom(self.upgradeTree.hasEffect(.lab_bloom))) {
-                self.triggerBloom();
-            }
-        }
-
         const mousePos = rl.getMousePosition();
         const mouseInPanel = ui.side_panel.isMouseInPanel(mousePos, self.width);
 
@@ -526,7 +516,6 @@ pub const Game = struct {
 
         self.resources.updateCooldown(deltaTime);
         self.resources.tickRate(deltaTime);
-        self.labs.update(deltaTime);
 
         // Instant Grow: once unlocked, it fires on its own — whenever the
         // cooldown completes, a random still-growing flower blooms instantly.
@@ -592,7 +581,7 @@ pub const Game = struct {
 
         self.grid.draw(self.sky.worldTint());
 
-        try render_system.draw(&self.world, self.grid.offset, self.grid.scale, self.sky.worldTint(), self.upgradeTree.level(upgrade_tree.AURA_ID));
+        try render_system.draw(&self.world, self.grid.offset, self.grid.scale, self.sky.worldTint(), self.upgradeTree.level(upgrade_tree.AURA_ID), self.labs.auraReach);
 
         self.floatingTexts.draw(self.grid.offset, self.grid.scale);
 
@@ -626,10 +615,6 @@ pub const Game = struct {
                 .none => {},
                 .open_tree => self.showTree = true,
                 .open_prestige => self.showPrestigeDialog = true,
-                .activate_burst => _ = self.labs.tryActivateBurst(self.upgradeTree.hasEffect(.lab_burst)),
-                .activate_bloom => {
-                    if (self.labs.tryActivateBloom(self.upgradeTree.hasEffect(.lab_bloom))) self.triggerBloom();
-                },
                 .buy => |act| {
                     var handler = self.createActionHandler();
                     const honeyBefore = self.resources.honey;
@@ -920,15 +905,6 @@ pub const Game = struct {
         self.floatingTexts.items.clearRetainingCapacity();
     }
 
-    fn triggerBloom(self: *@This()) void {
-        var it = self.world.entityToFlowerGrowth.iterator();
-        while (it.next()) |entry| {
-            const g = &self.world.flowerGrowths.items[entry.value_ptr.*];
-            g.state = 4;
-            g.hasPollen = true;
-        }
-    }
-
     fn expandGrid(self: *@This()) !void {
         const oldOffset = self.grid.offset;
 
@@ -1017,8 +993,11 @@ pub const Game = struct {
             .bee_unlock_worker, .bee_unlock_swift, .bee_unlock_efficient, .bee_unlock_gardener => {},
             .grid_expand => try self.expandGrid(),
             // +1 because the level is bumped after this switch.
-            .lab_aura => self.labs.auraMul = labs.auraMultiplierForLevel(self.upgradeTree.level(nodeId) + 1),
-            .lab_burst, .lab_bloom => {}, // unlock only, activation via hotkey
+            .lab_aura => {
+                self.labs.auraMul = labs.auraMultiplierForLevel(self.upgradeTree.level(nodeId) + 1);
+                self.labs.auraReach = labs.auraReachForLevel(self.upgradeTree.level(upgrade_tree.AURA_REACH_ID));
+            },
+            .aura_reach => self.labs.auraReach = labs.auraReachForLevel(self.upgradeTree.level(nodeId) + 1),
             .prestige_unlock => self.prestige.hasUnlockedPrestige = true,
             .growth_boost_unlock => {}, // gate checked via hasEffect at usage
             .super_flower_unlock => {
@@ -1050,9 +1029,6 @@ pub const Game = struct {
             .this_run_honey = self.prestige.thisRunHoney,
             .prestige_unlocked = self.prestige.hasUnlockedPrestige,
             .aura_multiplier = self.labs.auraMul,
-            .burst_remaining = self.labs.burstRemaining,
-            .burst_cooldown = self.labs.burstCooldown,
-            .bloom_cooldown = self.labs.bloomCooldown,
         };
         defer data.deinit(self.allocator);
 
@@ -1214,11 +1190,12 @@ pub const Game = struct {
         self.prestige.thisRunHoney = finiteAtLeast(data.this_run_honey, 0, 0);
         self.prestige.hasUnlockedPrestige = data.prestige_unlocked or self.upgradeTree.hasEffect(.prestige_unlock);
         spawners.superFlowersUnlocked = self.upgradeTree.hasEffect(.super_flower_unlock);
-        // Derived from the tree level (the saved multiplier is legacy).
+        // Derived from the tree levels (the saved multiplier is legacy).
         self.labs.auraMul = labs.auraMultiplierForLevel(self.upgradeTree.level(upgrade_tree.AURA_ID));
-        self.labs.burstRemaining = finiteAtLeast(data.burst_remaining, 0, 0);
-        self.labs.burstCooldown = finiteAtLeast(data.burst_cooldown, 0, 0);
-        self.labs.bloomCooldown = finiteAtLeast(data.bloom_cooldown, 0, 0);
+        self.labs.auraReach = if (self.upgradeTree.isPurchased(upgrade_tree.AURA_ID))
+            labs.auraReachForLevel(self.upgradeTree.level(upgrade_tree.AURA_REACH_ID))
+        else
+            0;
 
         self.cachedBeeCount = self.world.entityToBeeAI.count();
         self.cachedFlowerCount = self.world.entityToFlowerGrowth.count();

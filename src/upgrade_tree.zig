@@ -12,8 +12,7 @@ pub const EffectKind = enum {
     bee_unlock_gardener,
     grid_expand,
     lab_aura,
-    lab_burst,
-    lab_bloom,
+    aura_reach,
     prestige_unlock,
     growth_boost_unlock,
     super_flower_unlock,
@@ -95,12 +94,13 @@ pub const NODES = [_]Node{
     .{ .id = 15, .name = "Storage +2K", .cost = 1000, .prereqs = &[_]NodeId{14}, .effect = .storage_add, .value = 2000, .col = 2, .row = 3 },
 
     // Labs branch (col 0, rows 4-6) — gated behind cross-branch t3 nodes
-    // Repeatable: each level adds +25% honey (see labs.AURA_PER_LEVEL) and
-    // widens the pulse rings around the hive.
+    // Aura: flowers inside the rings around the hive yield more pollen.
+    // Lab: Aura levels the factor (+25%/level); Aura Reach widens the rings
+    // (+1 tile/level). Both repeatable.
     .{ .id = 16, .name = "Lab: Aura", .cost = 8000, .prereqs = &[_]NodeId{ 3, 6 }, .effect = .lab_aura, .col = 0, .row = 4, .repeat = .{ .cost_growth = 1.8 } },
-    .{ .id = 17, .name = "Lab: Burst", .cost = 25000, .prereqs = &[_]NodeId{ 16, 9 }, .effect = .lab_burst, .col = -1, .row = 5 },
-    .{ .id = 18, .name = "Lab: Bloom", .cost = 25000, .prereqs = &[_]NodeId{ 16, 12 }, .effect = .lab_bloom, .col = 1, .row = 5 },
-    .{ .id = 19, .name = "Prestige", .cost = 100000, .prereqs = &[_]NodeId{ 17, 18 }, .effect = .prestige_unlock, .col = 0, .row = 6 },
+    .{ .id = 25, .name = "Aura Reach", .cost = 5000, .prereqs = &[_]NodeId{16}, .effect = .aura_reach, .col = 0, .row = 5, .repeat = .{ .cost_growth = 1.6 } },
+    // (ids 17/18 were Lab: Burst / Lab: Bloom — removed; stale save entries are ignored.)
+    .{ .id = 19, .name = "Prestige", .cost = 100000, .prereqs = &[_]NodeId{ 25, 9, 12 }, .effect = .prestige_unlock, .col = 0, .row = 6 },
 
     // Instant Grow: unlocks the click-a-flower growth boost (was always-on).
     .{ .id = 20, .name = "Instant Grow", .cost = 30, .prereqs = r_worker, .effect = .growth_boost_unlock, .col = 0, .row = 1 },
@@ -110,6 +110,7 @@ pub const NODES = [_]Node{
 
 pub const ROOT_ID: NodeId = 0;
 pub const AURA_ID: NodeId = 16;
+pub const AURA_REACH_ID: NodeId = 25;
 
 pub fn findNode(id: NodeId) ?*const Node {
     for (&NODES) |*n| {

@@ -39,6 +39,9 @@ pub const Data = struct {
     royal_jelly: u32 = 0,
     this_run_honey: f32 = 0,
     prestige_unlocked: bool = false,
+    // Legacy labs line. aura_multiplier is derived from tree levels on load;
+    // the three cooldown slots belonged to the removed Burst/Bloom labs and
+    // are written as 0 to keep the line shape stable.
     aura_multiplier: f32 = 1,
     burst_remaining: f32 = 0,
     burst_cooldown: f32 = 0,

@@ -33,8 +33,6 @@ pub const SidePanelAction = union(enum) {
     none,
     open_tree,
     open_prestige,
-    activate_burst,
-    activate_bloom,
     buy: popups.TilePopupAction,
 };
 
@@ -93,7 +91,7 @@ pub fn draw(ctx: SidePanelContext) SidePanelAction {
         y = drawPrestigeCard(contentX, y, contentW, mouse, ctx.prestige, &action);
     }
 
-    drawFooter(ctx, panelX, mouse, &action);
+    drawFooter(ctx, panelX, mouse);
 
     return action;
 }
@@ -101,12 +99,11 @@ pub fn draw(ctx: SidePanelContext) SidePanelAction {
 const FOOTER_H: f32 = 44;
 const FOOTER_GAP: f32 = 8;
 
-const MeterIcon = enum { sprout, aura, bolt, flower };
+const MeterIcon = enum { sprout, aura };
 
-/// Bottom-anchored status stack (grows upward): Instant Grow, then the Labs
-/// (Bloom, Burst, Aura) as they unlock. Every row is "[icon] Name: state";
-/// Burst/Bloom are clickable in addition to their B/M hotkeys.
-fn drawFooter(ctx: SidePanelContext, panelX: f32, mouse: rl.Vector2, out: *SidePanelAction) void {
+/// Bottom-anchored status stack (grows upward): Instant Grow, then Aura as
+/// they unlock. Every row is "[icon] Name: state".
+fn drawFooter(ctx: SidePanelContext, panelX: f32, mouse: rl.Vector2) void {
     const C = theme.CatppuccinMocha.Color;
     const x = panelX + 14;
     const w = PANEL_WIDTH - 28;
@@ -120,35 +117,6 @@ fn drawFooter(ctx: SidePanelContext, panelX: f32, mouse: rl.Vector2, out: *SideP
             rl.textFormat(locale.tr("Instant Grow: %.1fs", "Crescer instantâneo: %.1fs"), .{ctx.resources.growthBoostCooldown});
         const fill = 1.0 - ctx.resources.getCooldownPercent();
         _ = drawMeter(.{ .x = x, .y = y, .w = w, .icon = .sprout, .label = label, .ready = ready, .fill = fill, .accent = C.green, .mouse = mouse });
-        y -= FOOTER_H + FOOTER_GAP;
-    }
-
-    if (ctx.treeState.hasEffect(.lab_bloom)) {
-        const cd = ctx.labs.bloomCooldown;
-        const ready = cd <= 0;
-        const label = if (ready)
-            locale.tr("Bloom: ready", "Florescer: pronto")
-        else
-            rl.textFormat(locale.tr("Bloom: %.1fs", "Florescer: %.1fs"), .{cd});
-        const fill = 1.0 - cd / labs_mod.BLOOM_COOLDOWN;
-        if (drawMeter(.{ .x = x, .y = y, .w = w, .icon = .flower, .label = label, .ready = ready, .fill = fill, .accent = C.pink, .clickable = true, .hotkey = "M", .mouse = mouse })) out.* = .activate_bloom;
-        y -= FOOTER_H + FOOTER_GAP;
-    }
-
-    if (ctx.treeState.hasEffect(.lab_burst)) {
-        const active = ctx.labs.burstRemaining > 0;
-        const cd = ctx.labs.burstCooldown;
-        const ready = !active and cd <= 0;
-        const label = if (active)
-            rl.textFormat(locale.tr("Burst x%.0f: %.1fs", "Explosão x%.0f: %.1fs"), .{ labs_mod.BURST_MUL, ctx.labs.burstRemaining })
-        else if (ready)
-            locale.tr("Burst: ready", "Explosão: pronta")
-        else
-            rl.textFormat(locale.tr("Burst: %.1fs", "Explosão: %.1fs"), .{cd});
-        // While active the bar drains with the remaining duration; afterwards
-        // it refills with the cooldown.
-        const fill = if (active) ctx.labs.burstRemaining / labs_mod.BURST_DURATION else 1.0 - cd / labs_mod.BURST_COOLDOWN;
-        if (drawMeter(.{ .x = x, .y = y, .w = w, .icon = .bolt, .label = label, .ready = ready or active, .fill = fill, .accent = C.red, .clickable = true, .hotkey = "B", .mouse = mouse })) out.* = .activate_burst;
         y -= FOOTER_H + FOOTER_GAP;
     }
 
@@ -203,8 +171,6 @@ fn drawMeter(m: Meter) bool {
     switch (m.icon) {
         .sprout => icons.drawSprout(iconCx, midY + iconH / 2 - 1, iconH, iconColor),
         .aura => icons.drawAura(iconCx, midY, iconH / 2, iconColor),
-        .bolt => icons.drawBolt(iconCx, midY, iconH, iconColor),
-        .flower => icons.drawFlower(iconCx, midY, iconH / 2, iconColor, C.yellow),
     }
     const ty = m.y + (h - @as(f32, @floatFromInt(labelSize))) / 2;
     text.draw(m.label, @intFromFloat(startX + iconW + gap), @intFromFloat(ty), labelSize, if (m.ready) m.accent else C.subtext1);

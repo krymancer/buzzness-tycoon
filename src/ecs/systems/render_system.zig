@@ -57,7 +57,7 @@ pub fn resetCaches() void {
     beeRenderCount = 0;
 }
 
-pub fn draw(world: *World, gridOffset: rl.Vector2, gridScale: f32, worldTint: rl.Color, auraLevel: u16) !void {
+pub fn draw(world: *World, gridOffset: rl.Vector2, gridScale: f32, worldTint: rl.Color, auraLevel: u16, auraReach: f32) !void {
     cachedScreenWidth = ui_scale.width();
     cachedScreenHeight = ui_scale.height();
 
@@ -84,7 +84,7 @@ pub fn draw(world: *World, gridOffset: rl.Vector2, gridScale: f32, worldTint: rl
 
     if (cachedBeehive) |bh| {
         // Lab: Aura — expanding rings on the ground so the buff is visible.
-        if (auraLevel > 0) drawAuraPulse(bh.gridX, bh.gridY, gridOffset, gridScale, auraLevel, time);
+        if (auraLevel > 0) drawAuraPulse(bh.gridX, bh.gridY, gridOffset, gridScale, auraLevel, auraReach, time);
         // Soft ground shadow + a gentle "breathing" pulse so the hive feels alive.
         drawGroundShadow(bh.gridX, bh.gridY, gridOffset, gridScale, 0.6, 0.28);
         const pulse = bh.scale * (1.0 + 0.03 * @sin(time * 1.4));
@@ -210,14 +210,15 @@ fn drawGroundShadow(gridX: f32, gridY: f32, gridOffset: rl.Vector2, gridScale: f
 /// Isometric rings that expand from the hive and fade out, repeating forever
 /// (think "elixir collector" aura). Higher levels reach further and run more
 /// staggered rings, so leveling Aura reads on the meadow at a glance.
-fn drawAuraPulse(gridX: f32, gridY: f32, gridOffset: rl.Vector2, gridScale: f32, level: u16, time: f32) void {
+fn drawAuraPulse(gridX: f32, gridY: f32, gridOffset: rl.Vector2, gridScale: f32, level: u16, reachTiles: f32, time: f32) void {
     const tilePos = utils.isoToXY(gridX, gridY, 32, 32, gridOffset.x, gridOffset.y, gridScale);
     const cx = tilePos.x + 16 * gridScale;
     const cy = tilePos.y + 8 * gridScale;
 
     const period: f32 = 2.6;
-    const tilesReach: f32 = 3.5 + 0.75 * @as(f32, @floatFromInt(@min(level, 10)));
-    const maxRx = tilesReach * 16 * gridScale; // one tile = 16*scale half-width
+    // A circle of radius r (tiles) in grid space projects to an ellipse whose
+    // horizontal semi-axis is r*sqrt(2)*halfTileWidth — matches labs.isInAura.
+    const maxRx = reachTiles * std.math.sqrt2 * 16 * gridScale;
     const rings: u32 = @min(@as(u32, level), 3);
     // Lavender reads far better than mauve against the green meadow.
     const base = theme.CatppuccinMocha.Color.lavender;
