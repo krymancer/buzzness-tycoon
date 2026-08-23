@@ -10,6 +10,7 @@ pub const EffectKind = enum {
     bee_unlock_swift,
     bee_unlock_efficient,
     bee_unlock_gardener,
+    gardener_chance,
     grid_expand,
     lab_aura,
     aura_reach,
@@ -76,6 +77,8 @@ pub const NODES = [_]Node{
     .{ .id = 4, .name = "Swift Bee", .cost = 80, .prereqs = r_worker, .effect = .bee_unlock_swift, .col = -1, .row = 1 },
     .{ .id = 5, .name = "Efficient Bee", .cost = 400, .prereqs = &[_]NodeId{4}, .effect = .bee_unlock_efficient, .col = -1, .row = 2 },
     .{ .id = 6, .name = "Gardener Bee", .cost = 2000, .prereqs = &[_]NodeId{5}, .effect = .bee_unlock_gardener, .col = -1, .row = 3 },
+    // Repeatable: gardener plant chance 20% -> +10%/level (caps at 100%).
+    .{ .id = 26, .name = "Green Thumb", .cost = 2500, .prereqs = &[_]NodeId{6}, .effect = .gardener_chance, .col = -1, .row = 4, .repeat = .{ .cost_growth = 1.5, .max_level = 8 } },
 
     // Growth (col 0, below Instant Grow which gates it). Repeatable: each
     // level shaves `value` seconds off the Instant Grow cooldown (floor 2s).
@@ -108,6 +111,7 @@ pub const NODES = [_]Node{
 pub const ROOT_ID: NodeId = 0;
 pub const AURA_ID: NodeId = 16;
 pub const AURA_REACH_ID: NodeId = 25;
+pub const GREEN_THUMB_ID: NodeId = 26;
 
 /// Old one-shot chains that are now single repeatable nodes. Each legacy id
 /// purchased in an old save counts as +1 level on its target.

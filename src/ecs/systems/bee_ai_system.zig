@@ -326,6 +326,16 @@ fn performRandomWalk(beeAI: anytype, position: anytype, deltaTime: f32) void {
     position.y += @sin(beeAI.wanderAngle) * wanderSpeed * deltaTime;
 }
 
+/// Percent chance a gardener plants a flower on each fresh empty cell it
+/// crosses. Raised by the Green Thumb tree node (see game.zig).
+pub var gardenerPlantChance: i32 = GARDENER_BASE_CHANCE;
+pub const GARDENER_BASE_CHANCE: i32 = 20;
+pub const GARDENER_CHANCE_PER_LEVEL: i32 = 10;
+
+pub fn gardenerChanceForLevel(level: u16) i32 {
+    return @min(100, GARDENER_BASE_CHANCE + GARDENER_CHANCE_PER_LEVEL * @as(i32, level));
+}
+
 fn handlePollination(world: *World, beeAI: anytype, position: anytype, gridOffset: rl.Vector2, gridScale: f32, gridWidth: usize, gridHeight: usize, texturesRef: Textures) !void {
     if (!beeAI.beeType.canSpawnFlowers()) return;
 
@@ -345,7 +355,7 @@ fn handlePollination(world: *World, beeAI: anytype, position: anytype, gridOffse
     if (gridX == centerX and gridY == centerY) return;
 
     if (!world.hasFlowerAtGrid(gridX, gridY)) {
-        if (rl.getRandomValue(1, 100) <= 20) {
+        if (rl.getRandomValue(1, 100) <= gardenerPlantChance) {
             const flowerType = switch (rl.getRandomValue(1, 3)) {
                 1 => Flowers.rose,
                 2 => Flowers.dandelion,
