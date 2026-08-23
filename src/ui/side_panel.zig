@@ -101,9 +101,11 @@ pub fn draw(ctx: SidePanelContext) SidePanelAction {
 const FOOTER_H: f32 = 44;
 const FOOTER_GAP: f32 = 8;
 
+const MeterIcon = enum { sprout, aura, bolt, flower };
+
 /// Bottom-anchored status stack (grows upward): Instant Grow, then the Labs
-/// (Bloom, Burst, Aura) as they unlock. Burst/Bloom are clickable in addition
-/// to their B/M hotkeys.
+/// (Bloom, Burst, Aura) as they unlock. Every row is "[icon] Name: state";
+/// Burst/Bloom are clickable in addition to their B/M hotkeys.
 fn drawFooter(ctx: SidePanelContext, panelX: f32, mouse: rl.Vector2, out: *SidePanelAction) void {
     const C = theme.CatppuccinMocha.Color;
     const x = panelX + 14;
@@ -111,7 +113,13 @@ fn drawFooter(ctx: SidePanelContext, panelX: f32, mouse: rl.Vector2, out: *SideP
     var y = ctx.screenHeight - FOOTER_H - 10;
 
     if (ctx.treeState.hasEffect(.growth_boost_unlock)) {
-        drawGrowMeter(x, y, w, ctx.resources);
+        const ready = ctx.resources.canUseGrowthBoost();
+        const label = if (ready)
+            locale.tr("Instant Grow: ready", "Crescer instantâneo: pronto")
+        else
+            rl.textFormat(locale.tr("Instant Grow: %.1fs", "Crescer instantâneo: %.1fs"), .{ctx.resources.growthBoostCooldown});
+        const fill = 1.0 - ctx.resources.getCooldownPercent();
+        _ = drawMeter(.{ .x = x, .y = y, .w = w, .icon = .sprout, .label = label, .ready = ready, .fill = fill, .accent = C.green, .mouse = mouse });
         y -= FOOTER_H + FOOTER_GAP;
     }
 
@@ -119,11 +127,11 @@ fn drawFooter(ctx: SidePanelContext, panelX: f32, mouse: rl.Vector2, out: *SideP
         const cd = ctx.labs.bloomCooldown;
         const ready = cd <= 0;
         const label = if (ready)
-            locale.tr("[M] Bloom: ready", "[M] Florescer: pronto")
+            locale.tr("Bloom: ready", "Florescer: pronto")
         else
-            rl.textFormat(locale.tr("[M] Bloom: %.1fs", "[M] Florescer: %.1fs"), .{cd});
+            rl.textFormat(locale.tr("Bloom: %.1fs", "Florescer: %.1fs"), .{cd});
         const fill = 1.0 - cd / labs_mod.BLOOM_COOLDOWN;
-        if (drawMeter(x, y, w, label, ready, fill, C.pink, true, mouse)) out.* = .activate_bloom;
+        if (drawMeter(.{ .x = x, .y = y, .w = w, .icon = .flower, .label = label, .ready = ready, .fill = fill, .accent = C.pink, .clickable = true, .hotkey = "M", .mouse = mouse })) out.* = .activate_bloom;
         y -= FOOTER_H + FOOTER_GAP;
     }
 
@@ -132,46 +140,83 @@ fn drawFooter(ctx: SidePanelContext, panelX: f32, mouse: rl.Vector2, out: *SideP
         const cd = ctx.labs.burstCooldown;
         const ready = !active and cd <= 0;
         const label = if (active)
-            rl.textFormat(locale.tr("[B] Burst x%.0f: %.1fs", "[B] Explosão x%.0f: %.1fs"), .{ labs_mod.BURST_MUL, ctx.labs.burstRemaining })
+            rl.textFormat(locale.tr("Burst x%.0f: %.1fs", "Explosão x%.0f: %.1fs"), .{ labs_mod.BURST_MUL, ctx.labs.burstRemaining })
         else if (ready)
-            locale.tr("[B] Burst: ready", "[B] Explosão: pronta")
+            locale.tr("Burst: ready", "Explosão: pronta")
         else
-            rl.textFormat(locale.tr("[B] Burst: %.1fs", "[B] Explosão: %.1fs"), .{cd});
+            rl.textFormat(locale.tr("Burst: %.1fs", "Explosão: %.1fs"), .{cd});
         // While active the bar drains with the remaining duration; afterwards
         // it refills with the cooldown.
         const fill = if (active) ctx.labs.burstRemaining / labs_mod.BURST_DURATION else 1.0 - cd / labs_mod.BURST_COOLDOWN;
-        if (drawMeter(x, y, w, label, ready or active, fill, C.red, true, mouse)) out.* = .activate_burst;
+        if (drawMeter(.{ .x = x, .y = y, .w = w, .icon = .bolt, .label = label, .ready = ready or active, .fill = fill, .accent = C.red, .clickable = true, .hotkey = "B", .mouse = mouse })) out.* = .activate_burst;
         y -= FOOTER_H + FOOTER_GAP;
     }
 
     if (ctx.treeState.hasEffect(.lab_aura)) {
-        const label = rl.textFormat(locale.tr("Aura: honey x%.2f (always on)", "Aura: mel x%.2f (sempre ativa)"), .{ctx.labs.auraMul});
-        _ = drawMeter(x, y, w, label, true, 1.0, C.mauve, false, mouse);
+        const label = rl.textFormat("Aura x%.2f", .{ctx.labs.auraMul});
+        _ = drawMeter(.{ .x = x, .y = y, .w = w, .icon = .aura, .label = label, .ready = true, .fill = 1.0, .accent = C.lavender, .mouse = mouse });
     }
 }
 
-/// Rounded status bar with a proportional fill. Returns true when clicked
-/// (only if `clickable` and `ready`).
-fn drawMeter(x: f32, y: f32, w: f32, label: [:0]const u8, ready: bool, fillPercent: f32, accent: rl.Color, clickable: bool, mouse: rl.Vector2) bool {
+const Meter = struct {
+    x: f32,
+    y: f32,
+    w: f32,
+    icon: MeterIcon,
+    label: [:0]const u8,
+    ready: bool,
+    fill: f32,
+    accent: rl.Color,
+    clickable: bool = false,
+    /// Hotkey hint drawn at the right edge (e.g. "B").
+    hotkey: ?[:0]const u8 = null,
+    mouse: rl.Vector2,
+};
+
+/// Rounded status row: proportional fill, "[icon] label" centred as a group,
+/// optional hotkey chip. Returns true when clicked (only if clickable+ready).
+fn drawMeter(m: Meter) bool {
     const C = theme.CatppuccinMocha.Color;
     const h = FOOTER_H;
-    const rect = rl.Rectangle.init(x, y, w, h);
-    const hovered = clickable and ready and rl.checkCollisionPointRec(mouse, rect);
+    const rect = rl.Rectangle.init(m.x, m.y, m.w, h);
+    const hovered = m.clickable and m.ready and rl.checkCollisionPointRec(m.mouse, rect);
 
     rl.drawRectangleRounded(rect, 0.4, 6, if (hovered) C.surface1 else C.surface0);
 
-    const fillW = (w - 6) * std.math.clamp(fillPercent, 0, 1);
+    const fillW = (m.w - 6) * std.math.clamp(m.fill, 0, 1);
     if (fillW > 1) {
-        const fillColor = if (ready) rl.Color.init(accent.r, accent.g, accent.b, 60) else rl.Color.init(88, 91, 112, 70);
-        rl.drawRectangleRounded(rl.Rectangle.init(x + 3, y + 3, fillW, h - 6), 0.4, 6, fillColor);
+        const fillColor = if (m.ready) rl.Color.init(m.accent.r, m.accent.g, m.accent.b, 60) else rl.Color.init(88, 91, 112, 70);
+        rl.drawRectangleRounded(rl.Rectangle.init(m.x + 3, m.y + 3, fillW, h - 6), 0.4, 6, fillColor);
     }
-    rl.drawRectangleRoundedLinesEx(rect, 0.4, 6, if (hovered) 2 else 1, if (ready) accent else C.surface1);
+    rl.drawRectangleRoundedLinesEx(rect, 0.4, 6, if (hovered) 2 else 1, if (m.ready) m.accent else C.surface1);
 
     const labelSize: i32 = 18;
-    const tw: f32 = @floatFromInt(text.measure(label, labelSize));
-    const tx = x + (w - tw) / 2;
-    const ty = y + (h - @as(f32, @floatFromInt(labelSize))) / 2;
-    text.draw(label, @intFromFloat(tx), @intFromFloat(ty), labelSize, if (ready) accent else C.subtext1);
+    const iconH: f32 = 19;
+    const iconW: f32 = iconH * 1.1;
+    const gap: f32 = 7;
+    const tw: f32 = @floatFromInt(text.measure(m.label, labelSize));
+    const groupW = iconW + gap + tw;
+    const startX = m.x + (m.w - groupW) / 2;
+    const iconCx = startX + iconW / 2;
+    const midY = m.y + h / 2;
+    const iconColor = if (m.ready) m.accent else C.overlay1;
+    switch (m.icon) {
+        .sprout => icons.drawSprout(iconCx, midY + iconH / 2 - 1, iconH, iconColor),
+        .aura => icons.drawAura(iconCx, midY, iconH / 2, iconColor),
+        .bolt => icons.drawBolt(iconCx, midY, iconH, iconColor),
+        .flower => icons.drawFlower(iconCx, midY, iconH / 2, iconColor, C.yellow),
+    }
+    const ty = m.y + (h - @as(f32, @floatFromInt(labelSize))) / 2;
+    text.draw(m.label, @intFromFloat(startX + iconW + gap), @intFromFloat(ty), labelSize, if (m.ready) m.accent else C.subtext1);
+
+    if (m.hotkey) |key| {
+        const chip: f32 = 20;
+        const kx = m.x + m.w - chip - 8;
+        const ky = midY - chip / 2;
+        rl.drawRectangleRounded(rl.Rectangle.init(kx, ky, chip, chip), 0.3, 4, C.surface2);
+        const kw = text.measure(key, 13);
+        text.draw(key, @as(i32, @intFromFloat(kx + chip / 2)) - @divFloor(kw, 2), @intFromFloat(ky + 3), 13, C.subtext0);
+    }
 
     return hovered and rl.isMouseButtonPressed(rl.MouseButton.left);
 }
@@ -347,43 +392,4 @@ fn drawPrestigeCard(x: f32, y: f32, w: f32, mouse: rl.Vector2, prestige: *const 
 
 fn accentDimmed(accent: rl.Color) rl.Color {
     return rl.Color.init(accent.r, accent.g, accent.b, 190);
-}
-
-/// The Instant Grow cooldown meter. The ability fires on its own (fully
-/// growing a random flower) whenever the meter fills, so this is pure
-/// status: the countdown, or "ready" while it waits for a sproutable flower.
-fn drawGrowMeter(x: f32, y: f32, w: f32, resources: *const Resources) void {
-    const C = theme.CatppuccinMocha.Color;
-    const h = FOOTER_H;
-    const rect = rl.Rectangle.init(x, y, w, h);
-    const ready = resources.canUseGrowthBoost();
-
-    rl.drawRectangleRounded(rect, 0.4, 6, C.surface0);
-
-    // Cooldown fill (fills up as the cooldown progresses; full = ready).
-    const readyPercent = 1.0 - resources.getCooldownPercent();
-    const fillW = (w - 6) * readyPercent;
-    if (fillW > 1) {
-        const fillColor = if (ready) rl.Color.init(166, 227, 161, 60) else rl.Color.init(88, 91, 112, 70);
-        rl.drawRectangleRounded(rl.Rectangle.init(x + 3, y + 3, fillW, h - 6), 0.4, 6, fillColor);
-    }
-    rl.drawRectangleRoundedLinesEx(rect, 0.4, 6, 1, if (ready) C.green else C.surface1);
-
-    const label = if (ready)
-        locale.tr("Instant Grow: ready", "Crescer instantâneo: pronto")
-    else
-        rl.textFormat(locale.tr("Instant Grow: %.1fs", "Crescer instantâneo: %.1fs"), .{resources.growthBoostCooldown});
-    const labelColor = if (ready) C.green else C.subtext1;
-
-    // Sprout icon + label centred as one group, both axes.
-    const labelSize: i32 = 18;
-    const iconH: f32 = 19;
-    const iconW: f32 = iconH * 1.1;
-    const gap: f32 = 7;
-    const tw: f32 = @floatFromInt(text.measure(label, labelSize));
-    const groupW = iconW + gap + tw;
-    const startX = x + (w - groupW) / 2;
-    icons.drawSprout(startX + iconW / 2, y + (h + iconH) / 2 - 1, iconH, C.green);
-    const ty = y + (h - @as(f32, @floatFromInt(labelSize))) / 2;
-    text.draw(label, @intFromFloat(startX + iconW + gap), @intFromFloat(ty), labelSize, labelColor);
 }

@@ -45,3 +45,48 @@ pub fn drawHoneyDropOutlined(cx: f32, cy: f32, r: f32, color: rl.Color, outline:
     drawHoneyDrop(cx, cy, r + 2, outline);
     drawHoneyDrop(cx, cy, r, color);
 }
+
+/// Aura: a dot with two concentric rings, centered on (cx, cy), outer radius `r`.
+/// Icon for the Lab: Aura passive.
+pub fn drawAura(cx: f32, cy: f32, r: f32, color: rl.Color) void {
+    rl.drawCircle(@intFromFloat(cx), @intFromFloat(cy), r * 0.22, color);
+    rl.drawRing(rl.Vector2.init(cx, cy), r * 0.5, r * 0.5 + @max(1.5, r * 0.14), 0, 360, 24, color);
+    var faint = color;
+    faint.a = @intFromFloat(@as(f32, @floatFromInt(color.a)) * 0.55);
+    rl.drawRing(rl.Vector2.init(cx, cy), r - @max(1.5, r * 0.12), r, 0, 360, 28, faint);
+}
+
+/// Burst: a lightning bolt fitted in a box of height `h` centered on (cx, cy).
+/// Icon for the Lab: Burst active.
+pub fn drawBolt(cx: f32, cy: f32, h: f32, color: rl.Color) void {
+    const w = h * 0.55;
+    const top = cy - h / 2;
+    const pts = [_]rl.Vector2{
+        rl.Vector2.init(cx + w * 0.15, top),
+        rl.Vector2.init(cx - w * 0.5, top + h * 0.58),
+        rl.Vector2.init(cx - w * 0.02, top + h * 0.58),
+        rl.Vector2.init(cx - w * 0.15, top + h),
+        rl.Vector2.init(cx + w * 0.5, top + h * 0.42),
+        rl.Vector2.init(cx + w * 0.02, top + h * 0.42),
+    };
+    // Two triangles per half, both windings so culling never hides one.
+    const tris = [_][3]usize{ .{ 0, 1, 2 }, .{ 0, 2, 5 }, .{ 3, 4, 5 }, .{ 3, 5, 2 } };
+    for (tris) |t| {
+        rl.drawTriangle(pts[t[0]], pts[t[1]], pts[t[2]], color);
+        rl.drawTriangle(pts[t[2]], pts[t[1]], pts[t[0]], color);
+    }
+}
+
+/// Bloom: a five-petal flower centered on (cx, cy) with radius `r`.
+/// Icon for the Lab: Bloom active.
+pub fn drawFlower(cx: f32, cy: f32, r: f32, color: rl.Color, center: rl.Color) void {
+    const petalR = r * 0.42;
+    var i: u32 = 0;
+    while (i < 5) : (i += 1) {
+        const ang = @as(f32, @floatFromInt(i)) / 5.0 * 6.2831853 - 1.5707963;
+        const px = cx + @cos(ang) * (r - petalR);
+        const py = cy + @sin(ang) * (r - petalR);
+        rl.drawCircle(@intFromFloat(px), @intFromFloat(py), petalR, color);
+    }
+    rl.drawCircle(@intFromFloat(cx), @intFromFloat(cy), r * 0.3, center);
+}
