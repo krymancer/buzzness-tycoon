@@ -13,7 +13,8 @@ permissions:
 
 jobs:
   build-linux:
-    runs-on: ubuntu-latest
+    # 22.04 keeps the glibc requirement at 2.35 (latest = 2.38+).
+    runs-on: ubuntu-22.04
     steps:
       - name: Checkout code
         uses: actions/checkout@v7
@@ -30,7 +31,9 @@ jobs:
           sudo apt-get install -y libgl1-mesa-dev libglu1-mesa-dev xorg-dev
 
       - name: Build
-        run: zig build -Doptimize=ReleaseFast -Dversion=${{ github.ref_type == 'tag' && github.ref_name || 'dev' }}
+        # -Dcpu=baseline: without it Zig targets the CI runner's CPU (AVX-512),
+        # which is an illegal instruction on Steam Deck (Zen 2) and most PCs.
+        run: zig build -Doptimize=ReleaseFast -Dcpu=baseline -Dversion=${{ github.ref_type == 'tag' && github.ref_name || 'dev' }}
 
       - name: Upload Linux binary
         uses: actions/upload-artifact@v7
