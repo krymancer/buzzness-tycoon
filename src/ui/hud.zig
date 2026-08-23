@@ -107,5 +107,4 @@ pub const Hud = struct {
             text.draw(locale.tr("STORAGE FULL!", "ARMAZÉM CHEIO!"), @as(i32, @intFromFloat(barX + barWidth + 10)), @as(i32, @intFromFloat(barY + 2)), 18, theme.CatppuccinMocha.Color.red);
         }
     }
-
 };

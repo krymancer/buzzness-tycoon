@@ -19,6 +19,14 @@ pub const EffectKind = enum {
     super_flower_unlock,
 };
 
+/// Marks a node as re-buyable. Each purchase raises its level and re-applies
+/// the node's effect; the cost scales geometrically: cost * cost_growth^level.
+pub const Repeat = struct {
+    cost_growth: f32,
+    /// 0 = unlimited.
+    max_level: u16 = 0,
+};
+
 pub const Node = struct {
     id: NodeId,
     name: []const u8,
@@ -28,6 +36,22 @@ pub const Node = struct {
     value: f32 = 0,
     col: i8,
     row: i8,
+    repeat: ?Repeat = null,
+
+    pub fn isRepeatable(self: *const @This()) bool {
+        return self.repeat != null;
+    }
+
+    /// Cost to buy the node when it's currently at `level` (0 = not owned).
+    pub fn costAtLevel(self: *const @This(), level: u16) f32 {
+        const r = self.repeat orelse return self.cost;
+        return self.cost * std.math.pow(f32, r.cost_growth, @floatFromInt(level));
+    }
+
+    pub fn isMaxed(self: *const @This(), level: u16) bool {
+        const r = self.repeat orelse return level > 0;
+        return r.max_level != 0 and level >= r.max_level;
+    }
 };
 
 const no_prereqs = &[_]NodeId{};
@@ -44,6 +68,10 @@ pub const NODES = [_]Node{
     .{ .id = 1, .name = "Honey x2", .cost = 50, .prereqs = r_worker, .effect = .honey_factor_mul, .value = 2.0, .col = -2, .row = 1 },
     .{ .id = 2, .name = "Honey x4", .cost = 250, .prereqs = &[_]NodeId{1}, .effect = .honey_factor_mul, .value = 2.0, .col = -2, .row = 2 },
     .{ .id = 3, .name = "Honey x8", .cost = 1500, .prereqs = &[_]NodeId{2}, .effect = .honey_factor_mul, .value = 2.0, .col = -2, .row = 3 },
+    .{ .id = 22, .name = "Honey x16", .cost = 6000, .prereqs = &[_]NodeId{3}, .effect = .honey_factor_mul, .value = 2.0, .col = -2, .row = 4 },
+    .{ .id = 23, .name = "Honey x32", .cost = 20000, .prereqs = &[_]NodeId{22}, .effect = .honey_factor_mul, .value = 2.0, .col = -2, .row = 5 },
+    // Repeatable: +25% honey per level, cost x1.6 per level, no cap.
+    .{ .id = 24, .name = "Honey Boost", .cost = 15000, .prereqs = &[_]NodeId{23}, .effect = .honey_factor_mul, .value = 1.25, .col = -2, .row = 6, .repeat = .{ .cost_growth = 1.6 } },
 
     // Bees branch (col -1)
     .{ .id = 4, .name = "Swift Bee", .cost = 80, .prereqs = r_worker, .effect = .bee_unlock_swift, .col = -1, .row = 1 },
@@ -88,20 +116,25 @@ pub fn findNode(id: NodeId) ?*const Node {
 }
 
 pub const State = struct {
-    purchased: std.AutoHashMap(NodeId, void),
+    /// node id -> level (absent or 0 = not owned; one-shot nodes are 0 or 1).
+    levels: std.AutoHashMap(NodeId, u16),
 
     pub fn init(allocator: std.mem.Allocator) @This() {
-        var s: @This() = .{ .purchased = std.AutoHashMap(NodeId, void).init(allocator) };
-        s.purchased.put(ROOT_ID, {}) catch {};
+        var s: @This() = .{ .levels = std.AutoHashMap(NodeId, u16).init(allocator) };
+        s.levels.put(ROOT_ID, 1) catch {};
         return s;
     }
 
     pub fn deinit(self: *@This()) void {
-        self.purchased.deinit();
+        self.levels.deinit();
+    }
+
+    pub fn level(self: *const @This(), id: NodeId) u16 {
+        return self.levels.get(id) orelse 0;
     }
 
     pub fn isPurchased(self: *const @This(), id: NodeId) bool {
-        return self.purchased.contains(id);
+        return self.level(id) > 0;
     }
 
     pub fn isUnlocked(self: *const @This(), node: *const Node) bool {
@@ -111,8 +144,27 @@ pub const State = struct {
         return true;
     }
 
+    /// True when the node can be bought (first purchase) or leveled up again.
+    pub fn canBuy(self: *const @This(), node: *const Node) bool {
+        return self.isUnlocked(node) and !node.isMaxed(self.level(node.id));
+    }
+
+    /// Honey price of the next purchase of this node.
+    pub fn nextCost(self: *const @This(), node: *const Node) f32 {
+        return node.costAtLevel(self.level(node.id));
+    }
+
+    /// Raise the node by one level (first purchase = level 1).
     pub fn markPurchased(self: *@This(), id: NodeId) !void {
-        try self.purchased.put(id, {});
+        try self.levels.put(id, self.level(id) + 1);
+    }
+
+    pub fn setLevel(self: *@This(), id: NodeId, lvl: u16) !void {
+        if (lvl == 0) {
+            _ = self.levels.remove(id);
+        } else {
+            try self.levels.put(id, lvl);
+        }
     }
 
     pub fn hasEffect(self: *const @This(), kind: EffectKind) bool {
@@ -126,3 +178,35 @@ pub const State = struct {
         return self.hasEffect(kind);
     }
 };
+
+test "repeatable node cost grows geometrically and one-shot nodes max at level 1" {
+    const boost = findNode(24).?;
+    try std.testing.expectApproxEqRel(@as(f32, 15000), boost.costAtLevel(0), 1e-5);
+    try std.testing.expectApproxEqRel(@as(f32, 15000 * 1.6), boost.costAtLevel(1), 1e-5);
+    try std.testing.expect(!boost.isMaxed(50));
+
+    const honey2 = findNode(1).?;
+    try std.testing.expectEqual(@as(f32, 50), honey2.costAtLevel(0));
+    try std.testing.expect(!honey2.isMaxed(0));
+    try std.testing.expect(honey2.isMaxed(1));
+}
+
+test "state tracks levels and gates buying" {
+    var s = State.init(std.testing.allocator);
+    defer s.deinit();
+    const honey2 = findNode(1).?;
+    try std.testing.expect(s.canBuy(honey2));
+    try s.markPurchased(1);
+    try std.testing.expect(!s.canBuy(honey2));
+    try std.testing.expectEqual(@as(u16, 1), s.level(1));
+
+    const boost = findNode(24).?;
+    try std.testing.expect(!s.canBuy(boost)); // prereqs missing
+    try s.setLevel(23, 1);
+    try std.testing.expect(s.canBuy(boost));
+    try s.markPurchased(24);
+    try s.markPurchased(24);
+    try std.testing.expectEqual(@as(u16, 2), s.level(24));
+    try std.testing.expect(s.canBuy(boost));
+    try std.testing.expectApproxEqRel(@as(f32, 15000 * 1.6 * 1.6), s.nextCost(boost), 1e-5);
+}

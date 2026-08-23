@@ -214,7 +214,8 @@ pub const Game = struct {
             .metrics = Metrics.init(io),
             .floatingTexts = floating_text.Manager.init(allocator),
             .upgradeTree = upgrade_tree.State.init(allocator),
-            .showTree = false,
+            // Dev: BT_OPEN_TREE starts with the upgrade tree open (screenshots).
+            .showTree = env.get("BT_OPEN_TREE") != null,
             .labs = .{},
             .prestige = .{},
             .showPrestigeDialog = false,
@@ -1029,10 +1030,9 @@ pub const Game = struct {
     }
 
     fn purchaseUpgrade(self: *@This(), nodeId: upgrade_tree.NodeId) !void {
-        if (self.upgradeTree.isPurchased(nodeId)) return;
         const node = upgrade_tree.findNode(nodeId) orelse return;
-        if (!self.upgradeTree.isUnlocked(node)) return;
-        if (!self.resources.spendHoney(node.cost)) return;
+        if (!self.upgradeTree.canBuy(node)) return;
+        if (!self.resources.spendHoney(self.upgradeTree.nextCost(node))) return;
 
         switch (node.effect) {
             .honey_factor_mul => {
@@ -1084,9 +1084,13 @@ pub const Game = struct {
         };
         defer data.deinit(self.allocator);
 
-        var upgrade_it = self.upgradeTree.purchased.keyIterator();
-        while (upgrade_it.next()) |id| {
-            if (id.* < data.purchased.len) data.purchased[id.*] = true;
+        var upgrade_it = self.upgradeTree.levels.iterator();
+        while (upgrade_it.next()) |entry| {
+            const id = entry.key_ptr.*;
+            if (id < data.purchased.len and entry.value_ptr.* > 0) {
+                data.purchased[id] = true;
+                data.levels[id] = entry.value_ptr.*;
+            }
         }
 
         var bee_it = self.world.iterateBees();
@@ -1224,9 +1228,14 @@ pub const Game = struct {
         self.upgradeTree.deinit();
         self.upgradeTree = upgrade_tree.State.init(self.allocator);
         for (data.purchased, 0..) |purchased, id| {
-            if (purchased and upgrade_tree.findNode(@intCast(id)) != null) {
-                try self.upgradeTree.markPurchased(@intCast(id));
-            }
+            if (!purchased) continue;
+            const node = upgrade_tree.findNode(@intCast(id)) orelse continue;
+            // Old saves only have the "upgrade" flag -> level 1; clamp to max.
+            var lvl: u16 = @max(1, data.levels[id]);
+            if (node.repeat) |r| {
+                if (r.max_level != 0) lvl = @min(lvl, r.max_level);
+            } else lvl = 1;
+            try self.upgradeTree.setLevel(@intCast(id), lvl);
         }
 
         self.prestige.royalJelly = data.royal_jelly;
