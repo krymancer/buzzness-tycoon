@@ -2,7 +2,7 @@
 
 ## Unreleased (next version — bump title-screen version before release)
 
-Merged in PR #31 (`feat/repeatable-upgrades`). Steam Deploy workflow in PR #32.
+Merged in PRs #31, #34, #35, #36, #37. Steam Deploy workflow in PR #32.
 
 ### Progression & balance
 - **Repeatable upgrades**: tree nodes can now be bought again to level up
@@ -48,16 +48,28 @@ Merged in PR #31 (`feat/repeatable-upgrades`). Steam Deploy workflow in PR #32.
   "Are you sure?" on a second click.
 - Tree view: teal border on owned repeatables you can afford to level.
 
-### Window
-- **Borderless windowed instead of exclusive fullscreen** so Alt-Tab works
-  (raylib #3865 / #4655 background). Alt+Enter toggles to a 1280×720 window.
-  On macOS the menu bar stays visible (trade-off accepted for now).
+### Options & window
+- **Options screen** (title screen and pause menu, replacing the language
+  button): Window mode, Language, Volume slider, UI scale slider. Window mode
+  and volume persist in the save.
+- **Window modes**: Windowed / **Borderless** (default; Alt-Tab friendly) /
+  Fullscreen (exclusive, for people who want true fullscreen). Alt+Enter
+  toggles windowed ↔ the chosen mode. On macOS borderless keeps the menu bar
+  visible (trade-off accepted for now).
+- **Fixed mouse offset on Windows** in windowed/borderless modes at 125/150%
+  display scaling (raylib reports the mouse in physical pixels there, in points
+  on macOS).
+- **Upgrade tree fits the panel** at large UI scales (layout scales down to
+  60%), and scrolls/drag-pans when it still overflows.
 
 ### Saves
 - New `level <id> <n>` lines; `is_rotten` flower flag. Old saves load.
 
-### Dev
-- `BT_OPEN_TREE=1`, `BT_OPEN_PLANT=x,y` open those UIs at start (screenshots).
+### Dev / CI
+- `BT_OPEN_TREE=1`, `BT_OPEN_PLANT=x,y`, `BT_OPEN_OPTIONS=1` open those UIs at
+  start (screenshots).
+- GitHub Actions bumped to Node 24 releases; `mlugg/setup-zig`.
+- Manual **Steam Deploy** workflow (Actions → Steam Deploy → release tag).
 
 ### Known / next
 - Per-bee-type upgrades (decide: flat vs. scaling bee prices).
