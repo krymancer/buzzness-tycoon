@@ -31,15 +31,14 @@ pub const Hud = struct {
         const outline = rl.Color.init(24, 24, 37, 235);
 
         const x0: f32 = 12;
-        var y0: f32 = 10;
-        if (config.honey_cap_enabled) {
-            drawHoneyBar(resources, x0, y0);
-            y0 += 30;
-        }
+        const y0: f32 = 10;
 
         var hbuf: [32]u8 = undefined;
+        var cbuf: [32]u8 = undefined;
         const hstr = format.formatShort(resources.honey, &hbuf);
+        const cstr = format.formatShort(resources.honeyCapacity, &cbuf);
         const honeyText = rl.textFormat("%s", .{hstr.ptr});
+        const capText = rl.textFormat("/ %s", .{cstr.ptr});
         const factorText = rl.textFormat("x%.1f", .{beehiveFactor});
         const rateText = rl.textFormat("(+%.1f/s)", .{resources.honeyPerSec});
 
@@ -58,56 +57,43 @@ pub const Hud = struct {
         icons.drawHoneyDropOutlined(x0 + 2 + iconR, iconCy, iconR, C.yellow, outline);
         rl.drawCircle(@intFromFloat(x0 + 2 + iconR - 2.5), @intFromFloat(iconCy - 2.5), 2.5, rl.Color.init(255, 250, 220, 200));
 
-        var tx: i32 = @intFromFloat(x0 + 2 + iconR * 2 + 12);
-        text.drawOutline(honeyText, tx, @intFromFloat(y0), bigSize, C.yellow, outline);
-        tx += text.measure(honeyText, bigSize) + 10;
+        const full = resources.isAtCapacity();
+        const textStartX: i32 = @intFromFloat(x0 + 2 + iconR * 2 + 12);
+        var tx: i32 = textStartX;
+        text.drawOutline(honeyText, tx, @intFromFloat(y0), bigSize, if (full) C.red else C.yellow, outline);
+        tx += text.measure(honeyText, bigSize) + 8;
+        if (config.honey_cap_enabled) {
+            text.drawOutline(capText, tx, smallY, smallSize, if (full) C.red else C.subtext0, outline);
+            tx += text.measure(capText, smallSize) + 12;
+        }
         text.drawOutline(factorText, tx, smallY, smallSize, C.peach, outline);
         tx += text.measure(factorText, smallSize) + 10;
         text.drawOutline(rateText, tx, smallY, smallSize, C.green, outline);
-    }
+        const lineEndX = tx + text.measure(rateText, smallSize);
 
-    fn drawHoneyBar(resources: *const Resources, barX: f32, barY: f32) void {
-        const barWidth: f32 = 200;
-        const barHeight: f32 = 20;
-
-        rl.drawRectangle(
-            @intFromFloat(barX),
-            @intFromFloat(barY),
-            @intFromFloat(barWidth),
-            @intFromFloat(barHeight),
-            theme.CatppuccinMocha.Color.surface0,
-        );
-
-        const fillPercent = resources.getCapacityPercent();
-        const fillWidth = barWidth * fillPercent;
-
-        rl.drawRectangle(
-            @intFromFloat(barX),
-            @intFromFloat(barY),
-            @intFromFloat(fillWidth),
-            @intFromFloat(barHeight),
-            theme.CatppuccinMocha.Color.yellow,
-        );
-
-        rl.drawRectangleLines(
-            @intFromFloat(barX),
-            @intFromFloat(barY),
-            @intFromFloat(barWidth),
-            @intFromFloat(barHeight),
-            theme.CatppuccinMocha.Color.surface1,
-        );
-
-        var hbuf: [32]u8 = undefined;
-        var cbuf: [32]u8 = undefined;
-        const hstr = format.formatShort(resources.honey, &hbuf);
-        const cstr = format.formatShort(resources.honeyCapacity, &cbuf);
-        const honeyText = rl.textFormat("%s / %s", .{ hstr.ptr, cstr.ptr });
-        const textWidth = text.measure(honeyText, 16);
-        const textX = @as(i32, @intFromFloat(barX + barWidth / 2)) - @divFloor(textWidth, 2);
-        text.draw(honeyText, textX, @as(i32, @intFromFloat(barY + 2)), 16, rl.Color.white);
-
-        if (resources.isAtCapacity()) {
-            text.draw(locale.tr("STORAGE FULL!", "ARMAZÉM CHEIO!"), @as(i32, @intFromFloat(barX + barWidth + 10)), @as(i32, @intFromFloat(barY + 2)), 18, theme.CatppuccinMocha.Color.red);
+        // Storage meter: a thin bar under the whole stat line. Turns red and
+        // pulses at the cap so wasted honey is impossible to miss.
+        if (config.honey_cap_enabled) {
+            const barX: f32 = @floatFromInt(textStartX);
+            const barW: f32 = @floatFromInt(lineEndX - textStartX);
+            const barY: f32 = y0 + @as(f32, @floatFromInt(bigSize)) + 2;
+            const barH: f32 = 6;
+            rl.drawRectangleRounded(rl.Rectangle.init(barX - 1, barY - 1, barW + 2, barH + 2), 0.5, 4, outline);
+            rl.drawRectangleRounded(rl.Rectangle.init(barX, barY, barW, barH), 0.5, 4, C.surface1);
+            const pct = std.math.clamp(resources.getCapacityPercent(), 0, 1);
+            const fillW = barW * pct;
+            if (fillW > 2) {
+                var fillColor = if (full) C.red else if (pct > 0.85) C.peach else C.yellow;
+                if (full) {
+                    const pulse = 0.7 + 0.3 * @sin(@as(f32, @floatCast(rl.getTime())) * 6.0);
+                    fillColor.a = @intFromFloat(255.0 * pulse);
+                }
+                rl.drawRectangleRounded(rl.Rectangle.init(barX, barY, fillW, barH), 0.5, 4, fillColor);
+            }
+            if (full) {
+                const fullText = locale.tr("STORAGE FULL", "ARMAZÉM CHEIO");
+                text.drawOutline(fullText, lineEndX + 14, smallY, smallSize, C.red, outline);
+            }
         }
     }
 };

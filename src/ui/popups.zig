@@ -22,8 +22,6 @@ pub const TilePopupAction = enum {
     buy_efficient_bee,
     buy_gardener_bee,
     upgrade_beehive,
-    upgrade_storage,
-    upgrade_growth_boost,
     upgrade_flower,
     plant_rose,
     plant_tulip,
@@ -45,7 +43,6 @@ pub const TilePopupContext = struct {
     world: *World,
     // Whether the Instant Grow tree node is owned; hides the grow-cooldown
     // upgrade button while the ability itself is still locked.
-    growthUnlocked: bool,
 };
 
 fn flowerTypeToFlowers(flowerType: FlowerType) Flowers {
@@ -162,37 +159,8 @@ fn drawBeehivePopup(
     }
     rg.setState(@intFromEnum(rg.State.normal));
 
-    // Upgrade storage button
-    const storageCost = ctx.resources.getStorageUpgradeCost();
-    const canAffordStorage = ctx.resources.honey >= storageCost;
-    if (!canAffordStorage) {
-        rg.setState(@intFromEnum(rg.State.disabled));
-    }
-    const storageUpgradeText = rl.textFormat(locale.tr("Storage +500 (%.0f)", "Armazém +500 (%.0f)"), .{storageCost});
-    if (rg.button(rl.Rectangle.init(buttonX, buttonStartY + buttonSpacing, buttonWidth, smallButtonHeight), storageUpgradeText) and canAffordStorage) {
-        rg.setState(@intFromEnum(rg.State.normal));
-        return .upgrade_storage;
-    }
-    rg.setState(@intFromEnum(rg.State.normal));
-
-    // Upgrade growth boost button (only once Instant Grow is unlocked)
-    if (ctx.growthUnlocked) {
-        const growthCost = ctx.resources.getGrowthBoostUpgradeCost();
-        const canAffordGrowth = ctx.resources.honey >= growthCost;
-        const nextCooldown = @max(2.0, ctx.resources.growthBoostMaxCooldown - 1.5);
-        if (!canAffordGrowth) {
-            rg.setState(@intFromEnum(rg.State.disabled));
-        }
-        const growthUpgradeText = rl.textFormat(locale.tr("Grow CD %.1fs (%.0f)", "Recarga crescer %.1fs (%.0f)"), .{ nextCooldown, growthCost });
-        if (rg.button(rl.Rectangle.init(buttonX, buttonStartY + buttonSpacing * 2, buttonWidth, smallButtonHeight), growthUpgradeText) and canAffordGrowth) {
-            rg.setState(@intFromEnum(rg.State.normal));
-            return .upgrade_growth_boost;
-        }
-        rg.setState(@intFromEnum(rg.State.normal));
-    }
-
     // Section header for bees
-    const beeHeaderY = buttonStartY + buttonSpacing * 3 + 5;
+    const beeHeaderY = buttonStartY + buttonSpacing + 5;
     const beeHeaderText = locale.tr("-- Buy Bees --", "-- Comprar Abelhas --");
     const beeHeaderX = @as(i32, @intFromFloat(popupX + popupWidth / 2)) - @divFloor(text.measure(beeHeaderText, 18), 2);
     text.draw(beeHeaderText, beeHeaderX, @as(i32, @intFromFloat(beeHeaderY)), 18, theme.CatppuccinMocha.Color.subtext0);

@@ -69,12 +69,6 @@ pub const ActionHandler = struct {
                     }
                 }
             },
-            .upgrade_storage => {
-                _ = self.resources.upgradeStorage();
-            },
-            .upgrade_growth_boost => {
-                _ = self.resources.upgradeGrowthBoost();
-            },
             .upgrade_flower => {
                 if (self.world.getFlowerAtGrid(selectedTileX, selectedTileY)) |flowerEntity| {
                     if (self.world.getFlowerGrowth(flowerEntity)) |growth| {

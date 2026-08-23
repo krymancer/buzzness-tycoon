@@ -682,7 +682,6 @@ pub const Game = struct {
                     .beehiveUpgradeCost = self.beehiveUpgradeCost,
                     .textures = &self.textures,
                     .world = &self.world,
-                    .growthUnlocked = self.upgradeTree.hasEffect(.growth_boost_unlock),
                 };
                 _ = ui.popups.draw(ctx);
             } else {
@@ -768,7 +767,6 @@ pub const Game = struct {
             .beehiveUpgradeCost = self.beehiveUpgradeCost,
             .textures = &self.textures,
             .world = &self.world,
-            .growthUnlocked = self.upgradeTree.hasEffect(.growth_boost_unlock),
         };
 
         const action = ui.popups.draw(ctx);
