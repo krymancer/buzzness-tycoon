@@ -122,11 +122,11 @@ pub const Game = struct {
         // Dev: BT_WINDOWED runs in a plain window (no fullscreen takeover) so
         // the game can be launched/screenshotted without hijacking the desktop.
         if (env.get("BT_WINDOWED") == null) {
-            const monitor = rl.getCurrentMonitor();
-            const mw = rl.getMonitorWidth(monitor);
-            const mh = rl.getMonitorHeight(monitor);
-            if (mw > 0 and mh > 0) rl.setWindowSize(mw, mh);
-            rl.toggleFullscreen();
+            // Borderless windowed rather than exclusive fullscreen: same look,
+            // but Alt-Tab / Cmd-Tab behave like any other app (GLFW exclusive
+            // mode fights the window manager; see raylib #3865, fixed for the
+            // borderless path in raylib 6.0 which we vendor).
+            rl.toggleBorderlessWindowed();
         } else {
             // Dev: BT_W/BT_H override the windowed size (e.g. 1920x1080 for
             // store screenshots); default to the handy 1366x820 work size.
@@ -335,10 +335,10 @@ pub const Game = struct {
         self.audio.update(clock.frameTime());
         if (rl.isKeyPressed(rl.KeyboardKey.n)) self.audio.toggleMute();
 
-        // Alt+Enter to toggle fullscreen
+        // Alt+Enter toggles borderless fullscreen <-> a centred 1280x720 window.
         if (rl.isKeyPressed(rl.KeyboardKey.enter) and rl.isKeyDown(rl.KeyboardKey.left_alt)) {
-            const wasFullscreen = rl.isWindowFullscreen();
-            rl.toggleFullscreen();
+            const wasFullscreen = rl.isWindowState(.{ .borderless_windowed_mode = true });
+            rl.toggleBorderlessWindowed();
             if (wasFullscreen) {
                 rl.setWindowSize(1280, 720);
                 const monitor = rl.getCurrentMonitor();
