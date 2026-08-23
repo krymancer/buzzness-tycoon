@@ -668,7 +668,10 @@ pub const Game = struct {
         if (!self.showPauseMenu and !self.showTree and !self.showPrestigeDialog) {
             switch (sideAction) {
                 .none => {},
-                .open_tree => self.showTree = true,
+                .open_tree => {
+                    self.showTree = true;
+                    ui.tree_view.resetScroll();
+                },
                 .open_prestige => self.showPrestigeDialog = true,
                 .buy => |b| {
                     var handler = self.createActionHandler();

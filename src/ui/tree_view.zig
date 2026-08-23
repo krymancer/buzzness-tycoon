@@ -8,6 +8,7 @@ const format = @import("../format.zig");
 const upgrade_tree = @import("../upgrade_tree.zig");
 const Resources = @import("../resources.zig").Resources;
 const locale = @import("../localization.zig");
+const ui_scale = @import("../ui_scale.zig");
 
 pub const TreeAction = union(enum) {
     none,
@@ -19,6 +20,27 @@ const NODE_W: f32 = 158;
 const NODE_H: f32 = 66;
 const COL_SPACING: f32 = 174;
 const ROW_SPACING: f32 = 74;
+// Layout extents (cols -2..2, rows 0..6) at scale 1.
+const MIN_COL: f32 = -2;
+const MAX_COL: f32 = 2;
+const MAX_ROW: f32 = 6;
+const TREE_W: f32 = (MAX_COL - MIN_COL) * COL_SPACING + NODE_W;
+const TREE_H: f32 = MAX_ROW * ROW_SPACING + NODE_H;
+// Below this the tree stops shrinking to fit and scrolls instead.
+const MIN_FIT_SCALE: f32 = 0.6;
+
+// Scroll offset (logical px) when the tree doesn't fit; reset on open.
+var scrollX: f32 = 0;
+var scrollY: f32 = 0;
+var dragging: bool = false;
+var dragMoved: f32 = 0;
+var lastMouse: rl.Vector2 = .{ .x = 0, .y = 0 };
+
+pub fn resetScroll() void {
+    scrollX = 0;
+    scrollY = 0;
+    dragging = false;
+}
 
 pub const TreeContext = struct {
     screenWidth: f32,
@@ -70,10 +92,14 @@ fn styleFor(purchased: bool, maxed: bool, unlocked: bool, afford: bool) NodeStyl
     };
 }
 
-fn nodePos(node: *const upgrade_tree.Node, centerX: f32, topY: f32) rl.Vector2 {
-    const x = centerX + @as(f32, @floatFromInt(node.col)) * COL_SPACING - NODE_W / 2;
-    const y = topY + @as(f32, @floatFromInt(node.row)) * ROW_SPACING;
+fn nodePos(node: *const upgrade_tree.Node, centerX: f32, topY: f32, s: f32) rl.Vector2 {
+    const x = centerX + @as(f32, @floatFromInt(node.col)) * COL_SPACING * s - NODE_W * s / 2;
+    const y = topY + @as(f32, @floatFromInt(node.row)) * ROW_SPACING * s;
     return rl.Vector2.init(x, y);
+}
+
+fn fs(size: i32, s: f32) i32 {
+    return @max(9, @as(i32, @intFromFloat(@round(@as(f32, @floatFromInt(size)) * s))));
 }
 
 pub fn draw(ctx: TreeContext) TreeAction {
@@ -100,19 +126,72 @@ pub fn draw(ctx: TreeContext) TreeAction {
     const honeyLabel = rl.textFormat(locale.tr("Honey: %s", "Mel: %s"), .{hstr.ptr});
     text.draw(honeyLabel, @as(i32, @intFromFloat(panelX + 18)), @as(i32, @intFromFloat(panelY + 20)), 19, C.yellow);
 
-    const centerX = panelX + panelW / 2;
-    const topY = panelY + 68;
+    // Content area between the title row and the legend/close row.
+    const contentX = panelX + 20;
+    const contentY = panelY + 60;
+    const contentW = panelW - 40;
+    const contentH = panelH - 60 - 78;
+
+    // Auto-fit: shrink the layout so the whole tree shows whenever it can
+    // (big UI scale => small logical panel); below MIN_FIT_SCALE, scroll.
+    const fit = @min(contentW / TREE_W, contentH / TREE_H);
+    const s: f32 = std.math.clamp(fit, MIN_FIT_SCALE, 1.0);
+    const treeW = TREE_W * s;
+    const treeH = TREE_H * s;
+    const overflowX = @max(0, treeW - contentW);
+    const overflowY = @max(0, treeH - contentH);
+    const scrollable = overflowX > 0 or overflowY > 0;
+
+    const mouse = rl.getMousePosition();
+    const inContent = rl.checkCollisionPointRec(mouse, rl.Rectangle.init(contentX, contentY, contentW, contentH));
+
+    // Wheel (vertical; shift or horizontal wheel for X) and left-drag panning.
+    if (scrollable) {
+        const wheel = rl.getMouseWheelMoveV();
+        const shift = rl.isKeyDown(rl.KeyboardKey.left_shift) or rl.isKeyDown(rl.KeyboardKey.right_shift);
+        if (inContent) {
+            if (shift) scrollX -= wheel.y * 40 else scrollY -= wheel.y * 40;
+            scrollX -= wheel.x * 40;
+        }
+        if (inContent and rl.isMouseButtonPressed(rl.MouseButton.left)) {
+            dragging = true;
+            dragMoved = 0;
+            lastMouse = mouse;
+        }
+        if (dragging) {
+            if (rl.isMouseButtonDown(rl.MouseButton.left)) {
+                const dx = mouse.x - lastMouse.x;
+                const dy = mouse.y - lastMouse.y;
+                dragMoved += @abs(dx) + @abs(dy);
+                scrollX -= dx;
+                scrollY -= dy;
+                lastMouse = mouse;
+            } else dragging = false;
+        }
+    } else {
+        dragging = false;
+    }
+    scrollX = std.math.clamp(scrollX, 0, overflowX);
+    scrollY = std.math.clamp(scrollY, 0, overflowY);
+
+    // Centre when it fits; otherwise anchor top-left and apply the scroll.
+    const centerX = if (overflowX > 0) contentX + treeW / 2 - scrollX else panelX + panelW / 2;
+    const topY = if (overflowY > 0) contentY - scrollY else contentY + (contentH - treeH) / 2;
+    const nodeW = NODE_W * s;
+    const nodeH = NODE_H * s;
+
+    ui_scale.beginScissor(contentX, contentY, contentW, contentH);
 
     // Prereq lines first (behind nodes)
     for (&upgrade_tree.NODES) |*node| {
-        const to = nodePos(node, centerX, topY);
-        const toC = rl.Vector2.init(to.x + NODE_W / 2, to.y + NODE_H / 2);
+        const to = nodePos(node, centerX, topY, s);
+        const toC = rl.Vector2.init(to.x + nodeW / 2, to.y + nodeH / 2);
         for (node.prereqs) |pid| {
             const pnode = upgrade_tree.findNode(pid) orelse continue;
-            const from = nodePos(pnode, centerX, topY);
-            const fromC = rl.Vector2.init(from.x + NODE_W / 2, from.y + NODE_H / 2);
+            const from = nodePos(pnode, centerX, topY, s);
+            const fromC = rl.Vector2.init(from.x + nodeW / 2, from.y + nodeH / 2);
 
-            const thick: f32 = if (ctx.state.isPurchased(node.id)) 3 else 2;
+            const thick: f32 = (if (ctx.state.isPurchased(node.id)) @as(f32, 3) else 2) * s;
             const color = if (ctx.state.isPurchased(node.id))
                 C.green
             else if (ctx.state.isPurchased(pid))
@@ -124,11 +203,12 @@ pub fn draw(ctx: TreeContext) TreeAction {
     }
 
     var action: TreeAction = .none;
-    const mouse = rl.getMousePosition();
+    // A click that was really a pan shouldn't buy the node under the cursor.
+    const clickOk = inContent and (!scrollable or dragMoved < 8);
 
     for (&upgrade_tree.NODES) |*node| {
-        const pos = nodePos(node, centerX, topY);
-        const rect = rl.Rectangle.init(pos.x, pos.y, NODE_W, NODE_H);
+        const pos = nodePos(node, centerX, topY, s);
+        const rect = rl.Rectangle.init(pos.x, pos.y, nodeW, nodeH);
         const lvl = ctx.state.level(node.id);
         const purchased = lvl > 0;
         const maxed = node.isMaxed(lvl);
@@ -139,10 +219,10 @@ pub fn draw(ctx: TreeContext) TreeAction {
         const style = styleFor(purchased, maxed, unlocked, afford);
 
         rl.drawRectangleRounded(rect, 0.22, 6, style.fill);
-        rl.drawRectangleRoundedLinesEx(rect, 0.22, 6, style.borderThick, style.border);
+        rl.drawRectangleRoundedLinesEx(rect, 0.22, 6, style.borderThick * s, style.border);
 
         // Hover highlight on actionable nodes
-        const hovered = rl.checkCollisionPointRec(mouse, rect);
+        const hovered = inContent and rl.checkCollisionPointRec(mouse, rect);
         if (buyable and afford and hovered) {
             var glow = C.blue;
             glow.a = 40;
@@ -156,32 +236,42 @@ pub fn draw(ctx: TreeContext) TreeAction {
             std.fmt.bufPrintZ(&nameBuf, "{s} {s}{d}", .{ localizedName, locale.tr("Lv", "Nv"), lvl }) catch continue
         else
             std.fmt.bufPrintZ(&nameBuf, "{s}", .{localizedName}) catch continue;
-        const nameW = text.measure(nameZ, 17);
-        const nameX = @as(i32, @intFromFloat(pos.x + NODE_W / 2)) - @divFloor(nameW, 2);
-        text.draw(nameZ, nameX, @as(i32, @intFromFloat(pos.y + 8)), 17, style.nameColor);
+        const nameSize = fs(17, s);
+        const nameW = text.measure(nameZ, nameSize);
+        const nameX = @as(i32, @intFromFloat(pos.x + nodeW / 2)) - @divFloor(nameW, 2);
+        text.draw(nameZ, nameX, @as(i32, @intFromFloat(pos.y + 8 * s)), nameSize, style.nameColor);
 
         // Cost / OWNED line
+        const subSize = fs(15, s);
+        const subY: i32 = @intFromFloat(pos.y + 39 * s);
         if (style.showOwned) {
             const owned = locale.tr("OWNED", "ADQUIRIDO");
-            const ow = text.measure(owned, 15);
-            const ox = @as(i32, @intFromFloat(pos.x + NODE_W / 2)) - @divFloor(ow, 2);
-            text.draw(owned, ox, @as(i32, @intFromFloat(pos.y + 39)), 15, style.costColor);
+            const ow = text.measure(owned, subSize);
+            text.draw(owned, @as(i32, @intFromFloat(pos.x + nodeW / 2)) - @divFloor(ow, 2), subY, subSize, style.costColor);
         } else if (!unlocked) {
             const locked = locale.tr("LOCKED", "BLOQUEADO");
-            const lw = text.measure(locked, 15);
-            const lx = @as(i32, @intFromFloat(pos.x + NODE_W / 2)) - @divFloor(lw, 2);
-            text.draw(locked, lx, @as(i32, @intFromFloat(pos.y + 39)), 15, style.costColor);
+            const lw = text.measure(locked, subSize);
+            text.draw(locked, @as(i32, @intFromFloat(pos.x + nodeW / 2)) - @divFloor(lw, 2), subY, subSize, style.costColor);
         } else {
             var cbuf: [32]u8 = undefined;
             const cstr = format.formatShort(cost, &cbuf);
-            const cw = text.measure(cstr, 16);
-            const cx = @as(i32, @intFromFloat(pos.x + NODE_W / 2)) - @divFloor(cw, 2);
-            text.draw(cstr, cx, @as(i32, @intFromFloat(pos.y + 38)), 16, style.costColor);
+            const costSize = fs(16, s);
+            const cw = text.measure(cstr, costSize);
+            text.draw(cstr, @as(i32, @intFromFloat(pos.x + nodeW / 2)) - @divFloor(cw, 2), subY, costSize, style.costColor);
         }
 
-        if (buyable and afford and hovered and rl.isMouseButtonPressed(rl.MouseButton.left)) {
+        if (buyable and afford and hovered and clickOk and rl.isMouseButtonReleased(rl.MouseButton.left)) {
             action = .{ .purchase = node.id };
         }
+    }
+
+    ui_scale.endScissor();
+
+    // Scroll hint when clipped.
+    if (scrollable) {
+        const hint = locale.tr("scroll / drag to pan", "role / arraste para mover");
+        const hw = text.measure(hint, 14);
+        text.draw(hint, @as(i32, @intFromFloat(panelX + panelW - 18)) - hw, @as(i32, @intFromFloat(panelY + 24)), 14, C.overlay1);
     }
 
     // Legend
