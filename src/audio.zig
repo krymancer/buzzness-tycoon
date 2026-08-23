@@ -15,6 +15,8 @@ pub const Audio = struct {
     chimeCooldown: f32,
     chimeIndex: usize,
     muted: bool,
+    /// Master volume the player chose (0..1); mute is applied on top.
+    volume: f32,
 
     pub fn init(allocator: std.mem.Allocator) Audio {
         rl.initAudioDevice();
@@ -25,6 +27,7 @@ pub const Audio = struct {
             .chimeCooldown = 0,
             .chimeIndex = 0,
             .muted = false,
+            .volume = 0.7,
         };
         if (!self.ready) return self;
 
@@ -54,7 +57,16 @@ pub const Audio = struct {
 
     pub fn toggleMute(self: *Audio) void {
         self.muted = !self.muted;
-        rl.setMasterVolume(if (self.muted) 0.0 else 0.7);
+        self.applyVolume();
+    }
+
+    pub fn setVolume(self: *Audio, v: f32) void {
+        self.volume = std.math.clamp(v, 0.0, 1.0);
+        self.applyVolume();
+    }
+
+    fn applyVolume(self: *Audio) void {
+        rl.setMasterVolume(if (self.muted) 0.0 else self.volume);
     }
 
     pub fn update(self: *Audio, dt: f32) void {
