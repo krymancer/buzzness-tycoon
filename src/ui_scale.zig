@@ -8,6 +8,7 @@
 
 const std = @import("std");
 const rl = @import("raylib");
+const builtin = @import("builtin");
 
 // The layout was designed around a ~1366x820 window; auto-fit against a
 // slightly smaller reference so text gains a little size even at that window.
@@ -63,9 +64,17 @@ pub fn refresh() void {
     };
     f = std.math.clamp(f, 0.75, 6.0);
     factor = f;
-    // Mouse arrives in window points; map it into logical (render/factor) space.
+    // Map the mouse into logical (render/factor) space. Where the mouse
+    // arrives differs per platform (see raylib's WindowSizeCallback): macOS
+    // reports it in window points, so it must be scaled by render/screen
+    // (2x on Retina); Windows/X11 report it in physical pixels already, so
+    // applying that ratio there shoved the cursor right/down by the display
+    // scaling (150% -> clicks landed 1.5x away). Exclusive fullscreen masked
+    // this because raylib forces screen == render in that mode.
     if (screenW > 0 and screenH > 0) {
-        rl.setMouseScale(renderW / (screenW * factor), renderH / (screenH * factor));
+        const mouseToRender: f32 = if (builtin.os.tag == .macos) renderW / screenW else 1.0;
+        const mouseToRenderY: f32 = if (builtin.os.tag == .macos) renderH / screenH else 1.0;
+        rl.setMouseScale(mouseToRender / factor, mouseToRenderY / factor);
     }
 }
 
@@ -76,6 +85,23 @@ pub fn width() f32 {
 
 pub fn height() f32 {
     return @as(f32, @floatFromInt(rl.getRenderHeight())) / factor;
+}
+
+/// Scissor in logical coordinates. raylib's scissor takes window ("screen")
+/// pixels and scales them to the framebuffer itself, so convert
+/// logical -> framebuffer (x factor) -> window (x screen/render).
+pub fn beginScissor(x: f32, y: f32, w: f32, h: f32) void {
+    const renderW: f32 = @floatFromInt(rl.getRenderWidth());
+    const screenW: f32 = @floatFromInt(rl.getScreenWidth());
+    const renderH: f32 = @floatFromInt(rl.getRenderHeight());
+    const screenH: f32 = @floatFromInt(rl.getScreenHeight());
+    const kx = factor * (if (renderW > 0) screenW / renderW else 1.0);
+    const ky = factor * (if (renderH > 0) screenH / renderH else 1.0);
+    rl.beginScissorMode(@intFromFloat(x * kx), @intFromFloat(y * ky), @intFromFloat(w * kx), @intFromFloat(h * ky));
+}
+
+pub fn endScissor() void {
+    rl.endScissorMode();
 }
 
 /// Wrap all drawing of a frame between begin()/end().

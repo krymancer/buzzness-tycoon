@@ -13,7 +13,7 @@ pub const TitleScreenAction = enum {
     /// Wipe progress and start over. Only emitted after a confirm click.
     new_game,
     quit,
-    toggle_language,
+    options,
 };
 
 /// "New Game" is destructive when a save exists, so the first click arms a
@@ -115,9 +115,9 @@ pub fn draw(screenWidth: f32, screenHeight: f32, hasSave: bool) TitleScreenActio
         by += buttonSpacing;
     }
 
-    if (rg.button(rl.Rectangle.init(buttonX, by, buttonWidth, buttonHeight), locale.languageButton())) {
+    if (rg.button(rl.Rectangle.init(buttonX, by, buttonWidth, buttonHeight), locale.tr("Options", "Opções"))) {
         newGameArmedUntil = 0;
-        return .toggle_language;
+        return .options;
     }
     by += buttonSpacing;
 

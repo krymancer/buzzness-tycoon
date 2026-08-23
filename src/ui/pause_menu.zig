@@ -8,7 +8,7 @@ pub const PauseMenuAction = enum {
     none,
     continue_game,
     exit_game,
-    toggle_language,
+    options,
 };
 
 /// Draw pause menu overlay. Returns action taken by user.
@@ -56,8 +56,8 @@ pub fn draw(screenWidth: f32, screenHeight: f32) PauseMenuAction {
         return .continue_game;
     }
 
-    if (rg.button(rl.Rectangle.init(buttonX, buttonStartY + buttonSpacing, buttonWidth, buttonHeight), locale.languageButton())) {
-        return .toggle_language;
+    if (rg.button(rl.Rectangle.init(buttonX, buttonStartY + buttonSpacing, buttonWidth, buttonHeight), locale.tr("Options", "Opções"))) {
+        return .options;
     }
 
     // Exit button

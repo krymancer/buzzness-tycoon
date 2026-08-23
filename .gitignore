@@ -32,3 +32,6 @@ zig-pkg/
 # Steam depot staging (binaries + build logs)
 steam/content/
 steam/output/
+
+# Steam session token (never commit)
+config.vdf

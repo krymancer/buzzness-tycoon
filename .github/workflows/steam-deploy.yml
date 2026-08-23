@@ -1,0 +1,73 @@
+# Manual Steam upload: takes an existing GitHub Release tag, stages its
+# binaries in the same depot layout as steam/stage.sh, and pushes them to
+# SteamPipe via game-ci/steam-deploy. Nothing is set live — review the
+# build in Steamworks > SteamPipe > Builds and flip it to 'default' there.
+#
+# One-time setup (repo secrets):
+#   STEAM_USERNAME    builder account login (Edit App Metadata + Publish App Changes)
+#   STEAM_CONFIG_VDF  base64 of steamcmd's config.vdf after a local
+#                     `steamcmd +login <user>` that completed Steam Guard, e.g.
+#                     macOS: base64 -i ~/Library/Application\ Support/Steam/config/config.vdf | gh secret set STEAM_CONFIG_VDF
+# Re-do STEAM_CONFIG_VDF only if the job starts failing on Steam Guard.
+name: Steam Deploy
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "GitHub Release tag to ship (e.g. 0.3.0)"
+        required: true
+        type: string
+      include_macos:
+        description: "Also upload the macOS depot (4980572 must exist in Steamworks)"
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p content/all content/macos
+          cd content
+          gh release download "${{ inputs.tag }}" -R "${{ github.repository }}" -p "*windows*" -p "*linux*" -p "*macos*"
+          tar xzf buzzness-tycoon-linux-*.tar.gz -C all
+          unzip -oq buzzness-tycoon-windows-*.zip -d all
+          tar xzf buzzness-tycoon-macos-*.tar.gz -C macos
+          rm -f ./*.tar.gz ./*.zip
+          chmod +x all/buzzness-tycoon macos/buzzness-tycoon
+          echo "== Staged:"; find . -type f
+
+      - name: Upload to Steam (Windows + Linux depot)
+        if: ${{ !inputs.include_macos }}
+        uses: game-ci/steam-deploy@v3
+        with:
+          username: ${{ secrets.STEAM_USERNAME }}
+          configVdf: ${{ secrets.STEAM_CONFIG_VDF }}
+          appId: 4980570
+          buildDescription: v${{ inputs.tag }}
+          rootPath: content
+          depot1Path: all
+
+      - name: Upload to Steam (Windows + Linux + macOS depots)
+        if: ${{ inputs.include_macos }}
+        uses: game-ci/steam-deploy@v3
+        with:
+          username: ${{ secrets.STEAM_USERNAME }}
+          configVdf: ${{ secrets.STEAM_CONFIG_VDF }}
+          appId: 4980570
+          buildDescription: v${{ inputs.tag }}
+          rootPath: content
+          depot1Path: all
+          depot2Path: macos
+
+      - name: Next step
+        run: echo "Uploaded. Set it live on 'default' at https://partner.steamgames.com/apps/builds/4980570"

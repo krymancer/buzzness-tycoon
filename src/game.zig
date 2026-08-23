@@ -24,6 +24,7 @@ const text = @import("text.zig");
 const locale = @import("localization.zig");
 const save = @import("save.zig");
 const ui_scale = @import("ui_scale.zig");
+const settings = @import("settings.zig");
 
 const World = @import("ecs/world.zig").World;
 const components = @import("ecs/components.zig");
@@ -39,45 +40,6 @@ pub const GameState = enum {
     title_screen,
     playing,
 };
-
-/// Whether the window currently fills its monitor as an undecorated window.
-var borderless: bool = false;
-
-/// Cover the current monitor with an undecorated, normal-level window. Unlike
-/// exclusive fullscreen this leaves the window manager in charge, so
-/// Alt-Tab / Cmd-Tab, notifications and other displays keep working.
-fn enterBorderless() void {
-    const monitor = rl.getCurrentMonitor();
-    const mpos = rl.getMonitorPosition(monitor);
-    const mw = rl.getMonitorWidth(monitor);
-    const mh = rl.getMonitorHeight(monitor);
-    if (mw <= 0 or mh <= 0) return;
-    const mx: i32 = @intFromFloat(mpos.x);
-    const my: i32 = @intFromFloat(mpos.y);
-
-    rl.setWindowState(.{ .window_undecorated = true });
-    rl.setWindowSize(mw, mh);
-    rl.setWindowPosition(mx, my);
-    // macOS keeps normal windows below the menu bar: if the WM pushed us
-    // down, give up that strip instead of letting the bottom get clipped.
-    const got = rl.getWindowPosition();
-    const pushed: i32 = @as(i32, @intFromFloat(got.y)) - my;
-    if (pushed > 0) rl.setWindowSize(mw, mh - pushed);
-    rl.setWindowFocused();
-    borderless = true;
-}
-
-/// Back to a decorated, centred 1280x720 window.
-fn leaveBorderless() void {
-    const monitor = rl.getCurrentMonitor();
-    const mpos = rl.getMonitorPosition(monitor);
-    const mw = rl.getMonitorWidth(monitor);
-    const mh = rl.getMonitorHeight(monitor);
-    rl.clearWindowState(.{ .window_undecorated = true });
-    rl.setWindowSize(1280, 720);
-    rl.setWindowPosition(@as(i32, @intFromFloat(mpos.x)) + @divFloor(mw - 1280, 2), @as(i32, @intFromFloat(mpos.y)) + @divFloor(mh - 720, 2));
-    borderless = false;
-}
 
 pub const Game = struct {
     const INITIAL_GRID_WIDTH = 17;
@@ -117,6 +79,7 @@ pub const Game = struct {
     floatingTexts: floating_text.Manager,
     upgradeTree: upgrade_tree.State,
     showTree: bool,
+    showOptions: bool,
     plantMenu: ui.plant_menu.State,
     labs: labs.LabState,
     prestige: prestige_mod.PrestigeState,
@@ -160,14 +123,9 @@ pub const Game = struct {
         rl.setWindowState(.{ .window_resizable = true });
         // Dev: BT_WINDOWED runs in a plain window (no fullscreen takeover) so
         // the game can be launched/screenshotted without hijacking the desktop.
-        if (env.get("BT_WINDOWED") == null) {
-            // Borderless windowed rather than exclusive fullscreen, so
-            // Alt-Tab / Cmd-Tab behave like any other app. Done by hand:
-            // raylib 6.0's ToggleBorderlessWindowed() still calls
-            // glfwSetWindowMonitor() with a real monitor (= exclusive mode,
-            // which captures the display on macOS); see raylib #3865.
-            enterBorderless();
-        } else {
+        // Normal runs apply the saved window mode after the save loads (below).
+        const useSavedWindowMode = env.get("BT_WINDOWED") == null;
+        if (!useSavedWindowMode) {
             // Dev: BT_W/BT_H override the windowed size (e.g. 1920x1080 for
             // store screenshots); default to the handy 1366x820 work size.
             // When overridden we drop the WM decorations and pin to (0,0) so the
@@ -254,6 +212,8 @@ pub const Game = struct {
             .upgradeTree = upgrade_tree.State.init(allocator),
             // Dev: BT_OPEN_TREE starts with the upgrade tree open (screenshots).
             .showTree = env.get("BT_OPEN_TREE") != null,
+            // Dev: BT_OPEN_OPTIONS starts with the options panel open.
+            .showOptions = env.get("BT_OPEN_OPTIONS") != null,
             // Dev: BT_OPEN_PLANT=x,y starts with the plant chooser open on a tile.
             .plantMenu = blk: {
                 var st: ui.plant_menu.State = .{};
@@ -303,6 +263,7 @@ pub const Game = struct {
             error.FileNotFound => {},
             else => std.debug.print("Could not load save '{s}': {}\n", .{ savePath, err }),
         }
+        if (useSavedWindowMode) settings.apply(settings.windowMode);
         return game;
     }
 
@@ -375,9 +336,9 @@ pub const Game = struct {
         self.audio.update(clock.frameTime());
         if (rl.isKeyPressed(rl.KeyboardKey.n)) self.audio.toggleMute();
 
-        // Alt+Enter toggles borderless fullscreen <-> a centred 1280x720 window.
+        // Alt+Enter toggles between windowed and the chosen fullscreen mode.
         if (rl.isKeyPressed(rl.KeyboardKey.enter) and rl.isKeyDown(rl.KeyboardKey.left_alt)) {
-            if (borderless) leaveBorderless() else enterBorderless();
+            settings.toggleQuick();
         }
 
         // Cmd/Ctrl +/- adjusts the UI scale; Cmd/Ctrl 0 resets it.
@@ -427,6 +388,11 @@ pub const Game = struct {
         self.sky.drawCelestial(self.width, self.height);
         rl.drawRectangle(0, 0, @intFromFloat(self.width), @intFromFloat(self.height), rl.Color.init(20, 20, 40, 90));
 
+        if (self.showOptions) {
+            if (rl.isKeyPressed(rl.KeyboardKey.escape)) self.showOptions = false;
+            self.drawAndHandleOptions();
+            return;
+        }
         const action = ui.title_screen.draw(self.width, self.height, self.hasSavedGame);
         switch (action) {
             .play => self.state = .playing,
@@ -435,8 +401,29 @@ pub const Game = struct {
                 self.state = .playing;
             },
             .quit => self.shouldExit = true,
-            .toggle_language => locale.toggle(),
+            .options => self.showOptions = true,
             .none => {},
+        }
+    }
+
+    /// Options overlay (title screen and pause menu). Applies changes live;
+    /// they persist through the normal save.
+    fn drawAndHandleOptions(self: *@This()) void {
+        const action = ui.options.draw(.{
+            .screenWidth = self.width,
+            .screenHeight = self.height,
+            .windowMode = settings.windowMode,
+            .language = locale.current(),
+            .volume = self.audio.volume,
+            .uiScale = ui_scale.user(),
+        });
+        switch (action) {
+            .none => {},
+            .back => self.showOptions = false,
+            .window_mode => |m| settings.apply(m),
+            .language => |l| locale.set(l),
+            .volume => |v| self.audio.setVolume(v),
+            .ui_scale => |s| ui_scale.setUser(s),
         }
     }
 
@@ -444,7 +431,10 @@ pub const Game = struct {
     fn handlePlayingInput(self: *@This()) void {
         // Handle Escape key - close popups first, then show/hide pause menu
         if (rl.isKeyPressed(rl.KeyboardKey.escape)) {
-            if (self.showPrestigeDialog) {
+            if (self.showOptions) {
+                self.showOptions = false;
+                return;
+            } else if (self.showPrestigeDialog) {
                 self.showPrestigeDialog = false;
                 return;
             } else if (self.showTree) {
@@ -678,7 +668,10 @@ pub const Game = struct {
         if (!self.showPauseMenu and !self.showTree and !self.showPrestigeDialog) {
             switch (sideAction) {
                 .none => {},
-                .open_tree => self.showTree = true,
+                .open_tree => {
+                    self.showTree = true;
+                    ui.tree_view.resetScroll();
+                },
                 .open_prestige => self.showPrestigeDialog = true,
                 .buy => |b| {
                     var handler = self.createActionHandler();
@@ -733,17 +726,21 @@ pub const Game = struct {
 
         // Draw pause menu
         if (self.showPauseMenu) {
-            const action = ui.pause_menu.draw(self.width, self.height);
-            switch (action) {
-                .continue_game => {
-                    self.showPauseMenu = false;
-                    self.isPaused = false;
-                },
-                .exit_game => {
-                    self.shouldExit = true;
-                },
-                .toggle_language => locale.toggle(),
-                .none => {},
+            if (self.showOptions) {
+                self.drawAndHandleOptions();
+            } else {
+                const action = ui.pause_menu.draw(self.width, self.height);
+                switch (action) {
+                    .continue_game => {
+                        self.showPauseMenu = false;
+                        self.isPaused = false;
+                    },
+                    .exit_game => {
+                        self.shouldExit = true;
+                    },
+                    .options => self.showOptions = true,
+                    .none => {},
+                }
             }
         }
 
@@ -1038,6 +1035,8 @@ pub const Game = struct {
         var data = save.Data{
             .language = @intFromEnum(locale.current()),
             .ui_scale = ui_scale.user(),
+            .window_mode = @intFromEnum(settings.windowMode),
+            .volume = self.audio.volume,
             .honey = self.resources.honey,
             .honey_capacity = self.resources.honeyCapacity,
             .storage_level = self.resources.storageLevel,
@@ -1123,6 +1122,8 @@ pub const Game = struct {
             else => .english,
         });
         ui_scale.setUser(finiteInRange(data.ui_scale, 0.6, 2.5, 1.0));
+        settings.windowMode = settings.WindowMode.fromInt(data.window_mode);
+        self.audio.setVolume(finiteInRange(data.volume, 0, 1, 0.7));
 
         self.world.deinit();
         self.world = World.init(self.allocator);
