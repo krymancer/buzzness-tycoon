@@ -78,6 +78,7 @@ pub const Game = struct {
     floatingTexts: floating_text.Manager,
     upgradeTree: upgrade_tree.State,
     showTree: bool,
+    plantMenu: ui.plant_menu.State,
     labs: labs.LabState,
     prestige: prestige_mod.PrestigeState,
     showPrestigeDialog: bool,
@@ -213,6 +214,17 @@ pub const Game = struct {
             .upgradeTree = upgrade_tree.State.init(allocator),
             // Dev: BT_OPEN_TREE starts with the upgrade tree open (screenshots).
             .showTree = env.get("BT_OPEN_TREE") != null,
+            // Dev: BT_OPEN_PLANT=x,y starts with the plant chooser open on a tile.
+            .plantMenu = blk: {
+                var st: ui.plant_menu.State = .{};
+                if (env.get("BT_OPEN_PLANT")) |v| {
+                    var it = std.mem.splitScalar(u8, v, ',');
+                    const xs = it.next() orelse "0";
+                    const ys = it.next() orelse "0";
+                    st.openAt(std.fmt.parseInt(i32, xs, 10) catch 0, std.fmt.parseInt(i32, ys, 10) catch 0);
+                }
+                break :blk st;
+            },
             .labs = .{},
             .prestige = .{},
             .showPrestigeDialog = false,
@@ -406,6 +418,9 @@ pub const Game = struct {
             } else if (self.showTree) {
                 self.showTree = false;
                 return;
+            } else if (self.plantMenu.open) {
+                self.plantMenu.open = false;
+                return;
             } else if (self.showPauseMenu) {
                 self.showPauseMenu = false;
                 self.isPaused = false;
@@ -422,6 +437,8 @@ pub const Game = struct {
         if (self.showPauseMenu or self.showTree or self.showPrestigeDialog) {
             return;
         }
+        // The plant chooser owns the mouse while open (draw() handles it).
+        if (self.plantMenu.open) return;
 
         const mousePos = rl.getMousePosition();
         const mouseInPanel = ui.side_panel.isMouseInPanel(mousePos, self.width);
@@ -472,7 +489,47 @@ pub const Game = struct {
                         return;
                     }
                 }
+                return; // live flower: nothing to do
             }
+            // Empty tile (not the hive, inside the meadow): open the planter.
+            const centerX = @as(i32, @intCast((self.gridWidth - 1) / 2));
+            const centerY = @as(i32, @intCast((self.gridHeight - 1) / 2));
+            const inBounds = tile.x >= 0 and tile.y >= 0 and tile.x < @as(i32, @intCast(self.gridWidth)) and tile.y < @as(i32, @intCast(self.gridHeight));
+            if (inBounds and !(tile.x == centerX and tile.y == centerY)) {
+                self.plantMenu.openAt(tile.x, tile.y);
+            }
+        }
+    }
+
+    fn drawAndHandlePlantMenu(self: *@This()) !void {
+        const action = ui.plant_menu.draw(&self.plantMenu, .{
+            .screenWidth = self.width,
+            .screenHeight = self.height,
+            .gridOffset = self.grid.offset,
+            .gridScale = self.grid.scale,
+            .resources = &self.resources,
+            .textures = &self.textures,
+        });
+        switch (action) {
+            .none => {},
+            .close => self.plantMenu.open = false,
+            .plant => |flower| {
+                const cost = switch (flower) {
+                    .rose => spawners.FLOWER_COSTS.rose,
+                    .tulip => spawners.FLOWER_COSTS.tulip,
+                    .dandelion => spawners.FLOWER_COSTS.dandelion,
+                };
+                const x = self.plantMenu.tileX;
+                const y = self.plantMenu.tileY;
+                if (!self.world.hasFlowerAtGrid(x, y) and self.resources.spendHoney(cost)) {
+                    const honeyBefore = self.resources.honey + cost;
+                    _ = try spawners.spawnFlower(&self.world, &self.textures, flower, x, y);
+                    _ = try spawners.tryMergeSuperFlower(&self.world, x, y);
+                    self.cachedFlowerCount = self.world.entityToFlowerGrowth.count();
+                    try self.spawnSpendFeedback(honeyBefore);
+                }
+                self.plantMenu.open = false;
+            },
         }
     }
 
@@ -636,6 +693,8 @@ pub const Game = struct {
             rl.drawFPS(fpsX, 10);
             text.draw(rl.textFormat("%.2f ms", .{rl.getFrameTime() * 1000.0}), fpsX, 30, 20, rl.Color.white);
         }
+
+        if (self.plantMenu.open) try self.drawAndHandlePlantMenu();
 
         // Screen-space popups (purchase "-cost" feedback) above all UI.
         self.floatingTexts.drawScreen();

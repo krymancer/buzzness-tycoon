@@ -14,10 +14,12 @@ const Grid = @import("grid.zig").Grid;
 const scale_sync_system = @import("ecs/systems/scale_sync_system.zig");
 
 /// Flower costs for planting
+// All types play identically (pollen, growth, lifespan); the choice only
+// matters for matching 2x2 SUPER blocks, so they cost the same.
 pub const FLOWER_COSTS = struct {
     pub const rose: f32 = 10.0;
-    pub const tulip: f32 = 15.0;
-    pub const dandelion: f32 = 5.0;
+    pub const tulip: f32 = 10.0;
+    pub const dandelion: f32 = 10.0;
 };
 
 /// Bee cost for purchasing (per type)
