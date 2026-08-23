@@ -45,15 +45,18 @@ pub const Hud = struct {
 
         const bigSize: i32 = 40;
         const smallSize: i32 = 24;
-        // Small segments sit on the big number's baseline.
-        const smallY: i32 = @as(i32, @intFromFloat(y0)) + bigSize - smallSize - 3;
+        // Digits at size 40 have their optical middle around y0+20; centre
+        // the icon and the small segments on that line.
+        const midY: f32 = y0 + 20;
+        const smallY: i32 = @as(i32, @intFromFloat(midY)) - @divFloor(smallSize, 2) - 1;
 
-        const iconR: f32 = 11;
-        // Align the drop's optical center with the digits' optical middle
-        // (digits at size 40 span roughly y0+6..y0+34).
-        const iconCy = y0 + 20 + iconR * 0.65;
+        // Drop height is ~2.8r; r=8 keeps it at digit height (~22px) rather
+        // than towering over the number.
+        const iconR: f32 = 8;
+        // The drop's optical centre sits 0.65r above its bead centre.
+        const iconCy = midY + iconR * 0.65;
         icons.drawHoneyDropOutlined(x0 + 2 + iconR, iconCy, iconR, C.yellow, outline);
-        rl.drawCircle(@intFromFloat(x0 + 2 + iconR - 3), @intFromFloat(iconCy - 3), 3, rl.Color.init(255, 250, 220, 200));
+        rl.drawCircle(@intFromFloat(x0 + 2 + iconR - 2.5), @intFromFloat(iconCy - 2.5), 2.5, rl.Color.init(255, 250, 220, 200));
 
         var tx: i32 = @intFromFloat(x0 + 2 + iconR * 2 + 12);
         text.drawOutline(honeyText, tx, @intFromFloat(y0), bigSize, C.yellow, outline);

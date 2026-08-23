@@ -77,21 +77,18 @@ pub const NODES = [_]Node{
     .{ .id = 5, .name = "Efficient Bee", .cost = 400, .prereqs = &[_]NodeId{4}, .effect = .bee_unlock_efficient, .col = -1, .row = 2 },
     .{ .id = 6, .name = "Gardener Bee", .cost = 2000, .prereqs = &[_]NodeId{5}, .effect = .bee_unlock_gardener, .col = -1, .row = 3 },
 
-    // Growth branch (col 0, directly below root). Instant Grow (id 20) gates
-    // the whole branch: the click-a-flower boost is locked until purchased.
-    .{ .id = 7, .name = "Grow CD -1.5s", .cost = 60, .prereqs = &[_]NodeId{20}, .effect = .growth_cd_sub, .value = 1.5, .col = 0, .row = 2 },
-    .{ .id = 8, .name = "Grow CD -3s", .cost = 300, .prereqs = &[_]NodeId{7}, .effect = .growth_cd_sub, .value = 1.5, .col = 0, .row = 3 },
-    .{ .id = 9, .name = "Grow CD -6s", .cost = 1800, .prereqs = &[_]NodeId{8}, .effect = .growth_cd_sub, .value = 3.0, .col = -1, .row = 4 },
+    // Growth (col 0, below Instant Grow which gates it). Repeatable: each
+    // level shaves `value` seconds off the Instant Grow cooldown (floor 2s).
+    .{ .id = 7, .name = "Grow Speed", .cost = 60, .prereqs = &[_]NodeId{20}, .effect = .growth_cd_sub, .value = 1.0, .col = 0, .row = 2, .repeat = .{ .cost_growth = 1.7, .max_level = 8 } },
+    // (ids 8/9 were Grow CD -3s/-6s — folded into 7's levels on load.)
 
-    // Grid branch (col 1)
-    .{ .id = 10, .name = "Grid +1 ring", .cost = 150, .prereqs = r_worker, .effect = .grid_expand, .value = 1, .col = 1, .row = 1 },
-    .{ .id = 11, .name = "Grid +2 ring", .cost = 800, .prereqs = &[_]NodeId{10}, .effect = .grid_expand, .value = 1, .col = 1, .row = 2 },
-    .{ .id = 12, .name = "Grid +3 ring", .cost = 5000, .prereqs = &[_]NodeId{11}, .effect = .grid_expand, .value = 1, .col = 1, .row = 3 },
+    // Grid (col 1). Repeatable: +1 ring per level.
+    .{ .id = 10, .name = "Grid Ring", .cost = 150, .prereqs = r_worker, .effect = .grid_expand, .value = 1, .col = 1, .row = 1, .repeat = .{ .cost_growth = 3.0, .max_level = 10 } },
+    // (ids 11/12 were Grid +2/+3 ring — folded into 10's levels on load.)
 
-    // Storage branch (col 2)
-    .{ .id = 13, .name = "Storage +500", .cost = 40, .prereqs = r_worker, .effect = .storage_add, .value = 500, .col = 2, .row = 1 },
-    .{ .id = 14, .name = "Storage +1K", .cost = 200, .prereqs = &[_]NodeId{13}, .effect = .storage_add, .value = 1000, .col = 2, .row = 2 },
-    .{ .id = 15, .name = "Storage +2K", .cost = 1000, .prereqs = &[_]NodeId{14}, .effect = .storage_add, .value = 2000, .col = 2, .row = 3 },
+    // Storage (col 2). Repeatable: adds value * 1.6^level capacity per level.
+    .{ .id = 13, .name = "Storage", .cost = 40, .prereqs = r_worker, .effect = .storage_add, .value = 500, .col = 2, .row = 1, .repeat = .{ .cost_growth = 1.8 } },
+    // (ids 14/15 were Storage +1K/+2K — folded into 13's levels on load.)
 
     // Labs branch (col 0, rows 4-6) — gated behind cross-branch t3 nodes
     // Aura: flowers inside the rings around the hive yield more pollen.
@@ -100,17 +97,28 @@ pub const NODES = [_]Node{
     .{ .id = 16, .name = "Lab: Aura", .cost = 8000, .prereqs = &[_]NodeId{ 3, 6 }, .effect = .lab_aura, .col = 0, .row = 4, .repeat = .{ .cost_growth = 1.8 } },
     .{ .id = 25, .name = "Aura Reach", .cost = 5000, .prereqs = &[_]NodeId{16}, .effect = .aura_reach, .col = 0, .row = 5, .repeat = .{ .cost_growth = 1.6 } },
     // (ids 17/18 were Lab: Burst / Lab: Bloom — removed; stale save entries are ignored.)
-    .{ .id = 19, .name = "Prestige", .cost = 100000, .prereqs = &[_]NodeId{ 25, 9, 12 }, .effect = .prestige_unlock, .col = 0, .row = 6 },
+    .{ .id = 19, .name = "Prestige", .cost = 100000, .prereqs = &[_]NodeId{ 25, 21 }, .effect = .prestige_unlock, .col = 0, .row = 6 },
 
     // Instant Grow: unlocks the click-a-flower growth boost (was always-on).
     .{ .id = 20, .name = "Instant Grow", .cost = 30, .prereqs = r_worker, .effect = .growth_boost_unlock, .col = 0, .row = 1 },
     // Super Flowers: 2x2 same-type blocks merge into an 8x SUPER flower.
-    .{ .id = 21, .name = "Super Flowers", .cost = 3500, .prereqs = &[_]NodeId{ 8, 10 }, .effect = .super_flower_unlock, .col = 1, .row = 4 },
+    .{ .id = 21, .name = "Super Flowers", .cost = 3500, .prereqs = &[_]NodeId{ 7, 10 }, .effect = .super_flower_unlock, .col = 1, .row = 4 },
 };
 
 pub const ROOT_ID: NodeId = 0;
 pub const AURA_ID: NodeId = 16;
 pub const AURA_REACH_ID: NodeId = 25;
+
+/// Old one-shot chains that are now single repeatable nodes. Each legacy id
+/// purchased in an old save counts as +1 level on its target.
+pub const LEGACY_LEVEL_MAP = [_]struct { legacy: NodeId, target: NodeId }{
+    .{ .legacy = 8, .target = 7 },
+    .{ .legacy = 9, .target = 7 },
+    .{ .legacy = 11, .target = 10 },
+    .{ .legacy = 12, .target = 10 },
+    .{ .legacy = 14, .target = 13 },
+    .{ .legacy = 15, .target = 13 },
+};
 
 pub fn findNode(id: NodeId) ?*const Node {
     for (&NODES) |*n| {

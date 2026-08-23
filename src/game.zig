@@ -1009,7 +1009,8 @@ pub const Game = struct {
                     if (self.world.getBeehive(e.*)) |bh| bh.honeyConversionFactor *= node.value;
                 }
             },
-            .storage_add => self.resources.honeyCapacity += node.value,
+            // Capacity scales with level so storage keeps pace with honey growth.
+            .storage_add => self.resources.honeyCapacity += node.value * std.math.pow(f32, 1.6, @floatFromInt(self.upgradeTree.level(nodeId))),
             .growth_cd_sub => self.resources.growthBoostMaxCooldown = @max(2.0, self.resources.growthBoostMaxCooldown - node.value),
             .bee_unlock_worker, .bee_unlock_swift, .bee_unlock_efficient, .bee_unlock_gardener => {},
             .grid_expand => try self.expandGrid(),
@@ -1199,12 +1200,24 @@ pub const Game = struct {
         for (data.purchased, 0..) |purchased, id| {
             if (!purchased) continue;
             const node = upgrade_tree.findNode(@intCast(id)) orelse continue;
+            // Legacy ids are folded into their target's level below.
+            var is_legacy = false;
+            for (upgrade_tree.LEGACY_LEVEL_MAP) |m| {
+                if (m.legacy == id) is_legacy = true;
+            }
+            if (is_legacy) continue;
             // Old saves only have the "upgrade" flag -> level 1; clamp to max.
             var lvl: u16 = @max(1, data.levels[id]);
             if (node.repeat) |r| {
                 if (r.max_level != 0) lvl = @min(lvl, r.max_level);
             } else lvl = 1;
             try self.upgradeTree.setLevel(@intCast(id), lvl);
+        }
+        // Old saves: "Grid +2 ring" etc. become extra levels on the single node.
+        for (upgrade_tree.LEGACY_LEVEL_MAP) |m| {
+            if (m.legacy < data.purchased.len and data.purchased[m.legacy] and self.upgradeTree.isPurchased(m.target)) {
+                try self.upgradeTree.setLevel(m.target, self.upgradeTree.level(m.target) + 1);
+            }
         }
 
         self.prestige.royalJelly = data.royal_jelly;
