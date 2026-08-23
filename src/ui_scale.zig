@@ -78,6 +78,23 @@ pub fn height() f32 {
     return @as(f32, @floatFromInt(rl.getRenderHeight())) / factor;
 }
 
+/// Scissor in logical coordinates. raylib's scissor takes window ("screen")
+/// pixels and scales them to the framebuffer itself, so convert
+/// logical -> framebuffer (x factor) -> window (x screen/render).
+pub fn beginScissor(x: f32, y: f32, w: f32, h: f32) void {
+    const renderW: f32 = @floatFromInt(rl.getRenderWidth());
+    const screenW: f32 = @floatFromInt(rl.getScreenWidth());
+    const renderH: f32 = @floatFromInt(rl.getRenderHeight());
+    const screenH: f32 = @floatFromInt(rl.getScreenHeight());
+    const kx = factor * (if (renderW > 0) screenW / renderW else 1.0);
+    const ky = factor * (if (renderH > 0) screenH / renderH else 1.0);
+    rl.beginScissorMode(@intFromFloat(x * kx), @intFromFloat(y * ky), @intFromFloat(w * kx), @intFromFloat(h * ky));
+}
+
+pub fn endScissor() void {
+    rl.endScissorMode();
+}
+
 /// Wrap all drawing of a frame between begin()/end().
 pub fn begin() void {
     rl.beginMode2D(.{
