@@ -40,6 +40,22 @@ jobs:
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
           echo "Shipping release $TAG"
 
+      - name: Wait for release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          # The release build attaches 3 archives a couple of minutes after
+          # the tag is created; poll so this can be started right away.
+          for i in $(seq 1 90); do
+            n=$(gh release view "${{ steps.tag.outputs.tag }}" -R "${{ github.repository }}" --json assets --jq '[.assets[] | select(.name | test("windows|linux|macos"))] | length')
+            echo "attempt $i: $n/3 assets"
+            [ "$n" -ge 3 ] && exit 0
+            sleep 10
+          done
+          echo "::error::Release assets never appeared — did the release build fail?" >&2
+          exit 1
+
       - name: Download release assets
         env:
           GH_TOKEN: ${{ github.token }}
