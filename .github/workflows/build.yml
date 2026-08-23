@@ -16,12 +16,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Setup Zig
-        uses: goto-bus-stop/setup-zig@v2
+        uses: mlugg/setup-zig@v2
         with:
           version: 0.16.0
+          use-cache: true
 
       - name: Install dependencies
         run: |
@@ -32,7 +33,7 @@ jobs:
         run: zig build -Doptimize=ReleaseFast
 
       - name: Upload Linux binary
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: buzzness-tycoon-linux
           path: zig-out/bin/buzzness-tycoon
@@ -41,18 +42,19 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Setup Zig
-        uses: goto-bus-stop/setup-zig@v2
+        uses: mlugg/setup-zig@v2
         with:
           version: 0.16.0
+          use-cache: true
 
       - name: Build for Windows
         run: zig build -Dtarget=x86_64-windows -Doptimize=ReleaseFast
 
       - name: Upload Windows binary
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: buzzness-tycoon-windows
           path: zig-out/bin/buzzness-tycoon.exe
@@ -61,18 +63,19 @@ jobs:
     runs-on: macos-latest
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Setup Zig
-        uses: goto-bus-stop/setup-zig@v2
+        uses: mlugg/setup-zig@v2
         with:
           version: 0.16.0
+          use-cache: true
 
       - name: Build
         run: zig build -Doptimize=ReleaseFast
 
       - name: Upload macOS binary
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: buzzness-tycoon-macos
           path: zig-out/bin/buzzness-tycoon
@@ -83,19 +86,19 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Download Linux binary
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: buzzness-tycoon-linux
           path: ./linux
 
       - name: Download Windows binary
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: buzzness-tycoon-windows
           path: ./windows
 
       - name: Download macOS binary
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: buzzness-tycoon-macos
           path: ./macos
@@ -107,7 +110,7 @@ jobs:
           cd macos && chmod +x buzzness-tycoon && tar -czf ../buzzness-tycoon-macos-arm64.tar.gz buzzness-tycoon && cd ..
 
       - name: Upload release assets
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@v3
         with:
           files: |
             buzzness-tycoon-linux-x86_64.tar.gz
