@@ -1,9 +1,8 @@
 # Manual Steam upload. Pick the release TAG in "Use workflow from" and hit
 # Run — that tag's GitHub Release assets are staged in the same depot layout
-# as steam/stage.sh and pushed to SteamPipe via game-ci/steam-deploy. (The
-# optional `tag` input only matters when running from a branch.) Nothing is
-# set live — review the build in Steamworks > SteamPipe > Builds and flip it
-# to 'default' there.
+# as steam/stage.sh and pushed to SteamPipe via game-ci/steam-deploy.
+# Running from a branch is refused. Nothing is set live — review the build
+# in Steamworks > SteamPipe > Builds and flip it to 'default' there.
 #
 # One-time setup (repo secrets):
 #   STEAM_USERNAME    builder account login (Edit App Metadata + Publish App Changes)
@@ -16,11 +15,6 @@ name: Steam Deploy
 on:
   workflow_dispatch:
     inputs:
-      tag:
-        description: "Release tag to ship. Leave empty to use the tag selected in 'Use workflow from'."
-        required: false
-        type: string
-        default: ""
       include_macos:
         description: "Also upload the macOS depot (4980572 must exist in Steamworks)"
         required: false
@@ -38,14 +32,11 @@ jobs:
         id: tag
         run: |
           set -euo pipefail
-          TAG="${{ inputs.tag }}"
-          if [ -z "$TAG" ]; then
-            if [ "${{ github.ref_type }}" != "tag" ]; then
-              echo "::error::Run this workflow from a release tag, or fill in the 'tag' input." >&2
-              exit 1
-            fi
-            TAG="${{ github.ref_name }}"
+          if [ "${{ github.ref_type }}" != "tag" ]; then
+            echo "::error::Pick a release tag in 'Use workflow from' (not a branch)." >&2
+            exit 1
           fi
+          TAG="${{ github.ref_name }}"
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
           echo "Shipping release $TAG"
 
