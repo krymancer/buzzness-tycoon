@@ -101,7 +101,7 @@ pub fn draw(screenWidth: f32, screenHeight: f32, hasSave: bool) TitleScreenActio
 
     // New Game (only when there is something to overwrite)
     if (hasSave) {
-        const label = if (armed) locale.tr("Erase save? Click again", "Apagar save? Clique de novo") else locale.tr("New Game", "Novo Jogo");
+        const label = if (armed) locale.tr("Are you sure?", "Tem certeza?") else locale.tr("New Game", "Novo Jogo");
         if (armed) rg.setStyle(.button, .{ .control = .text_color_normal }, theme.CatppuccinMocha.Color.red.toInt());
         const clicked = rg.button(rl.Rectangle.init(buttonX, by, buttonWidth, buttonHeight), label);
         if (armed) rg.setStyle(.button, .{ .control = .text_color_normal }, theme.CatppuccinMocha.Color.text.toInt());
