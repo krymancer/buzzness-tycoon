@@ -74,6 +74,7 @@ pub fn nodeName(id: u16, english: []const u8) []const u8 {
         24 => "Impulso de Mel",
         25 => "Alcance da Aura",
         26 => "Dedo Verde",
+        27 => "Compostagem",
         else => english,
     };
 }

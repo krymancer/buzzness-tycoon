@@ -11,6 +11,7 @@ pub const EffectKind = enum {
     bee_unlock_efficient,
     bee_unlock_gardener,
     gardener_chance,
+    gardener_compost,
     grid_expand,
     lab_aura,
     aura_reach,
@@ -79,6 +80,8 @@ pub const NODES = [_]Node{
     .{ .id = 6, .name = "Gardener Bee", .cost = 2000, .prereqs = &[_]NodeId{5}, .effect = .bee_unlock_gardener, .col = -1, .row = 3 },
     // Repeatable: gardener plant chance 20% -> +10%/level (caps at 100%).
     .{ .id = 26, .name = "Green Thumb", .cost = 2500, .prereqs = &[_]NodeId{6}, .effect = .gardener_chance, .col = -1, .row = 4, .repeat = .{ .cost_growth = 1.5, .max_level = 8 } },
+    // Gardeners clear rotten flowers they fly over (then may replant there).
+    .{ .id = 27, .name = "Composting", .cost = 6000, .prereqs = &[_]NodeId{26}, .effect = .gardener_compost, .col = -1, .row = 5 },
 
     // Growth (col 0, below Instant Grow which gates it). Repeatable: each
     // level shaves `value` seconds off the Instant Grow cooldown (floor 2s).

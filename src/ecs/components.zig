@@ -69,6 +69,10 @@ pub const BeeAI = struct {
     wanderChangeTimer: f32,
     lastGridX: i32,
     lastGridY: i32,
+    // Last cell checked for composting (separate from lastGridX/Y so the
+    // planting pass still sees "new cell" transitions).
+    lastCompostX: i32 = -1,
+    lastCompostY: i32 = -1,
     scatterTimer: f32,
     searchCooldown: f32,
     beeType: BeeType,

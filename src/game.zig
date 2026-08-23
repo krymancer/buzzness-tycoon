@@ -905,6 +905,7 @@ pub const Game = struct {
         self.upgradeTree = upgrade_tree.State.init(self.allocator);
         spawners.superFlowersUnlocked = false;
         bee_ai_system.gardenerPlantChance = bee_ai_system.GARDENER_BASE_CHANCE;
+        bee_ai_system.gardenerCompost = false;
 
         self.beehiveUpgradeCost = 20.0;
         self.cachedBeeCount = self.world.entityToBeeAI.count();
@@ -1001,6 +1002,7 @@ pub const Game = struct {
             .growth_cd_sub => self.resources.growthBoostMaxCooldown = @max(2.0, self.resources.growthBoostMaxCooldown - node.value),
             .bee_unlock_worker, .bee_unlock_swift, .bee_unlock_efficient, .bee_unlock_gardener => {},
             .gardener_chance => bee_ai_system.gardenerPlantChance = bee_ai_system.gardenerChanceForLevel(self.upgradeTree.level(nodeId) + 1),
+            .gardener_compost => bee_ai_system.gardenerCompost = true,
             .grid_expand => try self.expandGrid(),
             // +1 because the level is bumped after this switch.
             .lab_aura => {
@@ -1221,6 +1223,7 @@ pub const Game = struct {
         self.prestige.hasUnlockedPrestige = data.prestige_unlocked or self.upgradeTree.hasEffect(.prestige_unlock);
         spawners.superFlowersUnlocked = self.upgradeTree.hasEffect(.super_flower_unlock);
         bee_ai_system.gardenerPlantChance = bee_ai_system.gardenerChanceForLevel(self.upgradeTree.level(upgrade_tree.GREEN_THUMB_ID));
+        bee_ai_system.gardenerCompost = self.upgradeTree.hasEffect(.gardener_compost);
         // Derived from the tree levels (the saved multiplier is legacy).
         self.labs.auraMul = labs.auraMultiplierForLevel(self.upgradeTree.level(upgrade_tree.AURA_ID));
         self.labs.auraReach = if (self.upgradeTree.isPurchased(upgrade_tree.AURA_ID))

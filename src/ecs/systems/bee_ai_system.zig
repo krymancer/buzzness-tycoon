@@ -9,6 +9,7 @@ const Flowers = textures.Flowers;
 const utils = @import("../../utils.zig");
 const Resources = @import("../../resources.zig").Resources;
 const labs_mod = @import("../../labs.zig");
+const lifespan_system = @import("lifespan_system.zig");
 const prestige_mod = @import("../../prestige.zig");
 const spawners = @import("../../spawners.zig");
 
@@ -117,6 +118,12 @@ pub fn update(ctx: UpdateCtx) !void {
             beeAI.scatterTimer -= scaledDeltaTime;
             performRandomWalk(beeAI, position, scaledDeltaTime);
             continue;
+        }
+
+        // Composting runs on every cell a gardener crosses, whatever it is
+        // doing — rot must be clearable even when there's no pollen around.
+        if (gardenerCompost and beeAI.beeType.canSpawnFlowers()) {
+            try handleComposting(ctx.world, beeAI, position, ctx.gridOffset, ctx.gridScale, ctx.gridWidth, ctx.gridHeight);
         }
 
         if (checkPollination and beeAI.carryingPollen) {
@@ -332,8 +339,26 @@ pub var gardenerPlantChance: i32 = GARDENER_BASE_CHANCE;
 pub const GARDENER_BASE_CHANCE: i32 = 20;
 pub const GARDENER_CHANCE_PER_LEVEL: i32 = 10;
 
+/// Composting node: gardeners clear rotten flowers on cells they cross.
+pub var gardenerCompost: bool = false;
+
 pub fn gardenerChanceForLevel(level: u16) i32 {
     return @min(100, GARDENER_BASE_CHANCE + GARDENER_CHANCE_PER_LEVEL * @as(i32, level));
+}
+
+/// Gardener flies over a rotten flower: clear it so the cell can regrow.
+fn handleComposting(world: *World, beeAI: anytype, position: anytype, gridOffset: rl.Vector2, gridScale: f32, gridWidth: usize, gridHeight: usize) !void {
+    const gridPos = utils.worldToGrid(position.toVector2(), gridOffset, gridScale);
+    const gridX: i32 = @intFromFloat(@floor(gridPos.x));
+    const gridY: i32 = @intFromFloat(@floor(gridPos.y));
+    if (gridX == beeAI.lastCompostX and gridY == beeAI.lastCompostY) return;
+    beeAI.lastCompostX = gridX;
+    beeAI.lastCompostY = gridY;
+    if (gridX < 0 or gridY < 0 or gridX >= @as(i32, @intCast(gridWidth)) or gridY >= @as(i32, @intCast(gridHeight))) return;
+
+    const flowerEntity = world.getFlowerAtGrid(gridX, gridY) orelse return;
+    const growth = world.getFlowerGrowth(flowerEntity) orelse return;
+    if (growth.isRotten) try lifespan_system.removeFlower(world, flowerEntity);
 }
 
 fn handlePollination(world: *World, beeAI: anytype, position: anytype, gridOffset: rl.Vector2, gridScale: f32, gridWidth: usize, gridHeight: usize, texturesRef: Textures) !void {
