@@ -102,6 +102,8 @@ pub const Game = struct {
     io: std.Io,
     env: *std.process.Environ.Map,
     savePath: []u8,
+    /// True when a save was loaded at startup (title shows Continue/New Game).
+    hasSavedGame: bool,
     autosaveTimer: f32,
 
     pub fn init(allocator: std.mem.Allocator, io: std.Io, env: *std.process.Environ.Map) !@This() {
@@ -243,6 +245,7 @@ pub const Game = struct {
             .state = if (env.get("BT_AUTOPLAY") != null) .playing else .title_screen,
             .env = env,
             .savePath = savePath,
+            .hasSavedGame = false,
             .autosaveTimer = 0,
 
             .width = width,
@@ -252,10 +255,12 @@ pub const Game = struct {
         };
 
         spawners.superFlowersUnlocked = false;
-        game.loadProgress() catch |err| switch (err) {
+        if (game.loadProgress()) {
+            game.hasSavedGame = true;
+        } else |err| switch (err) {
             error.FileNotFound => {},
             else => std.debug.print("Could not load save '{s}': {}\n", .{ savePath, err }),
-        };
+        }
         return game;
     }
 
@@ -296,7 +301,7 @@ pub const Game = struct {
         while (!rl.windowShouldClose() and !self.shouldExit) {
             self.handleCommonInput();
             switch (self.state) {
-                .title_screen => self.drawTitleScreen(),
+                .title_screen => try self.drawTitleScreen(),
                 .playing => {
                     self.handlePlayingInput();
                     try self.update();
@@ -373,7 +378,7 @@ pub const Game = struct {
         }
     }
 
-    fn drawTitleScreen(self: *@This()) void {
+    fn drawTitleScreen(self: *@This()) !void {
         rl.beginDrawing();
         defer rl.endDrawing();
         ui_scale.begin();
@@ -387,9 +392,13 @@ pub const Game = struct {
         self.sky.drawCelestial(self.width, self.height);
         rl.drawRectangle(0, 0, @intFromFloat(self.width), @intFromFloat(self.height), rl.Color.init(20, 20, 40, 90));
 
-        const action = ui.title_screen.draw(self.width, self.height);
+        const action = ui.title_screen.draw(self.width, self.height, self.hasSavedGame);
         switch (action) {
             .play => self.state = .playing,
+            .new_game => {
+                try self.startNewGame();
+                self.state = .playing;
+            },
             .quit => self.shouldExit = true,
             .toggle_language => locale.toggle(),
             .none => {},
@@ -863,7 +872,19 @@ pub const Game = struct {
 
     fn doPrestige(self: *@This(), gain: u32) !void {
         self.prestige.resetRun(gain);
+        try self.resetRun();
+    }
 
+    /// Wipe everything, including prestige, and overwrite the save on disk.
+    fn startNewGame(self: *@This()) !void {
+        self.prestige = .{};
+        try self.resetRun();
+        self.hasSavedGame = false;
+        self.saveProgress() catch |err| std.debug.print("Could not save new game: {}\n", .{err});
+    }
+
+    /// Tear down the world and restore a fresh run (keeps prestige state).
+    fn resetRun(self: *@This()) !void {
         // Reset world: full teardown + respawn
         self.world.deinit();
         self.world = World.init(self.allocator);

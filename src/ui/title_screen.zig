@@ -8,10 +8,18 @@ const locale = @import("../localization.zig");
 
 pub const TitleScreenAction = enum {
     none,
+    /// Resume the loaded save (or start fresh when there is none).
     play,
+    /// Wipe progress and start over. Only emitted after a confirm click.
+    new_game,
     quit,
     toggle_language,
 };
+
+/// "New Game" is destructive when a save exists, so the first click arms a
+/// confirm state that expires after a few seconds.
+var newGameArmedUntil: f64 = 0;
+const NEW_GAME_CONFIRM_SECONDS: f64 = 4;
 
 // Module-level texture storage for background bees
 var beeTexture: ?rl.Texture = null;
@@ -30,7 +38,7 @@ pub fn deinit() void {
 }
 
 /// Draw title screen and return action taken by user
-pub fn draw(screenWidth: f32, screenHeight: f32) TitleScreenAction {
+pub fn draw(screenWidth: f32, screenHeight: f32, hasSave: bool) TitleScreenAction {
     // Lazy init texture on first draw
     if (beeTexture == null) {
         init();
@@ -74,20 +82,47 @@ pub fn draw(screenWidth: f32, screenHeight: f32) TitleScreenAction {
     const buttonWidth: f32 = 270;
     const buttonHeight: f32 = 50;
     const buttonX = centerX - buttonWidth / 2;
-    const buttonStartY = centerY + 5;
     const buttonSpacing: f32 = 62;
+    // Keep the column centred whether it has 3 or 4 buttons.
+    const buttonCount: f32 = if (hasSave) 4 else 3;
+    const buttonStartY = centerY + 5 - (buttonCount - 3) * buttonSpacing / 2;
+    var by = buttonStartY;
 
-    // Play button
-    if (rg.button(rl.Rectangle.init(buttonX, buttonStartY, buttonWidth, buttonHeight), locale.tr("Play", "Jogar"))) {
+    const now = rl.getTime();
+    const armed = hasSave and now < newGameArmedUntil;
+
+    // Continue / Play
+    const playLabel = if (hasSave) locale.tr("Continue", "Continuar") else locale.tr("Play", "Jogar");
+    if (rg.button(rl.Rectangle.init(buttonX, by, buttonWidth, buttonHeight), playLabel)) {
+        newGameArmedUntil = 0;
         return .play;
     }
+    by += buttonSpacing;
 
-    if (rg.button(rl.Rectangle.init(buttonX, buttonStartY + buttonSpacing, buttonWidth, buttonHeight), locale.languageButton())) {
-        return .toggle_language;
+    // New Game (only when there is something to overwrite)
+    if (hasSave) {
+        const label = if (armed) locale.tr("Erase save? Click again", "Apagar save? Clique de novo") else locale.tr("New Game", "Novo Jogo");
+        if (armed) rg.setStyle(.button, .{ .control = .text_color_normal }, theme.CatppuccinMocha.Color.red.toInt());
+        const clicked = rg.button(rl.Rectangle.init(buttonX, by, buttonWidth, buttonHeight), label);
+        if (armed) rg.setStyle(.button, .{ .control = .text_color_normal }, theme.CatppuccinMocha.Color.text.toInt());
+        if (clicked) {
+            if (armed) {
+                newGameArmedUntil = 0;
+                return .new_game;
+            }
+            newGameArmedUntil = now + NEW_GAME_CONFIRM_SECONDS;
+        }
+        by += buttonSpacing;
     }
 
+    if (rg.button(rl.Rectangle.init(buttonX, by, buttonWidth, buttonHeight), locale.languageButton())) {
+        newGameArmedUntil = 0;
+        return .toggle_language;
+    }
+    by += buttonSpacing;
+
     // Quit button
-    if (rg.button(rl.Rectangle.init(buttonX, buttonStartY + buttonSpacing * 2, buttonWidth, buttonHeight), locale.tr("Quit", "Sair"))) {
+    if (rg.button(rl.Rectangle.init(buttonX, by, buttonWidth, buttonHeight), locale.tr("Quit", "Sair"))) {
         return .quit;
     }
 
