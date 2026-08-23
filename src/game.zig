@@ -609,8 +609,6 @@ pub const Game = struct {
         const honeyFactor = self.cachedHoneyFactor;
         self.hud.draw(&self.resources, honeyFactor);
 
-        self.drawLabsWidget();
-
         // Draw side panel (shop)
         const sideCtx = ui.SidePanelContext{
             .screenWidth = self.width,
@@ -619,6 +617,7 @@ pub const Game = struct {
             .beeTypeCounts = self.cachedBeeTypeCounts,
             .treeState = &self.upgradeTree,
             .prestige = &self.prestige,
+            .labs = &self.labs,
             .textures = &self.textures,
         };
         const sideAction = ui.side_panel.draw(sideCtx);
@@ -627,6 +626,10 @@ pub const Game = struct {
                 .none => {},
                 .open_tree => self.showTree = true,
                 .open_prestige => self.showPrestigeDialog = true,
+                .activate_burst => _ = self.labs.tryActivateBurst(self.upgradeTree.hasEffect(.lab_burst)),
+                .activate_bloom => {
+                    if (self.labs.tryActivateBloom(self.upgradeTree.hasEffect(.lab_bloom))) self.triggerBloom();
+                },
                 .buy => |act| {
                     var handler = self.createActionHandler();
                     const honeyBefore = self.resources.honey;
@@ -823,38 +826,6 @@ pub const Game = struct {
             }
         }
         return null;
-    }
-
-    fn drawLabsWidget(self: *@This()) void {
-        const auraOn = self.upgradeTree.hasEffect(.lab_aura);
-        const burstUnlocked = self.upgradeTree.hasEffect(.lab_burst);
-        const bloomUnlocked = self.upgradeTree.hasEffect(.lab_bloom);
-        if (!auraOn and !burstUnlocked and !bloomUnlocked) return;
-
-        // Below the HUD stack (honey card + bees/factor lines + grow meter).
-        var y: i32 = 208;
-        if (auraOn) {
-            text.draw(rl.textFormat("Aura: x%.2f", .{self.labs.auraMul}), 10, y, 18, theme.CatppuccinMocha.Color.mauve);
-            y += 23;
-        }
-        if (burstUnlocked) {
-            const txt = if (self.labs.burstRemaining > 0)
-                rl.textFormat(locale.tr("[B] Burst: ACTIVE %.1fs", "[B] Explosão: ATIVA %.1fs"), .{self.labs.burstRemaining})
-            else if (self.labs.burstCooldown > 0)
-                rl.textFormat(locale.tr("[B] Burst: %.1fs", "[B] Explosão: %.1fs"), .{self.labs.burstCooldown})
-            else
-                rl.textFormat(locale.tr("[B] Burst: READY", "[B] Explosão: PRONTA"), .{});
-            text.draw(txt, 10, y, 18, theme.CatppuccinMocha.Color.red);
-            y += 23;
-        }
-        if (bloomUnlocked) {
-            const txt = if (self.labs.bloomCooldown > 0)
-                rl.textFormat(locale.tr("[M] Bloom: %.1fs", "[M] Florescer: %.1fs"), .{self.labs.bloomCooldown})
-            else
-                rl.textFormat(locale.tr("[M] Bloom: READY", "[M] Florescer: PRONTO"), .{});
-            text.draw(txt, 10, y, 18, theme.CatppuccinMocha.Color.pink);
-            y += 23;
-        }
     }
 
     fn drawAndHandlePrestigeDialog(self: *@This()) !void {

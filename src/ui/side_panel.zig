@@ -9,6 +9,7 @@ const Resources = @import("../resources.zig").Resources;
 const spawners = @import("../spawners.zig");
 const upgrade_tree = @import("../upgrade_tree.zig");
 const prestige_mod = @import("../prestige.zig");
+const labs_mod = @import("../labs.zig");
 const Textures = @import("../textures.zig").Textures;
 const popups = @import("popups.zig");
 const locale = @import("../localization.zig");
@@ -24,6 +25,7 @@ pub const SidePanelContext = struct {
     beeTypeCounts: [4]usize,
     treeState: *const upgrade_tree.State,
     prestige: *const prestige_mod.PrestigeState,
+    labs: *const labs_mod.LabState,
     textures: *const Textures,
 };
 
@@ -31,6 +33,8 @@ pub const SidePanelAction = union(enum) {
     none,
     open_tree,
     open_prestige,
+    activate_burst,
+    activate_bloom,
     buy: popups.TilePopupAction,
 };
 
@@ -89,12 +93,87 @@ pub fn draw(ctx: SidePanelContext) SidePanelAction {
         y = drawPrestigeCard(contentX, y, contentW, mouse, ctx.prestige, &action);
     }
 
-    // Growth-boost cooldown meter at bottom (once Instant Grow is unlocked)
-    if (ctx.treeState.hasEffect(.growth_boost_unlock)) {
-        drawGrowFooter(panelX, ctx.screenHeight, ctx.resources);
-    }
+    drawFooter(ctx, panelX, mouse, &action);
 
     return action;
+}
+
+const FOOTER_H: f32 = 44;
+const FOOTER_GAP: f32 = 8;
+
+/// Bottom-anchored status stack (grows upward): Instant Grow, then the Labs
+/// (Bloom, Burst, Aura) as they unlock. Burst/Bloom are clickable in addition
+/// to their B/M hotkeys.
+fn drawFooter(ctx: SidePanelContext, panelX: f32, mouse: rl.Vector2, out: *SidePanelAction) void {
+    const C = theme.CatppuccinMocha.Color;
+    const x = panelX + 14;
+    const w = PANEL_WIDTH - 28;
+    var y = ctx.screenHeight - FOOTER_H - 10;
+
+    if (ctx.treeState.hasEffect(.growth_boost_unlock)) {
+        drawGrowMeter(x, y, w, ctx.resources);
+        y -= FOOTER_H + FOOTER_GAP;
+    }
+
+    if (ctx.treeState.hasEffect(.lab_bloom)) {
+        const cd = ctx.labs.bloomCooldown;
+        const ready = cd <= 0;
+        const label = if (ready)
+            locale.tr("[M] Bloom: ready", "[M] Florescer: pronto")
+        else
+            rl.textFormat(locale.tr("[M] Bloom: %.1fs", "[M] Florescer: %.1fs"), .{cd});
+        const fill = 1.0 - cd / labs_mod.BLOOM_COOLDOWN;
+        if (drawMeter(x, y, w, label, ready, fill, C.pink, true, mouse)) out.* = .activate_bloom;
+        y -= FOOTER_H + FOOTER_GAP;
+    }
+
+    if (ctx.treeState.hasEffect(.lab_burst)) {
+        const active = ctx.labs.burstRemaining > 0;
+        const cd = ctx.labs.burstCooldown;
+        const ready = !active and cd <= 0;
+        const label = if (active)
+            rl.textFormat(locale.tr("[B] Burst x%.0f: %.1fs", "[B] Explosão x%.0f: %.1fs"), .{ labs_mod.BURST_MUL, ctx.labs.burstRemaining })
+        else if (ready)
+            locale.tr("[B] Burst: ready", "[B] Explosão: pronta")
+        else
+            rl.textFormat(locale.tr("[B] Burst: %.1fs", "[B] Explosão: %.1fs"), .{cd});
+        // While active the bar drains with the remaining duration; afterwards
+        // it refills with the cooldown.
+        const fill = if (active) ctx.labs.burstRemaining / labs_mod.BURST_DURATION else 1.0 - cd / labs_mod.BURST_COOLDOWN;
+        if (drawMeter(x, y, w, label, ready or active, fill, C.red, true, mouse)) out.* = .activate_burst;
+        y -= FOOTER_H + FOOTER_GAP;
+    }
+
+    if (ctx.treeState.hasEffect(.lab_aura)) {
+        const label = rl.textFormat(locale.tr("Aura: honey x%.2f (always on)", "Aura: mel x%.2f (sempre ativa)"), .{ctx.labs.auraMul});
+        _ = drawMeter(x, y, w, label, true, 1.0, C.mauve, false, mouse);
+    }
+}
+
+/// Rounded status bar with a proportional fill. Returns true when clicked
+/// (only if `clickable` and `ready`).
+fn drawMeter(x: f32, y: f32, w: f32, label: [:0]const u8, ready: bool, fillPercent: f32, accent: rl.Color, clickable: bool, mouse: rl.Vector2) bool {
+    const C = theme.CatppuccinMocha.Color;
+    const h = FOOTER_H;
+    const rect = rl.Rectangle.init(x, y, w, h);
+    const hovered = clickable and ready and rl.checkCollisionPointRec(mouse, rect);
+
+    rl.drawRectangleRounded(rect, 0.4, 6, if (hovered) C.surface1 else C.surface0);
+
+    const fillW = (w - 6) * std.math.clamp(fillPercent, 0, 1);
+    if (fillW > 1) {
+        const fillColor = if (ready) rl.Color.init(accent.r, accent.g, accent.b, 60) else rl.Color.init(88, 91, 112, 70);
+        rl.drawRectangleRounded(rl.Rectangle.init(x + 3, y + 3, fillW, h - 6), 0.4, 6, fillColor);
+    }
+    rl.drawRectangleRoundedLinesEx(rect, 0.4, 6, if (hovered) 2 else 1, if (ready) accent else C.surface1);
+
+    const labelSize: i32 = 18;
+    const tw: f32 = @floatFromInt(text.measure(label, labelSize));
+    const tx = x + (w - tw) / 2;
+    const ty = y + (h - @as(f32, @floatFromInt(labelSize))) / 2;
+    text.draw(label, @intFromFloat(tx), @intFromFloat(ty), labelSize, if (ready) accent else C.subtext1);
+
+    return hovered and rl.isMouseButtonPressed(rl.MouseButton.left);
 }
 
 fn drawSectionHeader(x: f32, y: f32, w: f32, label: [:0]const u8, color: rl.Color) f32 {
@@ -270,15 +349,12 @@ fn accentDimmed(accent: rl.Color) rl.Color {
     return rl.Color.init(accent.r, accent.g, accent.b, 190);
 }
 
-/// Bottom card: the Instant Grow cooldown meter. The ability fires on its own
-/// (fully growing a random flower) whenever the meter fills, so this is pure
+/// The Instant Grow cooldown meter. The ability fires on its own (fully
+/// growing a random flower) whenever the meter fills, so this is pure
 /// status: the countdown, or "ready" while it waits for a sproutable flower.
-fn drawGrowFooter(panelX: f32, screenHeight: f32, resources: *const Resources) void {
+fn drawGrowMeter(x: f32, y: f32, w: f32, resources: *const Resources) void {
     const C = theme.CatppuccinMocha.Color;
-    const h: f32 = 44;
-    const y = screenHeight - h - 10;
-    const x = panelX + 14;
-    const w = PANEL_WIDTH - 28;
+    const h = FOOTER_H;
     const rect = rl.Rectangle.init(x, y, w, h);
     const ready = resources.canUseGrowthBoost();
 
