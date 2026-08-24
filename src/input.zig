@@ -112,9 +112,9 @@ pub fn startPressed() bool {
     return padPressed(.middle_right);
 }
 
-/// Gamepad Y: upgrade tree toggle.
+/// Gamepad Y or keyboard T: upgrade tree toggle.
 pub fn treePressed() bool {
-    return padPressed(.right_face_up);
+    return padPressed(.right_face_up) or rl.isKeyPressed(rl.KeyboardKey.t);
 }
 
 /// Gamepad X: plant on the hovered tile.
@@ -139,20 +139,46 @@ pub fn shoulderCycle() i32 {
     return d;
 }
 
-/// Trigger zoom: +1 while RT is held, -1 while LT is held.
+/// Zoom: +1 while RT or `=` is held, -1 while LT or `-` is held. The bare
+/// keys only — Cmd/Ctrl +/- belongs to the UI scale.
 pub fn zoomAxis() f32 {
     var z: f32 = 0;
     if (padDown(.right_trigger_2)) z += 1;
     if (padDown(.left_trigger_2)) z -= 1;
-    return z;
+    if (!modDown()) {
+        if (rl.isKeyDown(rl.KeyboardKey.equal) or rl.isKeyDown(rl.KeyboardKey.kp_add)) z += 1;
+        if (rl.isKeyDown(rl.KeyboardKey.minus) or rl.isKeyDown(rl.KeyboardKey.kp_subtract)) z -= 1;
+    }
+    return std.math.clamp(z, -1, 1);
 }
 
-/// Right-stick camera pan (world), in logical px for this frame.
+/// Camera pan (world): right stick and/or WASD/arrow keys, in logical px
+/// for this frame.
 pub fn cameraPan() rl.Vector2 {
-    if (device != .gamepad) return rl.Vector2.init(0, 0);
-    const stick = stickVector(.right_x, .right_y);
+    var v = rl.Vector2.init(0, 0);
+    if (device == .gamepad) {
+        const stick = stickVector(.right_x, .right_y);
+        v.x += stick.x;
+        v.y += stick.y;
+    }
+    if (rl.isKeyDown(rl.KeyboardKey.a) or rl.isKeyDown(rl.KeyboardKey.left)) v.x -= 1;
+    if (rl.isKeyDown(rl.KeyboardKey.d) or rl.isKeyDown(rl.KeyboardKey.right)) v.x += 1;
+    if (rl.isKeyDown(rl.KeyboardKey.w) or rl.isKeyDown(rl.KeyboardKey.up)) v.y -= 1;
+    if (rl.isKeyDown(rl.KeyboardKey.s) or rl.isKeyDown(rl.KeyboardKey.down)) v.y += 1;
     const step = PAN_SPEED * rl.getFrameTime();
-    return rl.Vector2.init(stick.x * step, stick.y * step);
+    return rl.Vector2.init(std.math.clamp(v.x, -1, 1) * step, std.math.clamp(v.y, -1, 1) * step);
+}
+
+/// Quick-buy chord for one bee type: d-pad direction or number key.
+/// up/1 worker, left/2 swift, right/3 efficient, down/4 gardener.
+pub fn quickBuyPressed(d: Dir) bool {
+    if (dpadPressed(d)) return true;
+    return rl.isKeyPressed(switch (d) {
+        .up => rl.KeyboardKey.one,
+        .left => rl.KeyboardKey.two,
+        .right => rl.KeyboardKey.three,
+        .down => rl.KeyboardKey.four,
+    });
 }
 
 /// Scroll input for menus: mouse wheel plus (in menu mode) the right stick.
@@ -176,12 +202,25 @@ pub fn registerHotspot(rect: rl.Rectangle) void {
     hotspotCount += 1;
 }
 
-/// Draw the virtual cursor. Call last in the frame, inside ui_scale scope.
-pub fn drawCursor() void {
+/// Ease the cursor toward `target` (tile magnetism) while the left stick is
+/// idle, so a released stick settles on the tile center instead of between
+/// tiles. No-op for the mouse or while the player is actively steering.
+pub fn magnetPull(target: rl.Vector2) void {
     if (device != .gamepad) return;
+    const stick = stickVector(.left_x, .left_y);
+    if (stick.x != 0 or stick.y != 0) return;
+    const k = @min(1.0, 12 * rl.getFrameTime());
+    cursor.x += (target.x - cursor.x) * k;
+    cursor.y += (target.y - cursor.y) * k;
+}
+
+/// Draw the pointer (mouse and gamepad alike — the OS cursor is hidden).
+/// Call last in the frame, inside ui_scale scope.
+pub fn drawCursor() void {
+    const p = pointerPos();
+    const x = p.x;
+    const y = p.y;
     const C = theme.CatppuccinMocha.Color;
-    const x = cursor.x;
-    const y = cursor.y;
     // Classic pointer triangle with a soft drop shadow.
     const tip = rl.Vector2.init(x, y);
     const a = rl.Vector2.init(x + 4.5, y + 17);
@@ -190,6 +229,11 @@ pub fn drawCursor() void {
     rl.drawTriangle(rl.Vector2.init(tip.x + sh.x, tip.y + sh.y), rl.Vector2.init(a.x + sh.x, a.y + sh.y), rl.Vector2.init(b.x + sh.x, b.y + sh.y), rl.Color.init(17, 17, 27, 110));
     rl.drawTriangle(tip, a, b, C.yellow);
     rl.drawTriangleLines(tip, a, b, C.crust);
+}
+
+fn modDown() bool {
+    return rl.isKeyDown(rl.KeyboardKey.left_super) or rl.isKeyDown(rl.KeyboardKey.right_super) or
+        rl.isKeyDown(rl.KeyboardKey.left_control) or rl.isKeyDown(rl.KeyboardKey.right_control);
 }
 
 fn padPressed(b: rl.GamepadButton) bool {

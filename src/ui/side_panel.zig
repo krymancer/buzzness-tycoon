@@ -93,15 +93,15 @@ pub fn draw(ctx: SidePanelContext) SidePanelAction {
     y += 24;
     const honey = ctx.resources.honey;
 
-    y = drawBeeCard(ctx, contentX, y, contentW, mouse, locale.tr("Worker", "Operária"), locale.tr("+pollen", "+pólen"), spawners.BEE_TYPE_COSTS.worker, C.text, ctx.beeTypeCounts[0], &action, .buy_worker_bee, honey);
+    y = drawBeeCard(ctx, contentX, y, contentW, mouse, locale.tr("Worker", "Operária"), locale.tr("+pollen", "+pólen"), spawners.BEE_TYPE_COSTS.worker, C.text, ctx.beeTypeCounts[0], &action, .buy_worker_bee, honey, .up, "1");
     if (ctx.treeState.hasEffect(.bee_unlock_swift)) {
-        y = drawBeeCard(ctx, contentX, y, contentW, mouse, locale.tr("Swift", "Veloz"), locale.tr("2x speed", "velocidade 2x"), spawners.BEE_TYPE_COSTS.swift, C.blue, ctx.beeTypeCounts[1], &action, .buy_swift_bee, honey);
+        y = drawBeeCard(ctx, contentX, y, contentW, mouse, locale.tr("Swift", "Veloz"), locale.tr("2x speed", "velocidade 2x"), spawners.BEE_TYPE_COSTS.swift, C.blue, ctx.beeTypeCounts[1], &action, .buy_swift_bee, honey, .left, "2");
     }
     if (ctx.treeState.hasEffect(.bee_unlock_efficient)) {
-        y = drawBeeCard(ctx, contentX, y, contentW, mouse, locale.tr("Efficient", "Eficiente"), locale.tr("2x pollen", "pólen 2x"), spawners.BEE_TYPE_COSTS.efficient, C.green, ctx.beeTypeCounts[2], &action, .buy_efficient_bee, honey);
+        y = drawBeeCard(ctx, contentX, y, contentW, mouse, locale.tr("Efficient", "Eficiente"), locale.tr("2x pollen", "pólen 2x"), spawners.BEE_TYPE_COSTS.efficient, C.green, ctx.beeTypeCounts[2], &action, .buy_efficient_bee, honey, .right, "3");
     }
     if (ctx.treeState.hasEffect(.bee_unlock_gardener)) {
-        y = drawBeeCard(ctx, contentX, y, contentW, mouse, locale.tr("Gardener", "Jardineira"), locale.tr("plants flowers", "planta flores"), spawners.BEE_TYPE_COSTS.gardener, C.pink, ctx.beeTypeCounts[3], &action, .buy_gardener_bee, honey);
+        y = drawBeeCard(ctx, contentX, y, contentW, mouse, locale.tr("Gardener", "Jardineira"), locale.tr("plants flowers", "planta flores"), spawners.BEE_TYPE_COSTS.gardener, C.pink, ctx.beeTypeCounts[3], &action, .buy_gardener_bee, honey, .down, "4");
     }
 
     // Prestige section
@@ -220,6 +220,23 @@ fn drawSectionHeader(x: f32, y: f32, w: f32, label: [:0]const u8, color: rl.Colo
     return y + 32;
 }
 
+/// Small key-hint chip centered at (cx, cy) with a centered key label.
+fn drawKeyChip(cx: f32, cy: f32, label: [:0]const u8) void {
+    const C = theme.CatppuccinMocha.Color;
+    const chip: f32 = 20;
+    rl.drawRectangleRounded(rl.Rectangle.init(cx - chip / 2, cy - chip / 2, chip, chip), 0.3, 4, C.surface2);
+    const kw = text.measure(label, 13);
+    text.draw(label, @as(i32, @intFromFloat(cx)) - @divFloor(kw, 2), @intFromFloat(cy - 8), 13, C.subtext0);
+}
+
+/// Same chip, but with a d-pad direction arrow instead of a key label.
+fn drawArrowChip(cx: f32, cy: f32, dir: icons.ArrowDir) void {
+    const C = theme.CatppuccinMocha.Color;
+    const chip: f32 = 20;
+    rl.drawRectangleRounded(rl.Rectangle.init(cx - chip / 2, cy - chip / 2, chip, chip), 0.3, 4, C.surface2);
+    icons.drawArrow(cx, cy, 5, dir, C.subtext0);
+}
+
 fn drawTreeCard(x: f32, y: f32, w: f32, mouse: rl.Vector2, out: *SidePanelAction) f32 {
     const C = theme.CatppuccinMocha.Color;
     const h: f32 = 60;
@@ -240,6 +257,7 @@ fn drawTreeCard(x: f32, y: f32, w: f32, mouse: rl.Vector2, out: *SidePanelAction
 
     text.draw(locale.tr("Upgrade Tree", "Árvore de Melhorias"), sparkleX + 22, @as(i32, @intFromFloat(y + 7)), 20, C.text);
     text.draw(locale.tr("Progression & perks", "Progressão e bônus"), sparkleX + 22, @as(i32, @intFromFloat(y + 34)), 16, C.subtext0);
+    drawKeyChip(x + w - 20, y + h / 2, if (input.gamepadActive()) "Y" else "T");
 
     if (hovered and input.confirmPressed()) {
         out.* = .open_tree;
@@ -262,6 +280,8 @@ fn drawBeeCard(
     out: *SidePanelAction,
     buyAction: actions.BuyAction,
     honey: f32,
+    hintDir: icons.ArrowDir,
+    hintKey: [:0]const u8,
 ) f32 {
     const C = theme.CatppuccinMocha.Color;
     const h: f32 = 66;
@@ -332,6 +352,13 @@ fn drawBeeCard(
     icons.drawHoneyDrop(contentX + dropR, pillY + pillH / 2 + dropR * 0.65, dropR, pillTextColor);
     const costY = pillY + (pillH - @as(f32, @floatFromInt(costSize))) / 2;
     text.draw(costLabel, @as(i32, @intFromFloat(contentX + dropSpan)), @as(i32, @intFromFloat(costY)), costSize, pillTextColor);
+
+    // Quick-buy hint left of the cost pill (d-pad direction or number key).
+    if (input.gamepadActive()) {
+        drawArrowChip(pillX - 16, py + h / 2, hintDir);
+    } else {
+        drawKeyChip(pillX - 16, py + h / 2, hintKey);
+    }
 
     if (hovered and afford and input.confirmPressed()) {
         out.* = .{ .buy = .{ .action = buyAction, .qty = qty } };

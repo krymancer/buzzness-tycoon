@@ -155,6 +155,9 @@ pub const Game = struct {
         if (env.get("BT_CAPTURE") != null) clock.fixedDt = 1.0 / 30.0;
         const windowIcon = try assets.loadImageFromMemory(assets.bee_png);
         rl.setWindowIcon(windowIcon);
+        // The game draws its own pointer (input.drawCursor) for mouse and
+        // gamepad alike; hide the OS cursor over the window.
+        rl.hideCursor();
 
         // Load the shared UI font (needs the GL context from initWindow).
         text.load();
@@ -426,6 +429,7 @@ pub const Game = struct {
             .musicVolume = self.audio.musicVolume,
             .fxVolume = self.audio.fxVolume,
             .uiScale = ui_scale.user(),
+            .cursorSnap = settings.cursorSnap,
         });
         switch (action) {
             .none => {},
@@ -439,6 +443,7 @@ pub const Game = struct {
                 self.audio.playCollect();
             },
             .ui_scale => |s| ui_scale.setUser(s),
+            .cursor_snap => |v| settings.cursorSnap = v,
         }
     }
 
@@ -539,17 +544,15 @@ pub const Game = struct {
             self.grid.zoom(wheelMove * 0.3);
         }
 
-        try self.handleGamepadWorldInput();
+        try self.handleWorldShortcuts();
     }
 
-    /// World-mode gamepad controls: right-stick camera pan, trigger zoom,
-    /// X plants on the hovered tile, LB/RB cycle the buy quantity, and the
-    /// d-pad quick-buys one bee per direction.
-    fn handleGamepadWorldInput(self: *@This()) !void {
-        if (!input.gamepadActive()) return;
-
-        // The pan stick moves the camera, so the world shifts the other way
-        // (same bookkeeping as a mouse drag).
+    /// World-mode shortcuts, gamepad and keyboard: camera pan (right stick /
+    /// WASD/arrows), zoom (triggers / +-), X plants on the hovered tile,
+    /// LB/RB cycle the buy quantity, and d-pad / 1-4 quick-buy one bee.
+    fn handleWorldShortcuts(self: *@This()) !void {
+        // Panning moves the camera, so the world shifts the other way (same
+        // bookkeeping as a mouse drag).
         const pan = input.cameraPan();
         if (pan.x != 0 or pan.y != 0) {
             const delta = rl.Vector2.init(-pan.x, -pan.y);
@@ -572,11 +575,20 @@ pub const Game = struct {
         const cycle = input.shoulderCycle();
         if (cycle != 0) ui.side_panel.cycleBuyQty(cycle);
 
-        // D-pad quick buys: one bee per press, mapped by direction.
-        if (input.dpadPressed(.up)) try self.quickBuyBee(.buy_worker_bee);
-        if (input.dpadPressed(.left)) try self.quickBuyBee(.buy_swift_bee);
-        if (input.dpadPressed(.right)) try self.quickBuyBee(.buy_efficient_bee);
-        if (input.dpadPressed(.down)) try self.quickBuyBee(.buy_gardener_bee);
+        // Quick buys: one bee per press, mapped by direction/number.
+        if (input.quickBuyPressed(.up)) try self.quickBuyBee(.buy_worker_bee);
+        if (input.quickBuyPressed(.left)) try self.quickBuyBee(.buy_swift_bee);
+        if (input.quickBuyPressed(.right)) try self.quickBuyBee(.buy_efficient_bee);
+        if (input.quickBuyPressed(.down)) try self.quickBuyBee(.buy_gardener_bee);
+
+        // Tile magnetism: a released stick settles the cursor onto the
+        // hovered tile's center (diamond top face) instead of between tiles.
+        if (settings.cursorSnap and input.gamepadActive()) {
+            if (self.grid.getHoveredTile()) |tile| {
+                const pos = utils.isoToXY(@floatFromInt(tile.x), @floatFromInt(tile.y), self.grid.tileWidth, self.grid.tileHeight, self.grid.offset.x, self.grid.offset.y, self.grid.scale);
+                input.magnetPull(rl.Vector2.init(pos.x + 16 * self.grid.scale, pos.y + 8 * self.grid.scale));
+            }
+        }
     }
 
     /// Buy one bee without opening any UI (d-pad shortcut). Locked types
@@ -1155,6 +1167,7 @@ pub const Game = struct {
             .window_mode = @intFromEnum(settings.windowMode),
             .music_volume = self.audio.musicVolume,
             .fx_volume = self.audio.fxVolume,
+            .cursor_snap = settings.cursorSnap,
             .honey = self.resources.honey,
             .honey_capacity = self.resources.honeyCapacity,
             .storage_level = self.resources.storageLevel,
@@ -1270,6 +1283,7 @@ pub const Game = struct {
         settings.windowMode = settings.WindowMode.fromInt(data.window_mode);
         self.audio.setMusicVolume(finiteInRange(data.music_volume, 0, 1, 0.7));
         self.audio.setFxVolume(finiteInRange(data.fx_volume, 0, 1, 0.7));
+        settings.cursorSnap = data.cursor_snap;
 
         self.world.deinit();
         self.world = World.init(self.allocator);

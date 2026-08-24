@@ -25,6 +25,9 @@ pub const WindowMode = enum(u8) {
 
 /// The mode the player chose (persisted). Default: borderless.
 pub var windowMode: WindowMode = .borderless;
+/// Gamepad cursor eases onto the hovered tile's center when the stick is
+/// released (persisted; toggled on the Options > Controls page).
+pub var cursorSnap: bool = true;
 /// What the OS window is actually in right now.
 var applied: WindowMode = .windowed;
 

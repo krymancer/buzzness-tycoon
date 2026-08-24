@@ -42,6 +42,7 @@ pub const Data = struct {
     window_mode: u8 = 1, // settings.WindowMode (1 = borderless)
     music_volume: f32 = 0.7,
     fx_volume: f32 = 0.7,
+    cursor_snap: bool = true,
     honey: f32 = 100,
     honey_capacity: f32 = 500,
     storage_level: u32 = 1,
@@ -121,6 +122,7 @@ pub fn write(io: std.Io, save_path: []const u8, data: *const Data) !void {
     try writer.print("volume {d}\n", .{@max(data.music_volume, data.fx_volume)});
     try writer.print("music_volume {d}\n", .{data.music_volume});
     try writer.print("fx_volume {d}\n", .{data.fx_volume});
+    try writer.print("cursor_snap {d}\n", .{@intFromBool(data.cursor_snap)});
     try writer.print("resources {d} {d} {d} {d} {d} {d} {d}\n", .{
         data.honey,
         data.honey_capacity,
@@ -216,6 +218,8 @@ pub fn read(allocator: std.mem.Allocator, io: std.Io, save_path: []const u8) !Da
             data.music_volume = try parse(f32, tokens.next());
         } else if (std.mem.eql(u8, key, "fx_volume")) {
             data.fx_volume = try parse(f32, tokens.next());
+        } else if (std.mem.eql(u8, key, "cursor_snap")) {
+            data.cursor_snap = (try parse(u8, tokens.next())) != 0;
         } else if (std.mem.eql(u8, key, "resources")) {
             saw_resources = true;
             data.honey = try parse(f32, tokens.next());
