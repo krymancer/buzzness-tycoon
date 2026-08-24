@@ -128,10 +128,8 @@ fn drawBeeCross(ctx: Context, mouse: rl.Vector2, out: *Action) void {
     const rowH: f32 = 34;
     const qtyLabel = rl.textFormat("x%d", .{buyQty()});
     const qw: f32 = @floatFromInt(text.measure(qtyLabel, 24));
-    const iconsW: f32 = if (input.gamepadActive()) PROMPT * 2 + 2 else PROMPT * 2;
-    const totalW = qw + 10 + iconsW;
-    const rowX = ox + (crossW - totalW) / 2;
-    const rowY = oy - rowH - 4;
+    const rowX = ox;
+    const rowY = oy - rowH - 14;
     const rowRect = rl.Rectangle.init(ox, rowY, crossW, rowH);
     input.registerBlock(rowRect);
     const hovered = rl.checkCollisionPointRec(mouse, rowRect);
