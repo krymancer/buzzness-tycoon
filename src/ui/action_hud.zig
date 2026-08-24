@@ -49,16 +49,34 @@ pub const Action = union(enum) {
 
 /// Bee buy quantity, cycled by the cross's center button or LB/RB (persists
 /// for the session). Holding Shift while buying still bulk-buys x10+.
-pub const BUY_QTYS = [_]u32{ 1, 10, 25 };
+/// The x50/x100 steps unlock via the Bulk Order tree node.
+pub const BUY_QTYS = [_]u32{ 1, 10, 25, 50, 100 };
+const BASE_QTY_COUNT: usize = 3;
+var unlockedQtyCount: usize = BASE_QTY_COUNT;
 var buyQtyIndex: usize = 0;
+
+/// Sync the unlocked quantity steps with the Bulk Order node level
+/// (purchase, load, and run reset all funnel through here).
+pub fn setBulkTier(level: u16) void {
+    unlockedQtyCount = @min(BUY_QTYS.len, BASE_QTY_COUNT + level);
+    if (buyQtyIndex >= unlockedQtyCount) buyQtyIndex = 0;
+}
 
 pub fn buyQty() u32 {
     return BUY_QTYS[buyQtyIndex];
 }
 
+/// Quantity a purchase should use right now: the selected qty, with Shift
+/// held forcing at least x10. Shared by the cross slots and the d-pad /
+/// number-key quick buys so every buy path honors the selector.
+pub fn effectiveBuyQty() u32 {
+    const shift = rl.isKeyDown(rl.KeyboardKey.left_shift) or rl.isKeyDown(rl.KeyboardKey.right_shift);
+    return if (shift) @max(buyQty(), 10) else buyQty();
+}
+
 /// Step the quantity selection (center button click / gamepad LB/RB).
 pub fn cycleBuyQty(delta: i32) void {
-    const n: i32 = @intCast(BUY_QTYS.len);
+    const n: i32 = @intCast(unlockedQtyCount);
     buyQtyIndex = @intCast(@mod(@as(i32, @intCast(buyQtyIndex)) + delta, n));
 }
 
@@ -168,8 +186,7 @@ fn drawBeeSlot(ctx: Context, spec: SlotSpec, pos: rl.Vector2, mouse: rl.Vector2,
         return;
     }
 
-    const shift = rl.isKeyDown(rl.KeyboardKey.left_shift) or rl.isKeyDown(rl.KeyboardKey.right_shift);
-    const qty: u32 = if (shift) @max(buyQty(), 10) else buyQty();
+    const qty = effectiveBuyQty();
     const totalCost = spec.cost * @as(f32, @floatFromInt(qty));
     const afford = ctx.resources.honey >= totalCost;
     const hovered = rl.checkCollisionPointRec(mouse, rect);
@@ -293,7 +310,9 @@ fn drawBeeCensus(ctx: Context, x: f32, y: f32, w: f32, h: f32) void {
             0,
             tint,
         );
-        const label = rl.textFormat("x%d", .{ctx.beeTypeCounts[i]});
+        var nbuf: [32]u8 = undefined;
+        const nstr = format.formatShort(@floatFromInt(ctx.beeTypeCounts[i]), &nbuf);
+        const label = rl.textFormat("x%s", .{nstr.ptr});
         text.draw(label, @intFromFloat(cx + iconS - 1), @intFromFloat(y + (h - 16) / 2), 16, if (isUnlocked) C.text else C.overlay0);
     }
 }
@@ -336,7 +355,9 @@ fn drawPassives(ctx: Context, mouse: rl.Vector2, out: *Action) void {
         rl.drawCircle(cx - 6, cy + 2, 3, C.mauve);
         rl.drawCircle(cx, cy - 3, 3.5, C.pink);
         rl.drawCircle(cx + 6, cy + 2, 3, C.mauve);
-        const label = rl.textFormat(locale.tr("Prestige  RJ %d · x%.2f", "Prestígio  GR %d · x%.2f"), .{ ctx.prestige.royalJelly, ctx.prestige.globalMul() });
+        var jbuf: [32]u8 = undefined;
+        const jstr = format.formatShort(@floatFromInt(ctx.prestige.royalJelly), &jbuf);
+        const label = rl.textFormat(locale.tr("Prestige  RJ %s · x%.2f", "Prestígio  GR %s · x%.2f"), .{ jstr.ptr, ctx.prestige.globalMul() });
         text.draw(label, @intFromFloat(x + 32), @intFromFloat(y + 8), 16, if (hovered) C.pink else C.subtext1);
         if (hovered and input.confirmPressed()) out.* = .open_prestige;
     }

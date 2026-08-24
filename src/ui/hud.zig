@@ -35,12 +35,22 @@ pub const Hud = struct {
 
         var hbuf: [32]u8 = undefined;
         var cbuf: [32]u8 = undefined;
+        var fbuf: [32]u8 = undefined;
+        var rbuf: [32]u8 = undefined;
         const hstr = format.formatShort(resources.honey, &hbuf);
         const cstr = format.formatShort(resources.honeyCapacity, &cbuf);
         const honeyText = rl.textFormat("%s", .{hstr.ptr});
         const capText = rl.textFormat("/ %s", .{cstr.ptr});
-        const factorText = rl.textFormat("x%.1f", .{beehiveFactor});
-        const rateText = rl.textFormat("(+%.1f/s)", .{resources.honeyPerSec});
+        // Same short treatment as honey; small values keep one decimal so
+        // early-game x2.5 factors and sub-1/s rates still read exactly.
+        const factorText = if (beehiveFactor < 1000.0)
+            rl.textFormat("x%.1f", .{beehiveFactor})
+        else
+            rl.textFormat("x%s", .{format.formatShort(beehiveFactor, &fbuf).ptr});
+        const rateText = if (resources.honeyPerSec < 1000.0)
+            rl.textFormat("(+%.1f/s)", .{resources.honeyPerSec})
+        else
+            rl.textFormat("(+%s/s)", .{format.formatShort(resources.honeyPerSec, &rbuf).ptr});
 
         const bigSize: i32 = 40;
         const smallSize: i32 = 24;

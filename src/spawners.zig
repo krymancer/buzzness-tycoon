@@ -59,6 +59,15 @@ pub fn flowerTypeToFlowers(flowerType: components.FlowerType) Flowers {
     };
 }
 
+/// Bee Vitality node: multiplies the lifespan of newly spawned bees.
+/// (game.zig also extends already-living bees when the node is bought.)
+pub var beeLifespanMul: f32 = 1.0;
+pub const BEE_LIFESPAN_PER_LEVEL: f32 = 1.2;
+
+pub fn beeLifespanMulForLevel(level: u16) f32 {
+    return std.math.pow(f32, BEE_LIFESPAN_PER_LEVEL, @floatFromInt(level));
+}
+
 /// Spawn a new bee at a random position within the grid bounds
 pub fn spawnBee(world: *World, grid: *const Grid, textures: *const Textures) !u32 {
     return spawnBeeWithType(world, grid, textures, .worker);
@@ -72,7 +81,7 @@ pub fn spawnBeeWithType(world: *World, grid: *const Grid, textures: *const Textu
     try world.addPosition(beeEntity, components.Position.init(randomPos.x, randomPos.y));
     try world.addSprite(beeEntity, components.Sprite.init(textures.bee, 32, 32, 1));
     try world.addBeeAI(beeEntity, components.BeeAI.initWithType(beeType));
-    try world.addLifespan(beeEntity, components.Lifespan.init(@floatFromInt(rl.getRandomValue(60, 140))));
+    try world.addLifespan(beeEntity, components.Lifespan.init(@as(f32, @floatFromInt(rl.getRandomValue(60, 140))) * beeLifespanMul));
     try world.addPollenCollector(beeEntity, components.PollenCollector.init());
     try world.addScaleSync(beeEntity, components.ScaleSync.init(1));
 

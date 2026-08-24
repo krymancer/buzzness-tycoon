@@ -1,4 +1,13 @@
+const std = @import("std");
 const World = @import("../world.zig").World;
+
+/// Fertile Soil node: multiplies flower maturation and pollen-regen speed.
+pub var growthMul: f32 = 1.0;
+pub const GROWTH_MUL_PER_LEVEL: f32 = 1.2;
+
+pub fn growthMulForLevel(level: u16) f32 {
+    return std.math.pow(f32, GROWTH_MUL_PER_LEVEL, @floatFromInt(level));
+}
 
 pub fn update(world: *World, deltaTime: f32) !void {
     // Use direct iterator - no allocation
@@ -16,7 +25,7 @@ pub fn update(world: *World, deltaTime: f32) !void {
 
             if (growth.state == 4) {
                 if (!growth.hasPollen) {
-                    growth.timeAlive += growth.growthRate * deltaTime;
+                    growth.timeAlive += growth.growthRate * growthMul * deltaTime;
                     if (growth.timeAlive > growth.pollenCooldown) {
                         growth.hasPollen = true;
                         growth.timeAlive = 0;
@@ -26,7 +35,7 @@ pub fn update(world: *World, deltaTime: f32) !void {
             }
 
             if (growth.state < 4) {
-                growth.timeAlive += growth.growthRate * deltaTime;
+                growth.timeAlive += growth.growthRate * growthMul * deltaTime;
                 if (growth.timeAlive > growth.growthThreshold) {
                     growth.timeAlive = 0;
                     growth.state += 1;

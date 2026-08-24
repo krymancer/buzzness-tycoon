@@ -21,6 +21,7 @@ const Ambient = @import("ambient.zig").Ambient;
 const clock = @import("clock.zig");
 const Audio = @import("audio.zig").Audio;
 const text = @import("text.zig");
+const format = @import("format.zig");
 const locale = @import("localization.zig");
 const save = @import("save.zig");
 const utils = @import("utils.zig");
@@ -683,9 +684,10 @@ pub const Game = struct {
         return best;
     }
 
-    /// Buy one bee without opening any UI (d-pad shortcut). Locked types
-    /// no-op so the mapping stays stable; the "-cost" popup at the cursor is
-    /// the success feedback (same as shop purchases).
+    /// Buy bees without opening any UI (d-pad / number-key shortcut), honoring
+    /// the cross's selected quantity. Locked types no-op so the mapping stays
+    /// stable; the "-cost" popup at the cursor is the success feedback (same
+    /// as shop purchases).
     fn quickBuyBee(self: *@This(), buyAction: actions.BuyAction) !void {
         const unlocked = switch (buyAction) {
             .buy_worker_bee => true,
@@ -697,9 +699,16 @@ pub const Game = struct {
 
         var handler = self.createActionHandler();
         const honeyBefore = self.resources.honey;
-        const result = try handler.handleBuy(buyAction);
-        if (result.beeCountDelta > 0) {
-            self.cachedBeeCount += @intCast(result.beeCountDelta);
+        var delta: i32 = 0;
+        // Bulk buy: repeat until the quantity is met or honey runs out.
+        var n: u32 = 0;
+        while (n < ui.action_hud.effectiveBuyQty()) : (n += 1) {
+            const result = try handler.handleBuy(buyAction);
+            if (result.beeCountDelta == 0) break;
+            delta += result.beeCountDelta;
+        }
+        if (delta > 0) {
+            self.cachedBeeCount += @intCast(delta);
             try self.spawnSpendFeedback(honeyBefore);
             ui.action_hud.flashSlot(switch (buyAction) {
                 .buy_worker_bee => 0,
@@ -927,6 +936,7 @@ pub const Game = struct {
                 .screenHeight = self.height,
                 .state = &self.upgradeTree,
                 .resources = &self.resources,
+                .textures = &self.textures,
             };
             const treeAction = ui.tree_view.draw(treeCtx);
             switch (treeAction) {
@@ -994,6 +1004,14 @@ pub const Game = struct {
                 pos.x += delta.x;
                 pos.y += delta.y;
             }
+        }
+    }
+
+    /// Stretch every living bee's lifespan (Bee Vitality purchase / load).
+    fn multiplyBeeLifespans(self: *@This(), factor: f32) void {
+        var it = self.world.iterateBees();
+        while (it.next()) |entity| {
+            if (self.world.getLifespan(entity)) |ls| ls.timeSpan *= factor;
         }
     }
 
@@ -1074,10 +1092,14 @@ pub const Game = struct {
         const newTotal = self.prestige.royalJelly + gain;
         const newMul = 1.0 + 0.1 * @as(f32, @floatFromInt(newTotal));
 
-        const line1 = rl.textFormat(locale.tr("This run: %.0f honey", "Nesta partida: %.0f mel"), .{self.prestige.thisRunHoney});
+        var runBuf: [32]u8 = undefined;
+        const runStr = format.formatShort(self.prestige.thisRunHoney, &runBuf);
+        const line1 = rl.textFormat(locale.tr("This run: %s honey", "Nesta partida: %s mel"), .{runStr.ptr});
         text.draw(line1, @as(i32, @intFromFloat(popupX + 24)), @as(i32, @intFromFloat(popupY + 60)), 16, theme.CatppuccinMocha.Color.text);
 
-        const line2 = rl.textFormat(locale.tr("Royal Jelly gained: +%d", "Geleia Real recebida: +%d"), .{gain});
+        var gainBuf: [32]u8 = undefined;
+        const gainStr = format.formatShort(@floatFromInt(gain), &gainBuf);
+        const line2 = rl.textFormat(locale.tr("Royal Jelly gained: +%s", "Geleia Real recebida: +%s"), .{gainStr.ptr});
         text.draw(line2, @as(i32, @intFromFloat(popupX + 24)), @as(i32, @intFromFloat(popupY + 88)), 16, theme.CatppuccinMocha.Color.pink);
 
         const line3 = rl.textFormat(locale.tr("New multiplier: x%.2f  (was x%.2f)", "Novo multiplicador: x%.2f  (antes x%.2f)"), .{ newMul, self.prestige.globalMul() });
@@ -1150,6 +1172,11 @@ pub const Game = struct {
         spawners.superFlowersUnlocked = false;
         bee_ai_system.gardenerPlantChance = bee_ai_system.GARDENER_BASE_CHANCE;
         bee_ai_system.gardenerCompost = false;
+        bee_ai_system.gardenerSweep = false;
+        flower_growth_system.growthMul = 1.0;
+        spawners.beeLifespanMul = 1.0;
+        lifespan_system.rotChancePercent = lifespan_system.ROT_CHANCE_PERCENT;
+        ui.action_hud.setBulkTier(0);
 
         self.cachedBeeCount = self.world.entityToBeeAI.count();
         self.cachedFlowerCount = self.world.entityToFlowerGrowth.count();
@@ -1239,6 +1266,16 @@ pub const Game = struct {
             .bee_unlock_worker, .bee_unlock_swift, .bee_unlock_efficient, .bee_unlock_gardener => {},
             .gardener_chance => bee_ai_system.gardenerPlantChance = bee_ai_system.gardenerChanceForLevel(self.upgradeTree.level(nodeId) + 1),
             .gardener_compost => bee_ai_system.gardenerCompost = true,
+            .gardener_sweep => bee_ai_system.gardenerSweep = true,
+            .bulk_buy_tier => ui.action_hud.setBulkTier(self.upgradeTree.level(nodeId) + 1),
+            .flower_growth_mul => flower_growth_system.growthMul = flower_growth_system.growthMulForLevel(self.upgradeTree.level(nodeId) + 1),
+            .bee_lifespan_mul => {
+                spawners.beeLifespanMul = spawners.beeLifespanMulForLevel(self.upgradeTree.level(nodeId) + 1);
+                // Already-living bees benefit too, so the purchase lands
+                // immediately instead of only on the next generation.
+                self.multiplyBeeLifespans(spawners.BEE_LIFESPAN_PER_LEVEL);
+            },
+            .rot_chance_sub => lifespan_system.rotChancePercent = lifespan_system.rotChanceForLevel(self.upgradeTree.level(nodeId) + 1),
             .grid_expand => try self.expandGrid(),
             // +1 because the level is bumped after this switch.
             .lab_aura => {
@@ -1528,6 +1565,14 @@ pub const Game = struct {
         spawners.superFlowersUnlocked = self.upgradeTree.hasEffect(.super_flower_unlock);
         bee_ai_system.gardenerPlantChance = bee_ai_system.gardenerChanceForLevel(self.upgradeTree.level(upgrade_tree.GREEN_THUMB_ID));
         bee_ai_system.gardenerCompost = self.upgradeTree.hasEffect(.gardener_compost);
+        bee_ai_system.gardenerSweep = self.upgradeTree.hasEffect(.gardener_sweep);
+        flower_growth_system.growthMul = flower_growth_system.growthMulForLevel(self.upgradeTree.level(upgrade_tree.FERTILE_SOIL_ID));
+        spawners.beeLifespanMul = spawners.beeLifespanMulForLevel(self.upgradeTree.level(upgrade_tree.BEE_VITALITY_ID));
+        lifespan_system.rotChancePercent = lifespan_system.rotChanceForLevel(self.upgradeTree.level(upgrade_tree.HARDY_BLOOMS_ID));
+        ui.action_hud.setBulkTier(self.upgradeTree.level(upgrade_tree.BULK_ORDER_ID));
+        // The bees above were respawned with base lifespans before the tree
+        // was applied; stretch them to the boosted span now.
+        if (spawners.beeLifespanMul != 1.0) self.multiplyBeeLifespans(spawners.beeLifespanMul);
         // Derived from the tree levels (the saved multiplier is legacy).
         self.labs.auraMul = labs.auraMultiplierForLevel(self.upgradeTree.level(upgrade_tree.AURA_ID));
         self.labs.auraReach = if (self.upgradeTree.isPurchased(upgrade_tree.AURA_ID))
