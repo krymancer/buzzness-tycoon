@@ -12,6 +12,11 @@ pub const EffectKind = enum {
     bee_unlock_gardener,
     gardener_chance,
     gardener_compost,
+    gardener_sweep,
+    bulk_buy_tier,
+    flower_growth_mul,
+    bee_lifespan_mul,
+    rot_chance_sub,
     grid_expand,
     lab_aura,
     aura_reach,
@@ -82,6 +87,8 @@ pub const NODES = [_]Node{
     .{ .id = 26, .name = "Green Thumb", .cost = 2500, .prereqs = &[_]NodeId{6}, .effect = .gardener_chance, .col = -1, .row = 4, .repeat = .{ .cost_growth = 1.5, .max_level = 8 } },
     // Gardeners clear rotten flowers they fly over (then may replant there).
     .{ .id = 27, .name = "Composting", .cost = 6000, .prereqs = &[_]NodeId{26}, .effect = .gardener_compost, .col = -1, .row = 5 },
+    // Gardeners actively seek out rotten flowers and fly there to clear them.
+    .{ .id = 28, .name = "Cleanup Crew", .cost = 15000, .prereqs = &[_]NodeId{27}, .effect = .gardener_sweep, .col = -1, .row = 6 },
 
     // Growth (col 0, below Instant Grow which gates it). Repeatable: each
     // level shaves `value` seconds off the Instant Grow cooldown (floor 2s).
@@ -91,6 +98,8 @@ pub const NODES = [_]Node{
     // Grid (col 1). Repeatable: +1 ring per level.
     .{ .id = 10, .name = "Grid Ring", .cost = 150, .prereqs = r_worker, .effect = .grid_expand, .value = 1, .col = 1, .row = 1, .repeat = .{ .cost_growth = 3.0, .max_level = 10 } },
     // (ids 11/12 were Grid +2/+3 ring — folded into 10's levels on load.)
+    // Level 1 adds x50 to the bee buy-quantity cycle; level 2 adds x100.
+    .{ .id = 32, .name = "Bulk Order", .cost = 3000, .prereqs = &[_]NodeId{10}, .effect = .bulk_buy_tier, .col = 1, .row = 2, .repeat = .{ .cost_growth = 4.0, .max_level = 2 } },
 
     // Storage (col 2). Repeatable: adds value * STORAGE_CAPACITY_GROWTH^level
     // capacity per level. cost_growth must never exceed the capacity growth:
@@ -98,6 +107,13 @@ pub const NODES = [_]Node{
     // eventually becomes unreachable and softlocks progression.
     .{ .id = 13, .name = "Storage", .cost = 40, .prereqs = r_worker, .effect = .storage_add, .value = 500, .col = 2, .row = 1, .repeat = .{ .cost_growth = STORAGE_CAPACITY_GROWTH } },
     // (ids 14/15 were Storage +1K/+2K — folded into 13's levels on load.)
+
+    // Colony vitality (col 2, under Storage). Available from the start and
+    // infinitely repeatable: flowers mature/re-pollen faster (x1.2/level),
+    // bees live longer (x1.2/level), dying flowers rot less (x0.85/level).
+    .{ .id = 29, .name = "Fertile Soil", .cost = 300, .prereqs = r_worker, .effect = .flower_growth_mul, .value = 1.2, .col = 2, .row = 2, .repeat = .{ .cost_growth = 1.6 } },
+    .{ .id = 30, .name = "Bee Vitality", .cost = 800, .prereqs = r_worker, .effect = .bee_lifespan_mul, .value = 1.2, .col = 2, .row = 3, .repeat = .{ .cost_growth = 1.7 } },
+    .{ .id = 31, .name = "Hardy Blooms", .cost = 2500, .prereqs = r_worker, .effect = .rot_chance_sub, .value = 0.85, .col = 2, .row = 4, .repeat = .{ .cost_growth = 1.8 } },
 
     // Labs branch (col 0, rows 4-6) — gated behind cross-branch t3 nodes
     // Aura: flowers inside the rings around the hive yield more pollen.
@@ -124,6 +140,10 @@ pub const AURA_ID: NodeId = 16;
 pub const STORAGE_CAPACITY_GROWTH: f32 = 1.6;
 pub const AURA_REACH_ID: NodeId = 25;
 pub const GREEN_THUMB_ID: NodeId = 26;
+pub const FERTILE_SOIL_ID: NodeId = 29;
+pub const BEE_VITALITY_ID: NodeId = 30;
+pub const HARDY_BLOOMS_ID: NodeId = 31;
+pub const BULK_ORDER_ID: NodeId = 32;
 
 /// Old one-shot chains that are now single repeatable nodes. Each legacy id
 /// purchased in an old save counts as +1 level on its target.
@@ -225,6 +245,16 @@ test "storage upgrades never cost more than the capacity they build" {
     for (0..80) |level| {
         try std.testing.expect(storage.costAtLevel(@intCast(level)) <= capacity);
         capacity += storage.value * std.math.pow(f32, STORAGE_CAPACITY_GROWTH, @floatFromInt(level));
+    }
+}
+
+test "colony vitality nodes are buyable at start and never max out" {
+    var s = State.init(std.testing.allocator);
+    defer s.deinit();
+    for ([_]NodeId{ FERTILE_SOIL_ID, BEE_VITALITY_ID, HARDY_BLOOMS_ID }) |id| {
+        const n = findNode(id).?;
+        try std.testing.expect(s.canBuy(n));
+        try std.testing.expect(!n.isMaxed(100));
     }
 }
 

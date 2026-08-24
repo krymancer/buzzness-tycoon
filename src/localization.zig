@@ -52,6 +52,35 @@ pub fn languageButton() [:0]const u8 {
     return tr("Language: English", "Idioma: Português (BR)");
 }
 
+/// One-sentence description of what a tree node does, shown as the hover
+/// tooltip in the upgrade tree.
+pub fn nodeDesc(id: u16) [:0]const u8 {
+    return switch (id) {
+        0 => tr("The baseline bee: collects pollen and hauls it to the hive.", "A abelha básica: coleta pólen e leva até a colmeia."),
+        1, 2, 3, 22, 23 => tr("Doubles the honey earned per pollen delivery.", "Dobra o mel ganho por entrega de pólen."),
+        24 => tr("+25% honey per delivery, every level.", "+25% de mel por entrega, a cada nível."),
+        4 => tr("Unlocks the Swift bee: flies twice as fast.", "Libera a abelha Veloz: voa duas vezes mais rápido."),
+        5 => tr("Unlocks the Efficient bee: collects double pollen.", "Libera a abelha Eficiente: coleta o dobro de pólen."),
+        6 => tr("Unlocks the Gardener bee: plants flowers on empty cells it crosses.", "Libera a abelha Jardineira: planta flores nas células vazias que cruza."),
+        26 => tr("+10% gardener planting chance per level.", "+10% de chance de plantio da jardineira por nível."),
+        27 => tr("Gardeners clear rotten flowers they fly over.", "Jardineiras limpam flores podres por onde voam."),
+        28 => tr("Gardeners actively hunt rotten flowers and fly there to clear them.", "Jardineiras caçam flores podres e voam até elas para limpá-las."),
+        7 => tr("-1s Instant Grow cooldown per level (floor 2s).", "-1s de recarga do Crescer Instantâneo por nível (mínimo 2s)."),
+        10 => tr("Adds a ring of meadow tiles around the grid.", "Adiciona um anel de células ao redor do campo."),
+        32 => tr("Unlocks bigger bulk-buy options for bees.", "Desbloqueia opções maiores de compra em massa de abelhas."),
+        13 => tr("Raises the honey storage cap.", "Aumenta o limite de armazenamento de mel."),
+        29 => tr("Flowers mature and regrow pollen 20% faster per level.", "Flores amadurecem e repõem pólen 20% mais rápido por nível."),
+        30 => tr("Bees live 20% longer per level; living bees benefit too.", "Abelhas vivem 20% mais por nível; as vivas também ganham."),
+        31 => tr("Dying flowers rot 15% less often per level.", "Flores morrendo apodrecem 15% menos por nível."),
+        16 => tr("Flowers near the hive yield +25% pollen per level.", "Flores perto da colmeia rendem +25% de pólen por nível."),
+        25 => tr("Widens the aura by one tile ring per level.", "Amplia a aura em um anel de células por nível."),
+        19 => tr("Unlocks Prestige: reset the run for Royal Jelly and a permanent multiplier.", "Libera o Prestígio: reinicie a partida por Geleia Real e um multiplicador permanente."),
+        20 => tr("Unlocks Instant Grow: click a growing flower to bloom it instantly.", "Libera o Crescer Instantâneo: clique numa flor crescendo para desabrochá-la na hora."),
+        21 => tr("2x2 blocks of the same flower merge into an 8x SUPER flower.", "Blocos 2x2 da mesma flor se fundem numa SUPERflor de 8x."),
+        else => "",
+    };
+}
+
 pub fn nodeName(id: u16, english: []const u8) []const u8 {
     if (current_language == .english) return english;
     return switch (id) {
@@ -75,6 +104,11 @@ pub fn nodeName(id: u16, english: []const u8) []const u8 {
         25 => "Alcance da Aura",
         26 => "Dedo Verde",
         27 => "Compostagem",
+        28 => "Equipe de Limpeza",
+        29 => "Solo Fértil",
+        30 => "Vitalidade",
+        31 => "Flores Resistentes",
+        32 => "Compra em Massa",
         else => english,
     };
 }

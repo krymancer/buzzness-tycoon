@@ -6,10 +6,17 @@ const widgets = @import("widgets.zig");
 
 const theme = @import("../theme.zig");
 const format = @import("../format.zig");
+const icons = @import("icons.zig");
 const upgrade_tree = @import("../upgrade_tree.zig");
 const Resources = @import("../resources.zig").Resources;
+const Textures = @import("../textures.zig").Textures;
 const locale = @import("../localization.zig");
 const ui_scale = @import("../ui_scale.zig");
+const labs = @import("../labs.zig");
+const spawners = @import("../spawners.zig");
+const bee_ai_system = @import("../ecs/systems/bee_ai_system.zig");
+const lifespan_system = @import("../ecs/systems/lifespan_system.zig");
+const flower_growth_system = @import("../ecs/systems/flower_growth_system.zig");
 
 pub const TreeAction = union(enum) {
     none,
@@ -18,9 +25,9 @@ pub const TreeAction = union(enum) {
 };
 
 const NODE_W: f32 = 158;
-const NODE_H: f32 = 66;
+const NODE_H: f32 = 44;
 const COL_SPACING: f32 = 174;
-const ROW_SPACING: f32 = 74;
+const ROW_SPACING: f32 = 56;
 // Layout extents (cols -2..2, rows 0..6) at scale 1.
 const MIN_COL: f32 = -2;
 const MAX_COL: f32 = 2;
@@ -48,6 +55,7 @@ pub const TreeContext = struct {
     screenHeight: f32,
     state: *const upgrade_tree.State,
     resources: *const Resources,
+    textures: *const Textures,
 };
 
 const NodeStyle = struct {
@@ -207,6 +215,8 @@ pub fn draw(ctx: TreeContext) TreeAction {
     var action: TreeAction = .none;
     // A click that was really a pan shouldn't buy the node under the cursor.
     const clickOk = inContent and (!scrollable or dragMoved < 8);
+    // Hovered node, remembered for the description tooltip drawn on top.
+    var hoveredNode: ?*const upgrade_tree.Node = null;
 
     for (&upgrade_tree.NODES) |*node| {
         const pos = nodePos(node, centerX, topY, s);
@@ -225,6 +235,7 @@ pub fn draw(ctx: TreeContext) TreeAction {
 
         // Hover highlight on actionable nodes
         const hovered = inContent and rl.checkCollisionPointRec(mouse, rect);
+        if (hovered) hoveredNode = node;
         if (buyable) input.registerHotspot(rect);
         if (buyable and afford and hovered) {
             var glow = C.blue;
@@ -232,27 +243,39 @@ pub fn draw(ctx: TreeContext) TreeAction {
             rl.drawRectangleRounded(rect, 0.22, 6, glow);
         }
 
-        // Name
+        // Compact single-row body: effect icon | name (+Lv) | cost on the
+        // right. Long localized names shrink a font step; if name + cost
+        // still can't share the row, the cost drops to a second line.
+        drawNodeIcon(ctx, node, pos.x + 16 * s, pos.y + nodeH / 2, s, unlocked);
+
         var nameBuf: [64]u8 = undefined;
         const localizedName = locale.nodeName(node.id, node.name);
         const nameZ = if (node.isRepeatable() and lvl > 0)
             std.fmt.bufPrintZ(&nameBuf, "{s} {s}{d}", .{ localizedName, locale.tr("Lv", "Nv"), lvl }) catch continue
         else
             std.fmt.bufPrintZ(&nameBuf, "{s}", .{localizedName}) catch continue;
-        const nameSize = fs(17, s);
-        const nameW = text.measure(nameZ, nameSize);
-        const nameX = @as(i32, @intFromFloat(pos.x + nodeW / 2)) - @divFloor(nameW, 2);
-        text.draw(nameZ, nameX, @as(i32, @intFromFloat(pos.y + 8 * s)), nameSize, style.nameColor);
 
-        // Cost line — only on nodes that can still be bought; owned and
-        // locked states already read through the border/text colors.
-        if (!style.showOwned and unlocked) {
-            const subY: i32 = @intFromFloat(pos.y + 39 * s);
-            var cbuf: [32]u8 = undefined;
-            const cstr = format.formatShort(cost, &cbuf);
-            const costSize = fs(16, s);
-            const cw = text.measure(cstr, costSize);
-            text.draw(cstr, @as(i32, @intFromFloat(pos.x + nodeW / 2)) - @divFloor(cw, 2), subY, costSize, style.costColor);
+        var cbuf: [32]u8 = undefined;
+        const showCost = !style.showOwned and unlocked;
+        const cstr = format.formatShort(cost, &cbuf);
+        const textX: i32 = @intFromFloat(pos.x + 30 * s);
+        const availW: i32 = @intFromFloat(nodeW - 38 * s);
+        var nameSize = fs(15, s);
+        var nameW = text.measure(nameZ, nameSize);
+        if (nameW > availW) {
+            nameSize = fs(12, s);
+            nameW = text.measure(nameZ, nameSize);
+        }
+        const costSize = fs(14, s);
+        const costW = if (showCost) text.measure(cstr, costSize) else 0;
+        const costX = @as(i32, @intFromFloat(pos.x + nodeW - 8 * s)) - costW;
+        const cy = @as(i32, @intFromFloat(pos.y + nodeH / 2));
+        if (!showCost or nameW + costW + @as(i32, @intFromFloat(10 * s)) <= availW) {
+            text.draw(nameZ, textX, cy - @divFloor(nameSize, 2), nameSize, style.nameColor);
+            if (showCost) text.draw(cstr, costX, cy - @divFloor(costSize, 2), costSize, style.costColor);
+        } else {
+            text.draw(nameZ, textX, @intFromFloat(pos.y + 5 * s), nameSize, style.nameColor);
+            text.draw(cstr, textX, @intFromFloat(pos.y + 24 * s), costSize, style.costColor);
         }
 
         if (buyable and afford and hovered and clickOk and input.confirmReleased()) {
@@ -261,6 +284,14 @@ pub fn draw(ctx: TreeContext) TreeAction {
     }
 
     ui_scale.endScissor();
+
+    // Description tooltip for the hovered node, above everything else.
+    if (hoveredNode) |node| {
+        const desc = locale.nodeDesc(node.id);
+        var statusBuf: [96]u8 = undefined;
+        const status = nodeStatus(ctx, node, ctx.state.level(node.id), &statusBuf);
+        if (desc.len > 0) drawTooltip(desc, status, mouse, ctx.screenWidth, ctx.screenHeight);
+    }
 
     // Scroll hint when clipped.
     if (scrollable) {
@@ -279,5 +310,211 @@ pub fn draw(ctx: TreeContext) TreeAction {
     }
 
     return action;
+}
+
+/// Small effect glyph on the node's left edge, from the shared primitive
+/// icons plus the bee/flower sprites. Locked nodes draw it dimmed.
+fn drawNodeIcon(ctx: TreeContext, node: *const upgrade_tree.Node, cx: f32, cy: f32, s: f32, unlocked: bool) void {
+    const C = theme.CatppuccinMocha.Color;
+    const dim = C.overlay0;
+    switch (node.effect) {
+        .honey_factor_mul => icons.drawHoneyDrop(cx, cy + 3 * s, 6 * s, if (unlocked) C.yellow else dim),
+        .storage_add => {
+            // Honey pot: body + lid.
+            const col = if (unlocked) C.peach else dim;
+            const w = 13 * s;
+            rl.drawRectangleRounded(rl.Rectangle.init(cx - w / 2, cy - 3 * s, w, 9 * s), 0.5, 4, col);
+            rl.drawRectangleRounded(rl.Rectangle.init(cx - w / 2 - 1.5 * s, cy - 7 * s, w + 3 * s, 4 * s), 0.6, 4, col);
+        },
+        .bee_unlock_worker, .bee_unlock_swift, .bee_unlock_efficient, .bee_unlock_gardener, .bee_lifespan_mul, .bulk_buy_tier => {
+            const accent = switch (node.effect) {
+                .bee_unlock_swift => C.blue,
+                .bee_unlock_efficient => C.green,
+                .bee_unlock_gardener => C.pink,
+                .bee_lifespan_mul => C.teal,
+                .bulk_buy_tier => C.yellow,
+                else => C.text,
+            };
+            const size = 22 * s;
+            rl.drawTexturePro(
+                ctx.textures.bee,
+                rl.Rectangle.init(0, 0, 32, 32),
+                rl.Rectangle.init(cx - size / 2, cy - size / 2, size, size),
+                rl.Vector2.init(0, 0),
+                0,
+                if (unlocked) accent else dim,
+            );
+        },
+        .gardener_chance, .gardener_compost, .gardener_sweep, .growth_cd_sub, .growth_boost_unlock, .flower_growth_mul, .rot_chance_sub => icons.drawSprout(cx, cy + 7 * s, 14 * s, if (unlocked) C.green else dim),
+        .grid_expand => {
+            // Isometric tile diamond (both windings so culling can't hide it).
+            const col = if (unlocked) C.lavender else dim;
+            const rx = 9 * s;
+            const ry = 6 * s;
+            const top = rl.Vector2.init(cx, cy - ry);
+            const left = rl.Vector2.init(cx - rx, cy);
+            const right = rl.Vector2.init(cx + rx, cy);
+            const bottom = rl.Vector2.init(cx, cy + ry);
+            for ([_][3]rl.Vector2{ .{ top, left, right }, .{ bottom, right, left } }) |p| {
+                rl.drawTriangle(p[0], p[1], p[2], col);
+                rl.drawTriangle(p[2], p[1], p[0], col);
+            }
+        },
+        .lab_aura, .aura_reach => icons.drawAura(cx, cy, 8 * s, if (unlocked) C.lavender else dim),
+        .prestige_unlock => {
+            // Crown dots, same motif as the prestige card.
+            const col1 = if (unlocked) C.mauve else dim;
+            const col2 = if (unlocked) C.pink else dim;
+            rl.drawCircle(@intFromFloat(cx - 6 * s), @intFromFloat(cy + 2 * s), 3 * s, col1);
+            rl.drawCircle(@intFromFloat(cx), @intFromFloat(cy - 3 * s), 3.5 * s, col2);
+            rl.drawCircle(@intFromFloat(cx + 6 * s), @intFromFloat(cy + 2 * s), 3 * s, col1);
+        },
+        .super_flower_unlock => {
+            // Bloomed rose frame (state 4 of the 5-frame sheet).
+            const size = 20 * s;
+            rl.drawTexturePro(
+                ctx.textures.getFlowerTexture(.rose),
+                rl.Rectangle.init(128, 0, 32, 32),
+                rl.Rectangle.init(cx - size / 2, cy - size / 2, size, size),
+                rl.Vector2.init(0, 0),
+                0,
+                if (unlocked) rl.Color.white else dim,
+            );
+        },
+    }
+}
+
+/// Multiplier label: two decimals while small, short-suffixed when large.
+fn fmtMul(v: f32, buf: []u8) [:0]const u8 {
+    if (v < 1000.0) return std.fmt.bufPrintZ(buf, "{d:.2}", .{v}) catch "?";
+    return format.formatShort(v, buf);
+}
+
+/// Live "Now → Next" line for the tooltip: what the node currently gives and
+/// what the next level would give, using the same formulas the game applies.
+/// Null for one-shot nodes whose static description already says it all.
+fn nodeStatus(ctx: TreeContext, node: *const upgrade_tree.Node, lvl: u16, buf: []u8) ?[:0]const u8 {
+    const now = locale.tr("Now", "Agora");
+    const nxt = locale.tr("Next", "Próx.");
+    const maxed = node.isMaxed(lvl);
+    switch (node.effect) {
+        .honey_factor_mul => {
+            // Only the repeatable Honey Boost accumulates a visible total.
+            if (!node.isRepeatable()) return null;
+            var b1: [24]u8 = undefined;
+            var b2: [24]u8 = undefined;
+            const cur = std.math.pow(f32, node.value, @floatFromInt(lvl));
+            return std.fmt.bufPrintZ(buf, "{s}: x{s}  ·  {s}: x{s}", .{ now, fmtMul(cur, &b1), nxt, fmtMul(cur * node.value, &b2) }) catch null;
+        },
+        .gardener_chance => {
+            const cur = bee_ai_system.gardenerChanceForLevel(lvl);
+            if (maxed) return std.fmt.bufPrintZ(buf, "{s}: {d}%", .{ now, cur }) catch null;
+            return std.fmt.bufPrintZ(buf, "{s}: {d}%  ·  {s}: {d}%", .{ now, cur, nxt, bee_ai_system.gardenerChanceForLevel(lvl + 1) }) catch null;
+        },
+        .growth_cd_sub => {
+            const cur = ctx.resources.growthBoostMaxCooldown;
+            if (maxed) return std.fmt.bufPrintZ(buf, "{s}: {d:.0}s", .{ now, cur }) catch null;
+            return std.fmt.bufPrintZ(buf, "{s}: {d:.0}s  ·  {s}: {d:.0}s", .{ now, cur, nxt, @max(2.0, cur - node.value) }) catch null;
+        },
+        .storage_add => {
+            var b1: [24]u8 = undefined;
+            const add = node.value * std.math.pow(f32, upgrade_tree.STORAGE_CAPACITY_GROWTH, @floatFromInt(lvl));
+            return std.fmt.bufPrintZ(buf, "{s}: +{s} {s}", .{ nxt, format.formatShort(add, &b1), locale.tr("capacity", "de capacidade") }) catch null;
+        },
+        .lab_aura => {
+            const cur = labs.auraMultiplierForLevel(lvl);
+            return std.fmt.bufPrintZ(buf, "{s}: x{d:.2}  ·  {s}: x{d:.2}", .{ now, cur, nxt, labs.auraMultiplierForLevel(lvl + 1) }) catch null;
+        },
+        .aura_reach => {
+            return std.fmt.bufPrintZ(buf, "{s}: {d:.0}  ·  {s}: {d:.0} {s}", .{ now, labs.auraReachForLevel(lvl), nxt, labs.auraReachForLevel(lvl + 1), locale.tr("tiles", "células") }) catch null;
+        },
+        .flower_growth_mul => {
+            var b1: [24]u8 = undefined;
+            var b2: [24]u8 = undefined;
+            return std.fmt.bufPrintZ(buf, "{s}: x{s}  ·  {s}: x{s}", .{ now, fmtMul(flower_growth_system.growthMulForLevel(lvl), &b1), nxt, fmtMul(flower_growth_system.growthMulForLevel(lvl + 1), &b2) }) catch null;
+        },
+        .bee_lifespan_mul => {
+            var b1: [24]u8 = undefined;
+            var b2: [24]u8 = undefined;
+            return std.fmt.bufPrintZ(buf, "{s}: x{s}  ·  {s}: x{s}", .{ now, fmtMul(spawners.beeLifespanMulForLevel(lvl), &b1), nxt, fmtMul(spawners.beeLifespanMulForLevel(lvl + 1), &b2) }) catch null;
+        },
+        .rot_chance_sub => {
+            return std.fmt.bufPrintZ(buf, "{s}: {d}%  ·  {s}: {d}%", .{ now, lifespan_system.rotChanceForLevel(lvl), nxt, lifespan_system.rotChanceForLevel(lvl + 1) }) catch null;
+        },
+        .bulk_buy_tier => {
+            if (lvl == 0) return std.fmt.bufPrintZ(buf, "{s}", .{locale.tr("Next: adds the x50 option", "Próx.: adiciona a opção x50")}) catch null;
+            if (lvl == 1) return std.fmt.bufPrintZ(buf, "{s}", .{locale.tr("Next: adds the x100 option", "Próx.: adiciona a opção x100")}) catch null;
+            return null;
+        },
+        else => return null,
+    }
+}
+
+/// Word-wrapped description box near the cursor, clamped to the screen.
+fn drawTooltip(desc: [:0]const u8, status: ?[:0]const u8, mouse: rl.Vector2, screenW: f32, screenH: f32) void {
+    const C = theme.CatppuccinMocha.Color;
+    const pad: f32 = 10;
+    const size: i32 = 15;
+    const lineH: f32 = 20;
+    const tipW: f32 = 270;
+    const maxTextW: i32 = @intFromFloat(tipW - pad * 2);
+
+    // Wrap into at most 5 lines (descriptions are one sentence).
+    var lineBufs: [5][96]u8 = undefined;
+    var lines: [5][:0]const u8 = undefined;
+    var lineCount: usize = 0;
+    var cur: [96]u8 = undefined;
+    var curLen: usize = 0;
+    var it = std.mem.tokenizeScalar(u8, desc, ' ');
+    while (it.next()) |word| {
+        var cand: [96]u8 = undefined;
+        var candLen: usize = 0;
+        if (curLen > 0) {
+            @memcpy(cand[0..curLen], cur[0..curLen]);
+            cand[curLen] = ' ';
+            candLen = curLen + 1;
+        }
+        if (candLen + word.len + 1 >= cand.len) break;
+        @memcpy(cand[candLen .. candLen + word.len], word);
+        candLen += word.len;
+        cand[candLen] = 0;
+        const candZ: [:0]const u8 = cand[0..candLen :0];
+        if (curLen > 0 and text.measure(candZ, size) > maxTextW) {
+            if (lineCount >= lines.len) break;
+            @memcpy(lineBufs[lineCount][0..curLen], cur[0..curLen]);
+            lineBufs[lineCount][curLen] = 0;
+            lines[lineCount] = lineBufs[lineCount][0..curLen :0];
+            lineCount += 1;
+            @memcpy(cur[0..word.len], word);
+            curLen = word.len;
+        } else {
+            @memcpy(cur[0..candLen], cand[0..candLen]);
+            curLen = candLen;
+        }
+    }
+    if (curLen > 0 and lineCount < lines.len) {
+        @memcpy(lineBufs[lineCount][0..curLen], cur[0..curLen]);
+        lineBufs[lineCount][curLen] = 0;
+        lines[lineCount] = lineBufs[lineCount][0..curLen :0];
+        lineCount += 1;
+    }
+    if (lineCount == 0) return;
+
+    const statusRows: f32 = if (status != null) 1 else 0;
+    const tipH = pad * 2 + lineH * (@as(f32, @floatFromInt(lineCount)) + statusRows) - 4;
+    var x = mouse.x + 18;
+    var y = mouse.y + 20;
+    if (x + tipW > screenW - 6) x = mouse.x - tipW - 12;
+    if (y + tipH > screenH - 6) y = mouse.y - tipH - 12;
+
+    const rect = rl.Rectangle.init(x, y, tipW, tipH);
+    rl.drawRectangleRounded(rect, 0.18, 6, rl.Color.init(17, 17, 27, 245));
+    rl.drawRectangleRoundedLinesEx(rect, 0.18, 6, 1, C.surface2);
+    for (lines[0..lineCount], 0..) |line, i| {
+        text.draw(line, @intFromFloat(x + pad), @intFromFloat(y + pad + lineH * @as(f32, @floatFromInt(i))), size, C.subtext1);
+    }
+    if (status) |st| {
+        text.draw(st, @intFromFloat(x + pad), @intFromFloat(y + pad + lineH * @as(f32, @floatFromInt(lineCount))), size, C.teal);
+    }
 }
 

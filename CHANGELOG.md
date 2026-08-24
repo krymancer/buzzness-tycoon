@@ -1,5 +1,29 @@
 # Changelog
 
+## 0.2.6 — 2026-08-24
+
+### New upgrades
+- **Cleanup Crew** (bees branch, after Composting): gardener bees actively hunt
+  rotten flowers and fly there to clear them.
+- **Colony vitality column** (under Storage; buyable from the start, infinitely
+  repeatable): **Fertile Soil** — flowers mature and re-pollen ×1.2/level;
+  **Bee Vitality** — bees live ×1.2/level (already-living bees benefit too);
+  **Hardy Blooms** — rot chance ×0.85/level.
+- **Bulk Order** (grid column): level 1 adds ×50 to the bee buy cycle,
+  level 2 adds ×100.
+
+### Fixes
+- D-pad / number-key quick buys now honor the selected ×10/×25 bulk quantity
+  (they always bought a single bee before).
+
+### UI
+- Upgrade tree redesign: compact one-row nodes (effect icon + name + cost),
+  the whole tree is ~25% shorter.
+- Hovering a tree node shows a description tooltip with a live "Now → Next"
+  line computed from the same formulas the game applies.
+- All big numbers use the short honey format now (bee census, honey factor,
+  rate, prestige totals): +675731072.0/s reads +675.73M/s.
+
 ## 0.2.1 — 2026-08-23
 
 Merged in PRs #31, #34, #35, #36, #37. Steam Deploy workflow in PR #32.

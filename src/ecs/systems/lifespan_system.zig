@@ -7,6 +7,17 @@ const components = @import("../components.zig");
 /// lifespan ends. Rotten flowers block the cell until the player clears them.
 pub const ROT_CHANCE_PERCENT: i32 = 60;
 
+/// Live rot chance; lowered by the Hardy Blooms tree node.
+pub var rotChancePercent: i32 = ROT_CHANCE_PERCENT;
+/// Multiplicative per-level decay so the infinite repeatable always helps.
+pub const ROT_CHANCE_DECAY_PER_LEVEL: f32 = 0.85;
+
+pub fn rotChanceForLevel(level: u16) i32 {
+    const chance = @as(f32, @floatFromInt(ROT_CHANCE_PERCENT)) *
+        std.math.pow(f32, ROT_CHANCE_DECAY_PER_LEVEL, @floatFromInt(level));
+    return @intFromFloat(@round(chance));
+}
+
 const config = @import("../../config.zig");
 
 pub fn update(world: *World, deltaTime: f32) !void {
@@ -62,7 +73,7 @@ pub fn update(world: *World, deltaTime: f32) !void {
                         lifespan.totalTimeAlive = lifespan.timeSpan * 0.5; // Reset to halfway
                         continue;
                     }
-                    if (!growth.isRotten and rl.getRandomValue(1, 100) <= ROT_CHANCE_PERCENT) {
+                    if (!growth.isRotten and rl.getRandomValue(1, 100) <= rotChancePercent) {
                         rotFlower(world, entity, growth, lifespan);
                         continue;
                     }

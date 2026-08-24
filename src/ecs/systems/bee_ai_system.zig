@@ -45,6 +45,14 @@ const AvailableFlower = struct {
     slots: u32,
 };
 
+// Rotten flowers gardeners should fly to and clear (Cleanup Crew node).
+// One claimant per flower — clearing is instant on arrival, so extra
+// sweepers would waste trips.
+const MAX_ROTTEN_FLOWERS: usize = 256;
+var rottenFlowers: [MAX_ROTTEN_FLOWERS]AvailableFlower = undefined;
+var rottenFlowerWorldPos: [MAX_ROTTEN_FLOWERS]rl.Vector2 = undefined;
+var rottenFlowerCount: usize = 0;
+
 pub const UpdateCtx = struct {
     world: *World,
     deltaTime: f32,
@@ -64,6 +72,7 @@ pub fn resetCaches() void {
     cachedBeehiveEntity = null;
     beehiveCacheInitialized = false;
     availableFlowerCount = 0;
+    rottenFlowerCount = 0;
     currentStaggerGroup = 0;
     pollinationTimer = 0;
 }
@@ -91,6 +100,9 @@ pub fn update(ctx: UpdateCtx) !void {
     }
     for (0..availableFlowerCount) |i| {
         availableFlowerWorldPos[i] = getWorldPosFromGrid(availableFlowers[i].gridX, availableFlowers[i].gridY, ctx.gridOffset, ctx.gridScale);
+    }
+    for (0..rottenFlowerCount) |i| {
+        rottenFlowerWorldPos[i] = getWorldPosFromGrid(rottenFlowers[i].gridX, rottenFlowers[i].gridY, ctx.gridOffset, ctx.gridScale);
     }
 
     const beehiveWorldPos = getWorldPosFromGrid(cachedBeehiveGridX, cachedBeehiveGridY, ctx.gridOffset, ctx.gridScale);
@@ -175,7 +187,13 @@ pub fn update(ctx: UpdateCtx) !void {
 
         if (!beeAI.targetLocked) {
             if (beeAI.searchCooldown <= 0) {
-                const found = findNearestFlowerFromCache(position.toVector2());
+                // Cleanup Crew: gardeners hunt rot first — clearing dead
+                // flowers is their job once the node is owned.
+                var found: ?FlowerHit = null;
+                if (gardenerSweep and beeAI.beeType.canSpawnFlowers()) {
+                    found = findNearestFromCache(position.toVector2(), &rottenFlowers, &rottenFlowerWorldPos, &rottenFlowerCount);
+                }
+                if (found == null) found = findNearestFlowerFromCache(position.toVector2());
                 if (found) |hit| {
                     beeAI.targetEntity = hit.entity;
                     beeAI.targetGridX = hit.gridX;
@@ -210,6 +228,15 @@ pub fn update(ctx: UpdateCtx) !void {
         const distance = rl.math.vector2Distance(position.toVector2(), targetPos);
 
         if (distance < 5.0) {
+            if (targetFlower.?.isRotten) {
+                // Cleanup Crew: clear the rot on arrival so the cell can
+                // regrow (removeFlower also drops the target count).
+                try lifespan_system.removeFlower(ctx.world, targetEntity);
+                beeAI.targetLocked = false;
+                beeAI.targetEntity = null;
+                beeAI.scatterTimer = @as(f32, @floatFromInt(rl.getRandomValue(4, 10))) / 10.0;
+                continue;
+            }
             if (targetFlower.?.state == 4 and targetFlower.?.hasPollen) {
                 targetFlower.?.hasPollen = false;
                 beeAI.carryingPollen = true;
@@ -249,12 +276,30 @@ fn moveTowardsWithSpeed(position: anytype, target: rl.Vector2, deltaTime: f32, s
 
 fn buildAvailableFlowersCache(world: *World) void {
     availableFlowerCount = 0;
+    rottenFlowerCount = 0;
 
     var iter = world.iterateFlowers();
     while (iter.next()) |entity| {
-        if (availableFlowerCount >= MAX_AVAILABLE_FLOWERS) break;
+        if (availableFlowerCount >= MAX_AVAILABLE_FLOWERS and
+            (!gardenerSweep or rottenFlowerCount >= MAX_ROTTEN_FLOWERS)) break;
 
         if (world.getFlowerGrowth(entity)) |growth| {
+            // Rotten flowers feed the sweeper cache instead (Cleanup Crew).
+            if (growth.isRotten) {
+                if (!gardenerSweep or rottenFlowerCount >= MAX_ROTTEN_FLOWERS) continue;
+                if (world.getFlowerTargetCount(entity) > 0) continue;
+                if (world.getGridPosition(entity)) |gridPos| {
+                    rottenFlowers[rottenFlowerCount] = .{
+                        .entity = entity,
+                        .gridX = gridPos.x,
+                        .gridY = gridPos.y,
+                        .slots = 1,
+                    };
+                    rottenFlowerCount += 1;
+                }
+                continue;
+            }
+            if (availableFlowerCount >= MAX_AVAILABLE_FLOWERS) continue;
             if (growth.state != 4 or !growth.hasPollen) continue;
 
             const beesNearFlower = world.getFlowerTargetCount(entity);
@@ -287,11 +332,15 @@ const FlowerHit = struct {
 };
 
 fn findNearestFlowerFromCache(beePosition: rl.Vector2) ?FlowerHit {
+    return findNearestFromCache(beePosition, &availableFlowers, &availableFlowerWorldPos, &availableFlowerCount);
+}
+
+fn findNearestFromCache(beePosition: rl.Vector2, flowers: []AvailableFlower, worldPos: []rl.Vector2, count: *usize) ?FlowerHit {
     var best: f32 = std.math.floatMax(f32);
     var bestIndex: ?usize = null;
 
-    for (0..availableFlowerCount) |i| {
-        const d = rl.math.vector2DistanceSqr(availableFlowerWorldPos[i], beePosition);
+    for (0..count.*) |i| {
+        const d = rl.math.vector2DistanceSqr(worldPos[i], beePosition);
         if (d < best) {
             best = d;
             bestIndex = i;
@@ -299,16 +348,16 @@ fn findNearestFlowerFromCache(beePosition: rl.Vector2) ?FlowerHit {
     }
 
     const index = bestIndex orelse return null;
-    const flower = &availableFlowers[index];
+    const flower = &flowers[index];
     const hit = FlowerHit{ .entity = flower.entity, .gridX = flower.gridX, .gridY = flower.gridY };
     // The caller locks the target right away (incrementing the world count);
     // mirror it locally so saturated flowers leave the scan until the next
     // cache rebuild instead of costing a HashMap lookup per bee per entry.
     flower.slots -= 1;
     if (flower.slots == 0) {
-        availableFlowerCount -= 1;
-        availableFlowers[index] = availableFlowers[availableFlowerCount];
-        availableFlowerWorldPos[index] = availableFlowerWorldPos[availableFlowerCount];
+        count.* -= 1;
+        flowers[index] = flowers[count.*];
+        worldPos[index] = worldPos[count.*];
     }
     return hit;
 }
@@ -362,6 +411,10 @@ pub const GARDENER_CHANCE_PER_LEVEL: i32 = 10;
 
 /// Composting node: gardeners clear rotten flowers on cells they cross.
 pub var gardenerCompost: bool = false;
+
+/// Cleanup Crew node: gardeners actively seek out rotten flowers and fly
+/// there to clear them (instead of only clearing rot they happen to cross).
+pub var gardenerSweep: bool = false;
 
 pub fn gardenerChanceForLevel(level: u16) i32 {
     return @min(100, GARDENER_BASE_CHANCE + GARDENER_CHANCE_PER_LEVEL * @as(i32, level));
