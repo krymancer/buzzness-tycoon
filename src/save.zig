@@ -4,6 +4,19 @@ pub const VERSION: u32 = 1;
 pub const MAX_UPGRADES: usize = 64;
 pub const MAX_FLOWERS: usize = 100_000;
 pub const MAX_BEES_PER_TYPE: u32 = 100_000;
+pub const MAX_BEES: usize = 4 * @as(usize, MAX_BEES_PER_TYPE);
+pub const MAX_BEE_CELLS: usize = 131_072;
+
+/// Bees aggregated per grid cell (type + tile + count). Tile coordinates are
+/// invariant to the camera pan/zoom and window size at save time, and the
+/// line count is bounded by occupied cells — a colony of any size stays a
+/// few KB in the save.
+pub const BeeCell = struct {
+    bee_type: u8,
+    x: i32,
+    y: i32,
+    count: u32,
+};
 
 pub const Flower = struct {
     flower_type: u8,
@@ -53,9 +66,13 @@ pub const Data = struct {
     /// Level per upgrade (repeatable nodes). 0/absent with purchased=true means level 1.
     levels: [MAX_UPGRADES]u16 = [_]u16{0} ** MAX_UPGRADES,
     bee_counts: [4]u32 = [_]u32{0} ** 4,
+    /// Per-cell bee lines; empty in saves written before positions were
+    /// persisted (loaders fall back to bee_counts).
+    bee_cells: std.ArrayList(BeeCell) = .empty,
     flowers: std.ArrayList(Flower) = .empty,
 
     pub fn deinit(self: *@This(), allocator: std.mem.Allocator) void {
+        self.bee_cells.deinit(allocator);
         self.flowers.deinit(allocator);
     }
 };
@@ -118,8 +135,13 @@ pub fn write(io: std.Io, save_path: []const u8, data: *const Data) !void {
         try writer.print("upgrade {d}\n", .{id});
         if (data.levels[id] > 1) try writer.print("level {d} {d}\n", .{ id, data.levels[id] });
     }
+    // Counts are written alongside the per-bee lines so older builds (which
+    // only know "bees") still restore the population.
     for (data.bee_counts, 0..) |count, bee_type| {
         if (count > 0) try writer.print("bees {d} {d}\n", .{ bee_type, count });
+    }
+    for (data.bee_cells.items) |cell| {
+        try writer.print("bee {d} {d} {d} {d}\n", .{ cell.bee_type, cell.x, cell.y, cell.count });
     }
     for (data.flowers.items) |flower| {
         try writer.print("flower {d} {d} {d} {d} {d} {d} {d} {d} {d} {d} {d} {d} {d} {d} {d}\n", .{
@@ -220,6 +242,15 @@ pub fn read(allocator: std.mem.Allocator, io: std.Io, save_path: []const u8) !Da
                 data.levels[id] = lvl;
                 if (lvl > 0) data.purchased[id] = true;
             }
+        } else if (std.mem.eql(u8, key, "bee")) {
+            if (data.bee_cells.items.len >= MAX_BEE_CELLS) return error.SaveTooLarge;
+            const cell = BeeCell{
+                .bee_type = try parse(u8, tokens.next()),
+                .x = try parse(i32, tokens.next()),
+                .y = try parse(i32, tokens.next()),
+                .count = try parse(u32, tokens.next()),
+            };
+            if (cell.count <= MAX_BEES_PER_TYPE) try data.bee_cells.append(allocator, cell);
         } else if (std.mem.eql(u8, key, "bees")) {
             const bee_type = try parse(usize, tokens.next());
             const count = try parse(u32, tokens.next());
@@ -289,6 +320,7 @@ test "save data survives an atomic round trip" {
     original.purchased[24] = true;
     original.levels[24] = 7;
     original.bee_counts[2] = 17;
+    try original.bee_cells.append(std.testing.allocator, .{ .bee_type = 3, .x = 4, .y = -2, .count = 12345 });
     try original.flowers.append(std.testing.allocator, .{
         .flower_type = 1,
         .x = 4,
@@ -319,6 +351,11 @@ test "save data survives an atomic round trip" {
     try std.testing.expect(restored.purchased[24]);
     try std.testing.expectEqual(@as(u16, 7), restored.levels[24]);
     try std.testing.expectEqual(@as(u32, 17), restored.bee_counts[2]);
+    try std.testing.expectEqual(@as(usize, 1), restored.bee_cells.items.len);
+    try std.testing.expectEqual(@as(u8, 3), restored.bee_cells.items[0].bee_type);
+    try std.testing.expectEqual(@as(i32, 4), restored.bee_cells.items[0].x);
+    try std.testing.expectEqual(@as(i32, -2), restored.bee_cells.items[0].y);
+    try std.testing.expectEqual(@as(u32, 12345), restored.bee_cells.items[0].count);
     try std.testing.expectEqual(@as(usize, 1), restored.flowers.items.len);
     try std.testing.expectEqual(@as(f32, 3.5), restored.flowers.items[0].pollen_multiplier);
     try std.testing.expect(restored.flowers.items[0].is_super);
@@ -348,4 +385,6 @@ test "flower lines without the is_super field still parse (old saves)" {
 
     try std.testing.expectEqual(@as(usize, 1), restored.flowers.items.len);
     try std.testing.expect(!restored.flowers.items[0].is_super);
+    // Pre-position saves carry no per-cell bee lines; loaders fall back to counts.
+    try std.testing.expectEqual(@as(usize, 0), restored.bee_cells.items.len);
 }

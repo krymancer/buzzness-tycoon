@@ -23,6 +23,7 @@ const Audio = @import("audio.zig").Audio;
 const text = @import("text.zig");
 const locale = @import("localization.zig");
 const save = @import("save.zig");
+const utils = @import("utils.zig");
 const ui_scale = @import("ui_scale.zig");
 const settings = @import("settings.zig");
 
@@ -45,6 +46,9 @@ pub const Game = struct {
     const INITIAL_GRID_WIDTH = 17;
     const INITIAL_GRID_HEIGHT = 17;
     const FLOWER_SPAWN_CHANCE = 30;
+    /// How far outside the meadow (in tiles) saved bee cells may sit; bees
+    /// that wandered further are folded back to this rim on save/load.
+    const BEE_CELL_MARGIN: i32 = 8;
 
     width: f32,
     height: f32,
@@ -358,17 +362,10 @@ pub const Game = struct {
         if (currentWidth != self.width or currentHeight != self.height) {
             const oldOffset = self.grid.offset;
             self.grid.updateViewport(currentWidth - ui.side_panel.PANEL_WIDTH, currentHeight);
-            const offsetDelta = rl.Vector2{
+            self.translateBees(.{
                 .x = self.grid.offset.x - oldOffset.x,
                 .y = self.grid.offset.y - oldOffset.y,
-            };
-            var beeIter = self.world.iterateBees();
-            while (beeIter.next()) |entity| {
-                if (self.world.getPosition(entity)) |pos| {
-                    pos.x += offsetDelta.x;
-                    pos.y += offsetDelta.y;
-                }
-            }
+            });
             self.width = currentWidth;
             self.height = currentHeight;
         }
@@ -484,6 +481,10 @@ pub const Game = struct {
             self.cameraOffset.y += mouseDelta.y;
             self.grid.offset.x += mouseDelta.x;
             self.grid.offset.y += mouseDelta.y;
+            // Panning must stay visual-only: bee targets are recomputed from
+            // the new offset every frame, so bees left at their old screen
+            // positions would chase moving targets and stall production.
+            self.translateBees(mouseDelta);
             self.lastMousePos = mousePos;
         }
 
@@ -760,6 +761,18 @@ pub const Game = struct {
         }
     }
 
+    /// Bee positions are screen-space; whenever the world shifts under them
+    /// (pan, resize, grid growth) they must be carried by the same delta.
+    fn translateBees(self: *@This(), delta: rl.Vector2) void {
+        var beeIter = self.world.iterateBees();
+        while (beeIter.next()) |entity| {
+            if (self.world.getPosition(entity)) |pos| {
+                pos.x += delta.x;
+                pos.y += delta.y;
+            }
+        }
+    }
+
     /// Refresh the per-type owned-bee counts shown on the shop cards.
     fn recountBeeTypes(self: *@This()) void {
         self.cachedBeeTypeCounts = .{ 0, 0, 0, 0 };
@@ -959,17 +972,10 @@ pub const Game = struct {
         render_system.resetCaches();
 
         // Shift bee pixel positions by the grid offset delta
-        const offsetDelta = rl.Vector2{
+        self.translateBees(.{
             .x = self.grid.offset.x - oldOffset.x,
             .y = self.grid.offset.y - oldOffset.y,
-        };
-        var beeIter = self.world.iterateBees();
-        while (beeIter.next()) |entity| {
-            if (self.world.getPosition(entity)) |pos| {
-                pos.x += offsetDelta.x;
-                pos.y += offsetDelta.y;
-            }
-        }
+        });
 
         // Spawn flowers on new outer ring (30% chance per tile, keep existing center)
         const maxX = self.gridWidth - 1;
@@ -1007,7 +1013,7 @@ pub const Game = struct {
                 }
             },
             // Capacity scales with level so storage keeps pace with honey growth.
-            .storage_add => self.resources.honeyCapacity += node.value * std.math.pow(f32, 1.6, @floatFromInt(self.upgradeTree.level(nodeId))),
+            .storage_add => self.resources.honeyCapacity += node.value * std.math.pow(f32, upgrade_tree.STORAGE_CAPACITY_GROWTH, @floatFromInt(self.upgradeTree.level(nodeId))),
             .growth_cd_sub => self.resources.growthBoostMaxCooldown = @max(2.0, self.resources.growthBoostMaxCooldown - node.value),
             .bee_unlock_worker, .bee_unlock_swift, .bee_unlock_efficient, .bee_unlock_gardener => {},
             .gardener_chance => bee_ai_system.gardenerPlantChance = bee_ai_system.gardenerChanceForLevel(self.upgradeTree.level(nodeId) + 1),
@@ -1064,13 +1070,40 @@ pub const Game = struct {
             }
         }
 
+        // Aggregate bees per grid cell so the save stays bounded by occupied
+        // tiles, not colony size. Grid coords are pan/zoom/window invariant.
+        const CellKey = struct { bee_type: u8, x: i32, y: i32 };
+        var cells = std.AutoHashMap(CellKey, u32).init(self.allocator);
+        defer cells.deinit();
+
+        const margin: f32 = @floatFromInt(BEE_CELL_MARGIN);
+        const maxCoord: f32 = @as(f32, @floatFromInt(self.gridWidth)) + margin;
         var bee_it = self.world.iterateBees();
         while (bee_it.next()) |entity| {
             const ai = self.world.getBeeAI(entity) orelse continue;
+            const pos = self.world.getPosition(entity) orelse continue;
             const index: usize = @intFromEnum(ai.beeType);
-            if (index < data.bee_counts.len and data.bee_counts[index] < save.MAX_BEES_PER_TYPE) {
-                data.bee_counts[index] += 1;
-            }
+            if (index >= data.bee_counts.len or data.bee_counts[index] >= save.MAX_BEES_PER_TYPE) continue;
+            data.bee_counts[index] += 1;
+            const gridPos = utils.worldToGrid(pos.toVector2(), self.grid.offset, self.grid.scale);
+            // Strays that wandered far off the meadow fold back to its rim.
+            const key = CellKey{
+                .bee_type = @intCast(index),
+                .x = @intFromFloat(@floor(finiteInRange(gridPos.x, -margin, maxCoord, 0))),
+                .y = @intFromFloat(@floor(finiteInRange(gridPos.y, -margin, maxCoord, 0))),
+            };
+            const gop = try cells.getOrPut(key);
+            if (!gop.found_existing) gop.value_ptr.* = 0;
+            gop.value_ptr.* += 1;
+        }
+        var cell_it = cells.iterator();
+        while (cell_it.next()) |entry| {
+            try data.bee_cells.append(self.allocator, .{
+                .bee_type = entry.key_ptr.bee_type,
+                .x = entry.key_ptr.x,
+                .y = entry.key_ptr.y,
+                .count = entry.value_ptr.*,
+            });
         }
 
         var flower_it = self.world.iterateFlowers();
@@ -1182,16 +1215,50 @@ pub const Game = struct {
             }
         }
 
-        for (data.bee_counts, 0..) |count, index| {
-            const bee_type: components.BeeType = switch (index) {
-                0 => .worker,
-                1 => .swift,
-                2 => .efficient,
-                3 => .gardener,
-                else => unreachable,
-            };
-            for (0..count) |_| {
-                _ = try spawners.spawnBeeWithType(&self.world, &self.grid, &self.textures, bee_type);
+        if (data.bee_cells.items.len > 0) {
+            // Restore the colony's spatial distribution: each cell's bees are
+            // scattered within their saved tile instead of respawning the
+            // whole colony in a random pile.
+            var restored: usize = 0;
+            outer: for (data.bee_cells.items) |cell| {
+                const bee_type: components.BeeType = switch (cell.bee_type) {
+                    0 => .worker,
+                    1 => .swift,
+                    2 => .efficient,
+                    3 => .gardener,
+                    else => continue,
+                };
+                const maxCoord = @as(i32, @intCast(self.gridWidth)) + BEE_CELL_MARGIN;
+                const cellX: f32 = @floatFromInt(std.math.clamp(cell.x, -BEE_CELL_MARGIN, maxCoord));
+                const cellY: f32 = @floatFromInt(std.math.clamp(cell.y, -BEE_CELL_MARGIN, maxCoord));
+                for (0..cell.count) |_| {
+                    if (restored >= save.MAX_BEES) break :outer;
+                    restored += 1;
+                    const entity = try spawners.spawnBeeWithType(&self.world, &self.grid, &self.textures, bee_type);
+                    if (self.world.getPosition(entity)) |pos| {
+                        const gx = cellX + @as(f32, @floatFromInt(rl.getRandomValue(0, 99))) / 100.0;
+                        const gy = cellY + @as(f32, @floatFromInt(rl.getRandomValue(0, 99))) / 100.0;
+                        const screenPos = utils.isoToXY(gx, gy, self.grid.tileWidth, self.grid.tileHeight, self.grid.offset.x, self.grid.offset.y, self.grid.scale);
+                        pos.x = screenPos.x;
+                        pos.y = screenPos.y;
+                    }
+                    self.staggerBeeSearch(entity);
+                }
+            }
+        } else {
+            // Old saves only stored counts; positions are re-rolled.
+            for (data.bee_counts, 0..) |count, index| {
+                const bee_type: components.BeeType = switch (index) {
+                    0 => .worker,
+                    1 => .swift,
+                    2 => .efficient,
+                    3 => .gardener,
+                    else => unreachable,
+                };
+                for (0..count) |_| {
+                    const entity = try spawners.spawnBeeWithType(&self.world, &self.grid, &self.textures, bee_type);
+                    self.staggerBeeSearch(entity);
+                }
             }
         }
 
@@ -1249,6 +1316,15 @@ pub const Game = struct {
         self.cachedHoneyFactor = self.getBeehiveHoneyFactor();
         self.floatingTexts.items.clearRetainingCapacity();
         self.autosaveTimer = 0;
+    }
+
+    /// Randomize a restored bee's first flower search. Loaded bees all start
+    /// with no target; at large populations, the whole colony scanning the
+    /// flower cache on the same frames is a visible post-load hitch.
+    fn staggerBeeSearch(self: *@This(), entity: u32) void {
+        if (self.world.getBeeAI(entity)) |ai| {
+            ai.searchCooldown = @as(f32, @floatFromInt(rl.getRandomValue(0, 100))) / 100.0;
+        }
     }
 
     fn finiteAtLeast(value: f32, minimum: f32, fallback: f32) f32 {

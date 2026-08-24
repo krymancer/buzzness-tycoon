@@ -27,13 +27,22 @@ var cachedBeehiveGridY: f32 = 0;
 var beehiveCacheInitialized: bool = false;
 
 const MAX_AVAILABLE_FLOWERS: usize = 512;
+const MAX_BEES_PER_FLOWER: u32 = 3;
 var availableFlowers: [MAX_AVAILABLE_FLOWERS]AvailableFlower = undefined;
+// Screen-space positions for the cache entries, recomputed once per frame
+// (the camera can move between frames) so per-bee searches touch no
+// transforms and no HashMaps — at large populations tens of thousands of
+// bees can search in the same frame.
+var availableFlowerWorldPos: [MAX_AVAILABLE_FLOWERS]rl.Vector2 = undefined;
 var availableFlowerCount: usize = 0;
 
 const AvailableFlower = struct {
     entity: Entity,
     gridX: f32,
     gridY: f32,
+    /// Free target slots left, snapshotted at cache build and decremented as
+    /// bees claim them; entries drop out of the scan at zero.
+    slots: u32,
 };
 
 pub const UpdateCtx = struct {
@@ -79,6 +88,9 @@ pub fn update(ctx: UpdateCtx) !void {
 
     if (currentStaggerGroup == 0) {
         buildAvailableFlowersCache(ctx.world);
+    }
+    for (0..availableFlowerCount) |i| {
+        availableFlowerWorldPos[i] = getWorldPosFromGrid(availableFlowers[i].gridX, availableFlowers[i].gridY, ctx.gridOffset, ctx.gridScale);
     }
 
     const beehiveWorldPos = getWorldPosFromGrid(cachedBeehiveGridX, cachedBeehiveGridY, ctx.gridOffset, ctx.gridScale);
@@ -163,7 +175,7 @@ pub fn update(ctx: UpdateCtx) !void {
 
         if (!beeAI.targetLocked) {
             if (beeAI.searchCooldown <= 0) {
-                const found = findNearestFlowerFromCache(ctx.world, position.toVector2(), ctx.gridOffset, ctx.gridScale);
+                const found = findNearestFlowerFromCache(position.toVector2());
                 if (found) |hit| {
                     beeAI.targetEntity = hit.entity;
                     beeAI.targetGridX = hit.gridX;
@@ -246,7 +258,7 @@ fn buildAvailableFlowersCache(world: *World) void {
             if (growth.state != 4 or !growth.hasPollen) continue;
 
             const beesNearFlower = world.getFlowerTargetCount(entity);
-            if (beesNearFlower >= 3) continue;
+            if (beesNearFlower >= MAX_BEES_PER_FLOWER) continue;
 
             if (world.getGridPosition(entity)) |gridPos| {
                 if (world.getLifespan(entity)) |lifespan| {
@@ -260,6 +272,7 @@ fn buildAvailableFlowersCache(world: *World) void {
                     .entity = entity,
                     .gridX = gridPos.x + superOffset,
                     .gridY = gridPos.y + superOffset,
+                    .slots = MAX_BEES_PER_FLOWER - beesNearFlower,
                 };
                 availableFlowerCount += 1;
             }
@@ -273,22 +286,30 @@ const FlowerHit = struct {
     gridY: f32,
 };
 
-fn findNearestFlowerFromCache(world: *World, beePosition: rl.Vector2, gridOffset: rl.Vector2, gridScale: f32) ?FlowerHit {
+fn findNearestFlowerFromCache(beePosition: rl.Vector2) ?FlowerHit {
     var best: f32 = std.math.floatMax(f32);
-    var hit: ?FlowerHit = null;
+    var bestIndex: ?usize = null;
 
     for (0..availableFlowerCount) |i| {
-        const flower = availableFlowers[i];
-        if (world.getFlowerTargetCount(flower.entity) >= 3) continue;
-
-        const worldPos = getWorldPosFromGrid(flower.gridX, flower.gridY, gridOffset, gridScale);
-        const d = rl.math.vector2DistanceSqr(worldPos, beePosition);
+        const d = rl.math.vector2DistanceSqr(availableFlowerWorldPos[i], beePosition);
         if (d < best) {
             best = d;
-            hit = .{ .entity = flower.entity, .gridX = flower.gridX, .gridY = flower.gridY };
+            bestIndex = i;
         }
     }
 
+    const index = bestIndex orelse return null;
+    const flower = &availableFlowers[index];
+    const hit = FlowerHit{ .entity = flower.entity, .gridX = flower.gridX, .gridY = flower.gridY };
+    // The caller locks the target right away (incrementing the world count);
+    // mirror it locally so saturated flowers leave the scan until the next
+    // cache rebuild instead of costing a HashMap lookup per bee per entry.
+    flower.slots -= 1;
+    if (flower.slots == 0) {
+        availableFlowerCount -= 1;
+        availableFlowers[index] = availableFlowers[availableFlowerCount];
+        availableFlowerWorldPos[index] = availableFlowerWorldPos[availableFlowerCount];
+    }
     return hit;
 }
 
