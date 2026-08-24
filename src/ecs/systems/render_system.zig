@@ -40,6 +40,10 @@ fn grayscaleShader() ?rl.Shader {
 pub fn deinit() void {
     if (grayShader) |sh| rl.unloadShader(sh);
     grayShader = null;
+    if (shadowDiscTex) |tex| rl.unloadTexture(tex);
+    shadowDiscTex = null;
+    if (glowDiscTex) |tex| rl.unloadTexture(tex);
+    glowDiscTex = null;
 }
 
 fn compareFlowers(context: void, a: FlowerRenderData, b: FlowerRenderData) bool {
@@ -47,7 +51,10 @@ fn compareFlowers(context: void, a: FlowerRenderData, b: FlowerRenderData) bool 
     return a.sortKey < b.sortKey;
 }
 
-const MAX_BEES: usize = 16384;
+// Upper bound on bees drawn per frame (after frustum culling). Batched
+// quad rendering keeps 32k sprites cheap; past this the extra bees overlap
+// existing ones anyway.
+const MAX_BEES: usize = 32768;
 const BeeRenderData = struct {
     x: f32,
     y: f32,
@@ -77,6 +84,29 @@ var cachedBeehive: ?BeehiveCache = null;
 
 // Shared bee texture — one per session.
 var cachedBeeTexture: ?rl.Texture = null;
+
+// Soft-disc textures for ground shadows and pollen glows (lazily created).
+// Shadows/glows used to be immediate-mode triangle fans (DrawEllipse is 108
+// vertices) interleaved with sprite quads, which forced a texture/mode switch
+// per bee and fragmented the render batch into thousands of draw calls. As
+// textured quads drawn in same-texture passes, the whole swarm batches.
+const DISC_SIZE: i32 = 64;
+const SHADOW_DENSITY: f32 = 0.55; // solid core, soft rim
+const GLOW_DENSITY: f32 = 0.0; // linear falloff from centre, like DrawCircleGradient
+var shadowDiscTex: ?rl.Texture = null;
+var glowDiscTex: ?rl.Texture = null;
+
+fn discTexture(slot: *?rl.Texture, density: f32) ?rl.Texture {
+    if (slot.* == null) {
+        // White with alpha falloff: tinting picks the colour, alpha stays linear.
+        const img = rl.genImageGradientRadial(DISC_SIZE, DISC_SIZE, density, rl.Color.init(255, 255, 255, 255), rl.Color.init(255, 255, 255, 0));
+        defer rl.unloadImage(img);
+        const tex = rl.loadTextureFromImage(img) catch return null;
+        rl.setTextureFilter(tex, .bilinear);
+        slot.* = tex;
+    }
+    return slot.*;
+}
 
 pub fn resetCaches() void {
     cachedBeehive = null;
@@ -157,6 +187,17 @@ pub fn draw(world: *World, gridOffset: rl.Vector2, gridScale: f32, worldTint: rl
     const hoverX: f32 = @floor(mouseIso.x);
     const hoverY: f32 = @floor(mouseIso.y);
 
+    // Ground shadows first as one same-texture pass (scaled with how grown the
+    // flower is, and with the whole block for SUPER flowers). Keeping them out
+    // of the sprite loop avoids a texture switch per flower.
+    for (flowerList[0..flowerCount]) |flowerData| {
+        if (world.getFlowerGrowth(flowerData.entity)) |growth| {
+            const growthFrac = growth.state / 4.0;
+            const shadowMul: f32 = if (flowerData.isSuper) 2.0 else 1.0;
+            drawGroundShadow(flowerData.gridX, flowerData.gridY, gridOffset, gridScale, (0.34 + 0.14 * growthFrac) * shadowMul, 0.22);
+        }
+    }
+
     for (flowerList[0..flowerCount]) |flowerData| {
         if (world.getFlowerGrowth(flowerData.entity)) |growth| {
             if (world.getSprite(flowerData.entity)) |sprite| {
@@ -167,11 +208,6 @@ pub fn draw(world: *World, gridOffset: rl.Vector2, gridScale: f32, worldTint: rl
                 const growthFrac = growth.state / 4.0;
                 const phase = flowerData.gridX * 1.7 + flowerData.gridY * 0.9;
                 const sway = @sin(time * 0.9 + phase) * 2.6 * growthFrac;
-
-                // Ground shadow, scaled with how grown the flower is (and with
-                // the whole block for SUPER flowers).
-                const shadowMul: f32 = if (flowerData.isSuper) 2.0 else 1.0;
-                drawGroundShadow(flowerData.gridX, flowerData.gridY, gridOffset, gridScale, (0.34 + 0.14 * growthFrac) * shadowMul, 0.22);
 
                 if (flowerData.isRotten) {
                     // Withered: grayscale, a touch darker and slumped, no sway.
@@ -221,26 +257,48 @@ pub fn draw(world: *World, gridOffset: rl.Vector2, gridScale: f32, worldTint: rl
 
     if (cachedBeeTexture) |texture| {
         const pollenColor = theme.CatppuccinMocha.Color.yellow;
+
+        // Bees draw in three same-texture passes (shadows, glows, sprites) so
+        // the whole swarm stays in a few render batches. Interleaving them
+        // per-bee forces a texture switch per draw and, past a few thousand
+        // bees, thousands of full batch flushes per frame.
+
+        // Pass 1 — ground shadows. They stay near the resting baseline and
+        // shrink/fade as the bee floats higher, selling the vertical motion.
+        if (discTexture(&shadowDiscTex, SHADOW_DENSITY)) |disc| {
+            for (0..beeRenderCount) |i| {
+                const bee = beeRenderList[i];
+                const phase = @as(f32, @floatFromInt(i)) * 0.7;
+                const bob = @sin(time * 2.0 + phase) * 2.2 * bee.scale;
+                const cx = bee.x + 16 * bee.scale;
+                const lift = std.math.clamp(-bob / (3.0 * bee.scale), -1.0, 1.0);
+                const shadowScale = 1.0 - 0.25 * lift;
+                const alpha: u8 = @intFromFloat(60 * (1.0 - 0.35 * lift));
+                drawDisc(disc, cx, bee.y + 26 * bee.scale, 8.5 * bee.scale * shadowScale, 3.2 * bee.scale * shadowScale, rl.Color.init(0, 0, 0, alpha));
+            }
+        }
+
+        // Pass 2 — warm glow on pollen-carriers so laden bees are easy to track.
+        if (discTexture(&glowDiscTex, GLOW_DENSITY)) |disc| {
+            for (0..beeRenderCount) |i| {
+                const bee = beeRenderList[i];
+                if (!bee.carryingPollen) continue;
+                const phase = @as(f32, @floatFromInt(i)) * 0.7;
+                const bob = @sin(time * 2.0 + phase) * 2.2 * bee.scale;
+                const cx = bee.x + 16 * bee.scale;
+                const r = 16 * bee.scale;
+                drawDisc(disc, cx, bee.y + bob + 14 * bee.scale, r, r, rl.Color.init(255, 226, 120, 90));
+            }
+        }
+
+        // Pass 3 — the bees themselves. Slow float bob + fast wing "buzz"
+        // scale flutter = alive, cozy bees.
         for (0..beeRenderCount) |i| {
             const bee = beeRenderList[i];
             const phase = @as(f32, @floatFromInt(i)) * 0.7;
-
-            // Slow float bob + fast wing "buzz" scale flutter = alive, cozy bees.
             const bob = @sin(time * 2.0 + phase) * 2.2 * bee.scale;
             const buzz = 1.0 + 0.06 * @sin(time * 26.0 + phase);
             const drawScale = bee.scale * buzz;
-            const cx = bee.x + 16 * bee.scale;
-
-            // Ground shadow stays near the resting baseline; it shrinks and fades
-            // as the bee floats higher, selling the vertical motion.
-            const lift = std.math.clamp(-bob / (3.0 * bee.scale), -1.0, 1.0);
-            const shadowScale = 1.0 - 0.25 * lift;
-            drawEllipseSoft(cx, bee.y + 26 * bee.scale, 8.5 * bee.scale * shadowScale, 3.2 * bee.scale * shadowScale, @intFromFloat(60 * (1.0 - 0.35 * lift)));
-
-            // Pollen-carriers get a warm glow so laden bees are easy to track.
-            if (bee.carryingPollen) {
-                rl.drawCircleGradient(rl.Vector2.init(cx, bee.y + bob + 14 * bee.scale), 16 * bee.scale, rl.Color.init(255, 226, 120, 90), rl.Color.init(255, 226, 120, 0));
-            }
 
             const base = if (bee.carryingPollen) pollenColor else bee.color;
             const color = rl.colorTint(base, worldTint);
@@ -304,7 +362,18 @@ fn drawEllipseRing(cx: f32, cy: f32, rx: f32, ry: f32, thick: f32, color: rl.Col
 }
 
 fn drawEllipseSoft(cx: f32, cy: f32, rx: f32, ry: f32, alpha: u8) void {
-    rl.drawEllipse(@intFromFloat(cx), @intFromFloat(cy), rx, ry, rl.Color.init(0, 0, 0, alpha));
+    if (discTexture(&shadowDiscTex, SHADOW_DENSITY)) |disc| {
+        drawDisc(disc, cx, cy, rx, ry, rl.Color.init(0, 0, 0, alpha));
+    } else {
+        rl.drawEllipse(@intFromFloat(cx), @intFromFloat(cy), rx, ry, rl.Color.init(0, 0, 0, alpha));
+    }
+}
+
+/// One textured quad: the soft disc stretched to an ellipse centred at (cx, cy).
+fn drawDisc(disc: rl.Texture, cx: f32, cy: f32, rx: f32, ry: f32, tint: rl.Color) void {
+    const source = rl.Rectangle.init(0, 0, @floatFromInt(disc.width), @floatFromInt(disc.height));
+    const destination = rl.Rectangle.init(cx - rx, cy - ry, rx * 2, ry * 2);
+    rl.drawTexturePro(disc, source, destination, rl.Vector2.init(0, 0), 0, tint);
 }
 
 fn buildBeeRenderList(world: *World) void {
