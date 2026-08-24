@@ -11,6 +11,9 @@ on:
 permissions:
   contents: write
 
+env:
+  ZIG_VERSION: 0.16.0
+
 jobs:
   build-linux:
     # 22.04 keeps the glibc requirement at 2.35 (latest = 2.38+).
@@ -19,11 +22,28 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v7
 
-      - name: Setup Zig
-        uses: mlugg/setup-zig@v2
+      # mlugg/setup-zig still targets Node 20 (deprecation warnings in CI),
+      # so Zig is installed by hand: cached compiler + cached build cache.
+      - name: Cache Zig
+        uses: actions/cache@v6
         with:
-          version: 0.16.0
-          use-cache: true
+          path: |
+            ~/zig
+            ~/.cache/zig
+          key: zig-${{ env.ZIG_VERSION }}-${{ github.job }}-${{ hashFiles('build.zig.zon') }}
+          restore-keys: |
+            zig-${{ env.ZIG_VERSION }}-${{ github.job }}-
+
+      - name: Setup Zig
+        run: |
+          if [ ! -x "$HOME/zig/zig" ]; then
+            curl -fsSL "https://ziglang.org/download/$ZIG_VERSION/zig-x86_64-linux-$ZIG_VERSION.tar.xz" -o "$RUNNER_TEMP/zig.tar.xz"
+            mkdir -p "$HOME/zig"
+            tar -xJf "$RUNNER_TEMP/zig.tar.xz" -C "$HOME/zig" --strip-components=1
+          fi
+          echo "$HOME/zig" >> "$GITHUB_PATH"
+          echo "ZIG_GLOBAL_CACHE_DIR=$HOME/.cache/zig" >> "$GITHUB_ENV"
+          echo "ZIG_LOCAL_CACHE_DIR=$HOME/.cache/zig/local" >> "$GITHUB_ENV"
 
       - name: Install dependencies
         run: |
@@ -47,11 +67,26 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v7
 
-      - name: Setup Zig
-        uses: mlugg/setup-zig@v2
+      - name: Cache Zig
+        uses: actions/cache@v6
         with:
-          version: 0.16.0
-          use-cache: true
+          path: |
+            ~/zig
+            ~/.cache/zig
+          key: zig-${{ env.ZIG_VERSION }}-${{ github.job }}-${{ hashFiles('build.zig.zon') }}
+          restore-keys: |
+            zig-${{ env.ZIG_VERSION }}-${{ github.job }}-
+
+      - name: Setup Zig
+        run: |
+          if [ ! -x "$HOME/zig/zig" ]; then
+            curl -fsSL "https://ziglang.org/download/$ZIG_VERSION/zig-x86_64-linux-$ZIG_VERSION.tar.xz" -o "$RUNNER_TEMP/zig.tar.xz"
+            mkdir -p "$HOME/zig"
+            tar -xJf "$RUNNER_TEMP/zig.tar.xz" -C "$HOME/zig" --strip-components=1
+          fi
+          echo "$HOME/zig" >> "$GITHUB_PATH"
+          echo "ZIG_GLOBAL_CACHE_DIR=$HOME/.cache/zig" >> "$GITHUB_ENV"
+          echo "ZIG_LOCAL_CACHE_DIR=$HOME/.cache/zig/local" >> "$GITHUB_ENV"
 
       - name: Build for Windows
         run: zig build -Dtarget=x86_64-windows -Doptimize=ReleaseFast -Dversion=${{ github.ref_type == 'tag' && github.ref_name || 'dev' }}
@@ -68,11 +103,26 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v7
 
-      - name: Setup Zig
-        uses: mlugg/setup-zig@v2
+      - name: Cache Zig
+        uses: actions/cache@v6
         with:
-          version: 0.16.0
-          use-cache: true
+          path: |
+            ~/zig
+            ~/.cache/zig
+          key: zig-${{ env.ZIG_VERSION }}-${{ github.job }}-${{ hashFiles('build.zig.zon') }}
+          restore-keys: |
+            zig-${{ env.ZIG_VERSION }}-${{ github.job }}-
+
+      - name: Setup Zig
+        run: |
+          if [ ! -x "$HOME/zig/zig" ]; then
+            curl -fsSL "https://ziglang.org/download/$ZIG_VERSION/zig-aarch64-macos-$ZIG_VERSION.tar.xz" -o "$RUNNER_TEMP/zig.tar.xz"
+            mkdir -p "$HOME/zig"
+            tar -xJf "$RUNNER_TEMP/zig.tar.xz" -C "$HOME/zig" --strip-components=1
+          fi
+          echo "$HOME/zig" >> "$GITHUB_PATH"
+          echo "ZIG_GLOBAL_CACHE_DIR=$HOME/.cache/zig" >> "$GITHUB_ENV"
+          echo "ZIG_LOCAL_CACHE_DIR=$HOME/.cache/zig/local" >> "$GITHUB_ENV"
 
       - name: Build
         run: zig build -Doptimize=ReleaseFast -Dversion=${{ github.ref_type == 'tag' && github.ref_name || 'dev' }}
