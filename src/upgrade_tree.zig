@@ -92,8 +92,11 @@ pub const NODES = [_]Node{
     .{ .id = 10, .name = "Grid Ring", .cost = 150, .prereqs = r_worker, .effect = .grid_expand, .value = 1, .col = 1, .row = 1, .repeat = .{ .cost_growth = 3.0, .max_level = 10 } },
     // (ids 11/12 were Grid +2/+3 ring — folded into 10's levels on load.)
 
-    // Storage (col 2). Repeatable: adds value * 1.6^level capacity per level.
-    .{ .id = 13, .name = "Storage", .cost = 40, .prereqs = r_worker, .effect = .storage_add, .value = 500, .col = 2, .row = 1, .repeat = .{ .cost_growth = 1.8 } },
+    // Storage (col 2). Repeatable: adds value * STORAGE_CAPACITY_GROWTH^level
+    // capacity per level. cost_growth must never exceed the capacity growth:
+    // honey is capped at the current capacity, so a faster-growing cost
+    // eventually becomes unreachable and softlocks progression.
+    .{ .id = 13, .name = "Storage", .cost = 40, .prereqs = r_worker, .effect = .storage_add, .value = 500, .col = 2, .row = 1, .repeat = .{ .cost_growth = STORAGE_CAPACITY_GROWTH } },
     // (ids 14/15 were Storage +1K/+2K — folded into 13's levels on load.)
 
     // Labs branch (col 0, rows 4-6) — gated behind cross-branch t3 nodes
@@ -112,7 +115,13 @@ pub const NODES = [_]Node{
 };
 
 pub const ROOT_ID: NodeId = 0;
+pub const STORAGE_ID: NodeId = 13;
 pub const AURA_ID: NodeId = 16;
+
+/// Per-level growth of the capacity granted by the Storage node (game.zig
+/// applies value * this^level on purchase). The node's cost_growth is tied to
+/// this value so the next upgrade always fits inside the honey cap.
+pub const STORAGE_CAPACITY_GROWTH: f32 = 1.6;
 pub const AURA_REACH_ID: NodeId = 25;
 pub const GREEN_THUMB_ID: NodeId = 26;
 
@@ -208,6 +217,15 @@ test "repeatable node cost grows geometrically and one-shot nodes max at level 1
     try std.testing.expectEqual(@as(f32, 50), honey2.costAtLevel(0));
     try std.testing.expect(!honey2.isMaxed(0));
     try std.testing.expect(honey2.isMaxed(1));
+}
+
+test "storage upgrades never cost more than the capacity they build" {
+    const storage = findNode(STORAGE_ID).?;
+    var capacity: f32 = 500; // Resources BASE_CAPACITY
+    for (0..80) |level| {
+        try std.testing.expect(storage.costAtLevel(@intCast(level)) <= capacity);
+        capacity += storage.value * std.math.pow(f32, STORAGE_CAPACITY_GROWTH, @floatFromInt(level));
+    }
 }
 
 test "state tracks levels and gates buying" {
