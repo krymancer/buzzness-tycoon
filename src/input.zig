@@ -309,21 +309,24 @@ fn padReleased(b: rl.GamepadButton) bool {
     return rl.isGamepadAvailable(PAD) and rl.isGamepadButtonReleased(PAD, b);
 }
 
-/// Deadzoned axis, rescaled so motion ramps from 0 at the deadzone edge.
-fn axis(a: rl.GamepadAxis) f32 {
-    const v = rl.getGamepadAxisMovement(PAD, a);
-    const m = @abs(v);
-    if (m < DEADZONE) return 0;
-    return std.math.sign(v) * (m - DEADZONE) / (1 - DEADZONE);
-}
-
+/// Deadzoned stick as a vector, with a RADIAL deadzone: the vector's length
+/// is rescaled to ramp from 0 at the deadzone edge, but its angle is kept
+/// exactly. A per-axis deadzone would zero the smaller component of gentle
+/// diagonal pushes, collapsing them to the four cardinals — which made the
+/// isometric grid's shallow-angle neighbors unreachable by tile-stepping.
 fn stickVector(ax: rl.GamepadAxis, ay: rl.GamepadAxis) rl.Vector2 {
-    return rl.Vector2.init(axis(ax), axis(ay));
+    const rx = rl.getGamepadAxisMovement(PAD, ax);
+    const ry = rl.getGamepadAxisMovement(PAD, ay);
+    const m = @sqrt(rx * rx + ry * ry);
+    if (m < DEADZONE) return rl.Vector2.init(0, 0);
+    const k = (@min(m, 1) - DEADZONE) / (1 - DEADZONE) / m;
+    return rl.Vector2.init(rx * k, ry * k);
 }
 
 fn gamepadTouched(leftStick: rl.Vector2) bool {
     if (leftStick.x != 0 or leftStick.y != 0) return true;
-    if (axis(.right_x) != 0 or axis(.right_y) != 0) return true;
+    const right = stickVector(.right_x, .right_y);
+    if (right.x != 0 or right.y != 0) return true;
     inline for (@typeInfo(rl.GamepadButton).@"enum".fields) |f| {
         const b: rl.GamepadButton = @enumFromInt(f.value);
         if (b != .unknown and rl.isGamepadButtonDown(PAD, b)) return true;
