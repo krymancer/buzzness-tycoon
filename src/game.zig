@@ -302,7 +302,8 @@ pub const Game = struct {
             const v = self.env.get("BT_CAPTURE") orelse break :blk null;
             break :blk std.fmt.parseInt(u32, v, 10) catch null;
         };
-        if (shootAt != null) rl.setTargetFPS(60);
+        // BT_UNCAPPED=1 lifts the cap so benchmark runs measure real headroom.
+        if (shootAt != null and self.env.get("BT_UNCAPPED") == null) rl.setTargetFPS(60);
         if (captureN != null) rl.setTargetFPS(30);
         var frame: u32 = 0;
 
