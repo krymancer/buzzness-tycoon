@@ -1,7 +1,8 @@
 const rl = @import("raylib");
 const text = @import("../text.zig");
-const rg = @import("raygui");
 const std = @import("std");
+const input = @import("../input.zig");
+const widgets = @import("widgets.zig");
 
 const theme = @import("../theme.zig");
 const format = @import("../format.zig");
@@ -142,24 +143,25 @@ pub fn draw(ctx: TreeContext) TreeAction {
     const overflowY = @max(0, treeH - contentH);
     const scrollable = overflowX > 0 or overflowY > 0;
 
-    const mouse = rl.getMousePosition();
+    const mouse = input.pointerPos();
     const inContent = rl.checkCollisionPointRec(mouse, rl.Rectangle.init(contentX, contentY, contentW, contentH));
 
-    // Wheel (vertical; shift or horizontal wheel for X) and left-drag panning.
+    // Wheel or right stick (vertical; shift or horizontal wheel for X) and
+    // left-drag panning.
     if (scrollable) {
-        const wheel = rl.getMouseWheelMoveV();
+        const wheel = input.scrollV();
         const shift = rl.isKeyDown(rl.KeyboardKey.left_shift) or rl.isKeyDown(rl.KeyboardKey.right_shift);
-        if (inContent) {
+        if (inContent or input.gamepadActive()) {
             if (shift) scrollX -= wheel.y * 40 else scrollY -= wheel.y * 40;
             scrollX -= wheel.x * 40;
         }
-        if (inContent and rl.isMouseButtonPressed(rl.MouseButton.left)) {
+        if (inContent and input.confirmPressed()) {
             dragging = true;
             dragMoved = 0;
             lastMouse = mouse;
         }
         if (dragging) {
-            if (rl.isMouseButtonDown(rl.MouseButton.left)) {
+            if (input.confirmDown()) {
                 const dx = mouse.x - lastMouse.x;
                 const dy = mouse.y - lastMouse.y;
                 dragMoved += @abs(dx) + @abs(dy);
@@ -223,6 +225,7 @@ pub fn draw(ctx: TreeContext) TreeAction {
 
         // Hover highlight on actionable nodes
         const hovered = inContent and rl.checkCollisionPointRec(mouse, rect);
+        if (buyable) input.registerHotspot(rect);
         if (buyable and afford and hovered) {
             var glow = C.blue;
             glow.a = 40;
@@ -241,18 +244,10 @@ pub fn draw(ctx: TreeContext) TreeAction {
         const nameX = @as(i32, @intFromFloat(pos.x + nodeW / 2)) - @divFloor(nameW, 2);
         text.draw(nameZ, nameX, @as(i32, @intFromFloat(pos.y + 8 * s)), nameSize, style.nameColor);
 
-        // Cost / OWNED line
-        const subSize = fs(15, s);
-        const subY: i32 = @intFromFloat(pos.y + 39 * s);
-        if (style.showOwned) {
-            const owned = locale.tr("OWNED", "ADQUIRIDO");
-            const ow = text.measure(owned, subSize);
-            text.draw(owned, @as(i32, @intFromFloat(pos.x + nodeW / 2)) - @divFloor(ow, 2), subY, subSize, style.costColor);
-        } else if (!unlocked) {
-            const locked = locale.tr("LOCKED", "BLOQUEADO");
-            const lw = text.measure(locked, subSize);
-            text.draw(locked, @as(i32, @intFromFloat(pos.x + nodeW / 2)) - @divFloor(lw, 2), subY, subSize, style.costColor);
-        } else {
+        // Cost line — only on nodes that can still be bought; owned and
+        // locked states already read through the border/text colors.
+        if (!style.showOwned and unlocked) {
+            const subY: i32 = @intFromFloat(pos.y + 39 * s);
             var cbuf: [32]u8 = undefined;
             const cstr = format.formatShort(cost, &cbuf);
             const costSize = fs(16, s);
@@ -260,7 +255,7 @@ pub fn draw(ctx: TreeContext) TreeAction {
             text.draw(cstr, @as(i32, @intFromFloat(pos.x + nodeW / 2)) - @divFloor(cw, 2), subY, costSize, style.costColor);
         }
 
-        if (buyable and afford and hovered and clickOk and rl.isMouseButtonReleased(rl.MouseButton.left)) {
+        if (buyable and afford and hovered and clickOk and input.confirmReleased()) {
             action = .{ .purchase = node.id };
         }
     }
@@ -274,27 +269,15 @@ pub fn draw(ctx: TreeContext) TreeAction {
         text.draw(hint, @as(i32, @intFromFloat(panelX + panelW - 18)) - hw, @as(i32, @intFromFloat(panelY + 24)), 14, C.overlay1);
     }
 
-    // Legend
-    const legendY = panelY + panelH - 64;
-    drawLegendChip(panelX + 18, legendY, locale.tr("Owned", "Adquirido"), C.green);
-    drawLegendChip(panelX + 130, legendY, locale.tr("Ready", "Disponível"), C.blue);
-    drawLegendChip(panelX + 270, legendY, locale.tr("Too pricy", "Muito caro"), C.red);
-    drawLegendChip(panelX + 410, legendY, locale.tr("Locked", "Bloqueado"), C.overlay0);
-
     // Close button
     const closeW: f32 = 140;
     const closeH: f32 = 44;
     const closeX = panelX + panelW - closeW - 14;
     const closeY = panelY + panelH - closeH - 14;
-    if (rg.button(rl.Rectangle.init(closeX, closeY, closeW, closeH), locale.tr("Close", "Fechar"))) {
+    if (widgets.button(rl.Rectangle.init(closeX, closeY, closeW, closeH), locale.tr("Close", "Fechar"))) {
         action = .close;
     }
 
     return action;
 }
 
-fn drawLegendChip(x: f32, y: f32, label: [:0]const u8, color: rl.Color) void {
-    const chipSize: f32 = 12;
-    rl.drawRectangleRounded(rl.Rectangle.init(x, y + 2, chipSize, chipSize), 0.4, 4, color);
-    text.draw(label, @as(i32, @intFromFloat(x + chipSize + 6)), @as(i32, @intFromFloat(y - 2)), 17, theme.CatppuccinMocha.Color.subtext1);
-}

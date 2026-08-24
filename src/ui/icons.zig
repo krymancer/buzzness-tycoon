@@ -46,6 +46,22 @@ pub fn drawHoneyDropOutlined(cx: f32, cy: f32, r: f32, color: rl.Color, outline:
     drawHoneyDrop(cx, cy, r, color);
 }
 
+pub const ArrowDir = enum { up, down, left, right };
+
+/// Solid triangular arrow centered on (cx, cy), half-extent `r`. Used for
+/// d-pad hint chips (the UI font has no arrow glyphs). Drawn in both
+/// windings so backface culling can never hide it.
+pub fn drawArrow(cx: f32, cy: f32, r: f32, dir: ArrowDir, color: rl.Color) void {
+    const p: [3]rl.Vector2 = switch (dir) {
+        .up => .{ rl.Vector2.init(cx, cy - r), rl.Vector2.init(cx - r, cy + r * 0.7), rl.Vector2.init(cx + r, cy + r * 0.7) },
+        .down => .{ rl.Vector2.init(cx, cy + r), rl.Vector2.init(cx - r, cy - r * 0.7), rl.Vector2.init(cx + r, cy - r * 0.7) },
+        .left => .{ rl.Vector2.init(cx - r, cy), rl.Vector2.init(cx + r * 0.7, cy - r), rl.Vector2.init(cx + r * 0.7, cy + r) },
+        .right => .{ rl.Vector2.init(cx + r, cy), rl.Vector2.init(cx - r * 0.7, cy - r), rl.Vector2.init(cx - r * 0.7, cy + r) },
+    };
+    rl.drawTriangle(p[0], p[1], p[2], color);
+    rl.drawTriangle(p[2], p[1], p[0], color);
+}
+
 /// Aura: a dot with two concentric rings, centered on (cx, cy), outer radius `r`.
 /// Icon for the Lab: Aura passive.
 pub fn drawAura(cx: f32, cy: f32, r: f32, color: rl.Color) void {

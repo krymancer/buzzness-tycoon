@@ -1,7 +1,7 @@
 const rl = @import("raylib");
 const text = @import("../text.zig");
-const rg = @import("raygui");
 const std = @import("std");
+const widgets = @import("widgets.zig");
 const theme = @import("../theme.zig");
 const assets = @import("../assets.zig");
 const locale = @import("../localization.zig");
@@ -94,7 +94,7 @@ pub fn draw(screenWidth: f32, screenHeight: f32, hasSave: bool) TitleScreenActio
 
     // Continue / Play
     const playLabel = if (hasSave) locale.tr("Continue", "Continuar") else locale.tr("Play", "Jogar");
-    if (rg.button(rl.Rectangle.init(buttonX, by, buttonWidth, buttonHeight), playLabel)) {
+    if (widgets.button(rl.Rectangle.init(buttonX, by, buttonWidth, buttonHeight), playLabel)) {
         newGameArmedUntil = 0;
         return .play;
     }
@@ -103,9 +103,9 @@ pub fn draw(screenWidth: f32, screenHeight: f32, hasSave: bool) TitleScreenActio
     // New Game (only when there is something to overwrite)
     if (hasSave) {
         const label = if (armed) locale.tr("Are you sure?", "Tem certeza?") else locale.tr("New Game", "Novo Jogo");
-        if (armed) rg.setStyle(.button, .{ .control = .text_color_normal }, theme.CatppuccinMocha.Color.red.toInt());
-        const clicked = rg.button(rl.Rectangle.init(buttonX, by, buttonWidth, buttonHeight), label);
-        if (armed) rg.setStyle(.button, .{ .control = .text_color_normal }, theme.CatppuccinMocha.Color.text.toInt());
+        const clicked = widgets.buttonEx(rl.Rectangle.init(buttonX, by, buttonWidth, buttonHeight), label, .{
+            .textColor = if (armed) theme.CatppuccinMocha.Color.red else null,
+        });
         if (clicked) {
             if (armed) {
                 newGameArmedUntil = 0;
@@ -116,14 +116,14 @@ pub fn draw(screenWidth: f32, screenHeight: f32, hasSave: bool) TitleScreenActio
         by += buttonSpacing;
     }
 
-    if (rg.button(rl.Rectangle.init(buttonX, by, buttonWidth, buttonHeight), locale.tr("Options", "Opções"))) {
+    if (widgets.button(rl.Rectangle.init(buttonX, by, buttonWidth, buttonHeight), locale.tr("Options", "Opções"))) {
         newGameArmedUntil = 0;
         return .options;
     }
     by += buttonSpacing;
 
     // Quit button
-    if (rg.button(rl.Rectangle.init(buttonX, by, buttonWidth, buttonHeight), locale.tr("Quit", "Sair"))) {
+    if (widgets.button(rl.Rectangle.init(buttonX, by, buttonWidth, buttonHeight), locale.tr("Quit", "Sair"))) {
         return .quit;
     }
 

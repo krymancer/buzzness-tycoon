@@ -5,6 +5,7 @@
 const rl = @import("raylib");
 const text = @import("../text.zig");
 const theme = @import("../theme.zig");
+const input = @import("../input.zig");
 const format = @import("../format.zig");
 const locale = @import("../localization.zig");
 const utils = @import("../utils.zig");
@@ -77,13 +78,14 @@ pub fn draw(state: *const State, ctx: Context) Action {
     rl.drawRectangleRoundedLinesEx(panel, 0.12, 6, 2, C.green);
     text.draw(locale.tr("Plant", "Plantar"), @intFromFloat(px + PAD + 2), @intFromFloat(py + PAD), 18, C.green);
 
-    const mouse = rl.getMousePosition();
-    const clicked = rl.isMouseButtonPressed(rl.MouseButton.left);
+    const mouse = input.pointerPos();
+    const clicked = input.confirmPressed();
     var action: Action = .none;
 
     for (ENTRIES, 0..) |entry, i| {
         const ry = py + PAD + 24 + ROW_H * @as(f32, @floatFromInt(i));
         const row = rl.Rectangle.init(px + PAD, ry, PANEL_W - PAD * 2, ROW_H - 4);
+        input.registerHotspot(row);
         const afford = ctx.resources.honey >= entry.cost;
         const hovered = rl.checkCollisionPointRec(mouse, row);
 

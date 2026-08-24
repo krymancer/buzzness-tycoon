@@ -1,8 +1,8 @@
 const rl = @import("raylib");
 const text = @import("../text.zig");
-const rg = @import("raygui");
 const theme = @import("../theme.zig");
 const locale = @import("../localization.zig");
+const widgets = @import("widgets.zig");
 
 pub const PauseMenuAction = enum {
     none,
@@ -52,16 +52,16 @@ pub fn draw(screenWidth: f32, screenHeight: f32) PauseMenuAction {
     const buttonSpacing: f32 = 56;
 
     // Continue button
-    if (rg.button(rl.Rectangle.init(buttonX, buttonStartY, buttonWidth, buttonHeight), locale.tr("Continue", "Continuar"))) {
+    if (widgets.button(rl.Rectangle.init(buttonX, buttonStartY, buttonWidth, buttonHeight), locale.tr("Continue", "Continuar"))) {
         return .continue_game;
     }
 
-    if (rg.button(rl.Rectangle.init(buttonX, buttonStartY + buttonSpacing, buttonWidth, buttonHeight), locale.tr("Options", "Opções"))) {
+    if (widgets.button(rl.Rectangle.init(buttonX, buttonStartY + buttonSpacing, buttonWidth, buttonHeight), locale.tr("Options", "Opções"))) {
         return .options;
     }
 
     // Exit button
-    if (rg.button(rl.Rectangle.init(buttonX, buttonStartY + buttonSpacing * 2, buttonWidth, buttonHeight), locale.tr("Exit Game", "Sair do jogo"))) {
+    if (widgets.button(rl.Rectangle.init(buttonX, buttonStartY + buttonSpacing * 2, buttonWidth, buttonHeight), locale.tr("Exit Game", "Sair do jogo"))) {
         return .exit_game;
     }
 

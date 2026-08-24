@@ -3,6 +3,7 @@ const std = @import("std");
 const utils = @import("utils.zig");
 const assets = @import("assets.zig");
 const ui_scale = @import("ui_scale.zig");
+const input = @import("input.zig");
 
 pub const Grid = struct {
     width: usize,
@@ -133,7 +134,7 @@ pub const Grid = struct {
     }
 
     pub fn isMouseHovering(self: @This(), x: f32, y: f32) bool {
-        const mousePosition = rl.getMousePosition();
+        const mousePosition = input.pointerPos();
         return utils.isPointInIsometricTile(mousePosition.x, mousePosition.y, x, y, self.tileWidth, self.tileHeight, self.offset.x, self.offset.y, self.scale);
     }
 
@@ -145,7 +146,7 @@ pub const Grid = struct {
     /// necessary and sufficient test — see the regression test in utils.zig
     /// that pins the transform to the drawn diamonds.
     pub fn getHoveredTile(self: @This()) ?struct { x: i32, y: i32 } {
-        const mouse = rl.getMousePosition();
+        const mouse = input.pointerPos();
         const iso = utils.xyToIso(mouse.x, mouse.y, self.tileWidth, self.tileHeight, self.offset.x, self.offset.y, self.scale);
         const gi: i32 = @intFromFloat(@floor(iso.x));
         const gj: i32 = @intFromFloat(@floor(iso.y));

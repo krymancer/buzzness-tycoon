@@ -7,7 +7,10 @@ const theme = @import("theme.zig");
 
 const LIFETIME: f32 = 1.2;
 const RISE_PX_PER_SEC: f32 = 40.0;
-const FONT_SIZE: i32 = 22;
+/// World popups (the "+N" honey gains over the hive).
+const WORLD_FONT_SIZE: i32 = 30;
+/// Screen popups (the "-N" spend feedback at the cursor).
+const SCREEN_FONT_SIZE: i32 = 28;
 // Throttle: merge gains inside this window into the most-recent popup so a
 // steady honey flow doesn't spawn one popup per frame.
 const MERGE_WINDOW: f32 = 0.25;
@@ -106,13 +109,13 @@ pub const Manager = struct {
             buf[labelLen] = 0;
             const label: [:0]const u8 = buf[0..labelLen :0];
 
-            const textWidth = text.measure(label, FONT_SIZE);
+            const textWidth = text.measure(label, WORLD_FONT_SIZE);
             const textX = @as(i32, @intFromFloat(pos.x + tileW / 2.0)) - @divFloor(textWidth, 2);
             const textY = @as(i32, @intFromFloat(pos.y - yOffset));
 
             var color = theme.CatppuccinMocha.Color.yellow;
             color.a = alpha;
-            text.drawShadow(label, textX, textY, FONT_SIZE, color);
+            text.drawOutline(label, textX, textY, WORLD_FONT_SIZE, color, rl.Color.init(24, 24, 37, 235));
         }
     }
 
@@ -130,7 +133,7 @@ pub const Manager = struct {
             buf[labelLen] = 0;
             const label: [:0]const u8 = buf[0..labelLen :0];
 
-            const textWidth = text.measure(label, FONT_SIZE);
+            const textWidth = text.measure(label, SCREEN_FONT_SIZE);
             const textX = @as(i32, @intFromFloat(ft.x)) - @divFloor(textWidth, 2);
             const textY = @as(i32, @intFromFloat(ft.y - yOffset));
 
@@ -139,7 +142,7 @@ pub const Manager = struct {
             else
                 theme.CatppuccinMocha.Color.green;
             color.a = alpha;
-            text.drawShadow(label, textX, textY, FONT_SIZE, color);
+            text.drawOutline(label, textX, textY, SCREEN_FONT_SIZE, color, rl.Color.init(24, 24, 37, 235));
         }
     }
 };

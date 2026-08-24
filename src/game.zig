@@ -26,6 +26,8 @@ const save = @import("save.zig");
 const utils = @import("utils.zig");
 const ui_scale = @import("ui_scale.zig");
 const settings = @import("settings.zig");
+const input = @import("input.zig");
+const widgets = @import("ui/widgets.zig");
 
 const World = @import("ecs/world.zig").World;
 const components = @import("ecs/components.zig");
@@ -153,6 +155,9 @@ pub const Game = struct {
         if (env.get("BT_CAPTURE") != null) clock.fixedDt = 1.0 / 30.0;
         const windowIcon = try assets.loadImageFromMemory(assets.bee_png);
         rl.setWindowIcon(windowIcon);
+        // The game draws its own pointer (input.drawCursor) for mouse and
+        // gamepad alike; hide the OS cursor over the window.
+        rl.hideCursor();
 
         // Load the shared UI font (needs the GL context from initWindow).
         text.load();
@@ -167,7 +172,7 @@ pub const Game = struct {
         const height: f32 = ui_scale.height();
 
         const textures = try Textures.init();
-        const grid = try Grid.init(INITIAL_GRID_WIDTH, INITIAL_GRID_HEIGHT, width - ui.side_panel.PANEL_WIDTH, height);
+        const grid = try Grid.init(INITIAL_GRID_WIDTH, INITIAL_GRID_HEIGHT, width, height);
 
         var world = World.init(allocator);
 
@@ -284,6 +289,8 @@ pub const Game = struct {
         self.allocator.free(self.savePath);
         text.unload();
         ui.title_screen.deinit();
+        ui.prompt_icons.deinit();
+        input.deinit();
 
         rl.closeWindow();
         rl.unloadImage(self.windowIcon);
@@ -312,7 +319,7 @@ pub const Game = struct {
             switch (self.state) {
                 .title_screen => try self.drawTitleScreen(),
                 .playing => {
-                    self.handlePlayingInput();
+                    try self.handlePlayingInput();
                     try self.update();
                     try self.draw();
                 },
@@ -335,8 +342,16 @@ pub const Game = struct {
         }
     }
 
+    /// True when a menu/modal owns input: d-pad navigates and the right
+    /// stick scrolls instead of driving world shortcuts and the camera.
+    fn inMenuContext(self: *const @This()) bool {
+        return self.state == .title_screen or self.showOptions or self.showPauseMenu or
+            self.showTree or self.showPrestigeDialog or self.plantMenu.open;
+    }
+
     /// Handle input common to all game states (fullscreen, window resize)
     fn handleCommonInput(self: *@This()) void {
+        input.beginFrame(self.inMenuContext());
         // Keep the ambient audio bed looping in every state, and allow muting.
         self.audio.update(clock.frameTime());
         if (rl.isKeyPressed(rl.KeyboardKey.n)) self.audio.toggleMute();
@@ -362,7 +377,7 @@ pub const Game = struct {
         const currentHeight = ui_scale.height();
         if (currentWidth != self.width or currentHeight != self.height) {
             const oldOffset = self.grid.offset;
-            self.grid.updateViewport(currentWidth - ui.side_panel.PANEL_WIDTH, currentHeight);
+            self.grid.updateViewport(currentWidth, currentHeight);
             self.translateBees(.{
                 .x = self.grid.offset.x - oldOffset.x,
                 .y = self.grid.offset.y - oldOffset.y,
@@ -377,6 +392,7 @@ pub const Game = struct {
         defer rl.endDrawing();
         ui_scale.begin();
         defer ui_scale.end();
+        defer input.drawCursor();
 
         rl.clearBackground(theme.CatppuccinMocha.Color.base);
 
@@ -387,7 +403,7 @@ pub const Game = struct {
         rl.drawRectangle(0, 0, @intFromFloat(self.width), @intFromFloat(self.height), rl.Color.init(20, 20, 40, 90));
 
         if (self.showOptions) {
-            if (rl.isKeyPressed(rl.KeyboardKey.escape)) self.showOptions = false;
+            if (rl.isKeyPressed(rl.KeyboardKey.escape) or input.cancelPressed()) self.showOptions = false;
             self.drawAndHandleOptions();
             return;
         }
@@ -415,6 +431,8 @@ pub const Game = struct {
             .musicVolume = self.audio.musicVolume,
             .fxVolume = self.audio.fxVolume,
             .uiScale = ui_scale.user(),
+            .uiScaleMax = ui_scale.maxUser(),
+            .cursorSnap = settings.cursorSnap,
         });
         switch (action) {
             .none => {},
@@ -428,13 +446,15 @@ pub const Game = struct {
                 self.audio.playCollect();
             },
             .ui_scale => |s| ui_scale.setUser(s),
+            .cursor_snap => |v| settings.cursorSnap = v,
         }
     }
 
     /// Handle input specific to playing state
-    fn handlePlayingInput(self: *@This()) void {
-        // Handle Escape key - close popups first, then show/hide pause menu
-        if (rl.isKeyPressed(rl.KeyboardKey.escape)) {
+    fn handlePlayingInput(self: *@This()) !void {
+        // Handle Escape key (or gamepad B) - close popups first, then
+        // show/hide pause menu
+        if (rl.isKeyPressed(rl.KeyboardKey.escape) or input.cancelPressed()) {
             if (self.showOptions) {
                 self.showOptions = false;
                 return;
@@ -459,6 +479,33 @@ pub const Game = struct {
             }
         }
 
+        // Gamepad Start: pause toggle (only over the plain world, so it never
+        // silently closes another menu).
+        if (input.startPressed()) {
+            if (self.showPauseMenu) {
+                self.showPauseMenu = false;
+                self.isPaused = false;
+                return;
+            } else if (!self.inMenuContext()) {
+                self.showPauseMenu = true;
+                self.isPaused = true;
+                self.saveProgress() catch |err| std.debug.print("Could not save progress: {}\n", .{err});
+                return;
+            }
+        }
+
+        // Gamepad Y: upgrade tree toggle.
+        if (input.treePressed()) {
+            if (self.showTree) {
+                self.showTree = false;
+                return;
+            } else if (!self.inMenuContext()) {
+                self.showTree = true;
+                ui.tree_view.resetScroll();
+                return;
+            }
+        }
+
         // Block input when popup, pause menu, tree, or prestige dialog is open
         if (self.showPauseMenu or self.showTree or self.showPrestigeDialog) {
             return;
@@ -466,16 +513,16 @@ pub const Game = struct {
         // The plant chooser owns the mouse while open (draw() handles it).
         if (self.plantMenu.open) return;
 
-        const mousePos = rl.getMousePosition();
-        const mouseInPanel = ui.side_panel.isMouseInPanel(mousePos, self.width);
+        const mousePos = input.pointerPos();
+        const mouseInPanel = input.pointerInUi();
 
-        if (rl.isMouseButtonPressed(rl.MouseButton.left) and !mouseInPanel) {
+        if (input.confirmPressed() and !mouseInPanel) {
             self.isDragging = true;
             self.lastMousePos = mousePos;
             self.clickStartPos = mousePos;
         }
 
-        if (rl.isMouseButtonReleased(rl.MouseButton.left)) {
+        if (input.confirmReleased()) {
             if (!mouseInPanel) {
                 self.handleMouseClick(mousePos);
             }
@@ -499,6 +546,168 @@ pub const Game = struct {
         if (wheelMove != 0.0) {
             self.grid.zoom(wheelMove * 0.3);
         }
+
+        try self.handleWorldShortcuts();
+    }
+
+    /// World-mode shortcuts, gamepad and keyboard: camera pan (right stick /
+    /// WASD/arrows), zoom (triggers / +-), X plants on the hovered tile,
+    /// LB/RB cycle the buy quantity, and d-pad / 1-4 quick-buy one bee.
+    fn handleWorldShortcuts(self: *@This()) !void {
+        // Panning moves the camera, so the world shifts the other way (same
+        // bookkeeping as a mouse drag).
+        const pan = input.cameraPan();
+        if (pan.x != 0 or pan.y != 0) {
+            const delta = rl.Vector2.init(-pan.x, -pan.y);
+            self.cameraOffset.x += delta.x;
+            self.cameraOffset.y += delta.y;
+            self.grid.offset.x += delta.x;
+            self.grid.offset.y += delta.y;
+            self.translateBees(delta);
+        }
+
+        const zoom = input.zoomAxis();
+        if (zoom != 0) {
+            self.grid.zoom(zoom * 2.0 * rl.getFrameTime());
+        }
+
+        if (input.plantPressed()) {
+            self.tryOpenPlanterAtHover();
+        }
+
+        const cycle = input.shoulderCycle();
+        if (cycle != 0) ui.action_hud.cycleBuyQty(cycle);
+
+        // Quick buys: one bee per press, mapped by direction/number.
+        if (input.quickBuyPressed(.up)) try self.quickBuyBee(.buy_worker_bee);
+        if (input.quickBuyPressed(.left)) try self.quickBuyBee(.buy_swift_bee);
+        if (input.quickBuyPressed(.right)) try self.quickBuyBee(.buy_efficient_bee);
+        if (input.quickBuyPressed(.down)) try self.quickBuyBee(.buy_gardener_bee);
+
+        // Tile snap: over the grid, gentle stick flicks step tile-by-tile
+        // (input.zig's step zone), a released stick settles on the tile
+        // center, and a hard push flies the cursor freely.
+        const hovered = self.grid.getHoveredTile();
+        const snapActive = settings.cursorSnap and input.gamepadActive() and !input.pointerInUi() and hovered != null;
+        input.setStepMode(snapActive);
+        if (snapActive) {
+            const tile = hovered.?;
+            input.magnetPull(self.tileCenter(tile.x, tile.y));
+            if (input.takeStep()) |dir| {
+                if (self.stepTarget(tile.x, tile.y, dir)) |center| {
+                    input.warpCursor(center);
+                }
+            }
+        }
+    }
+
+    /// Screen-space center of a tile's diamond top face.
+    fn tileCenter(self: *const @This(), x: i32, y: i32) rl.Vector2 {
+        const pos = utils.isoToXY(@floatFromInt(x), @floatFromInt(y), self.grid.tileWidth, self.grid.tileHeight, self.grid.offset.x, self.grid.offset.y, self.grid.scale);
+        return rl.Vector2.init(pos.x + 16 * self.grid.scale, pos.y + 8 * self.grid.scale);
+    }
+
+    /// Neighbor to step to for a stick push, by explicit intent sectors:
+    /// pushes within ~20° of screen-horizontal or -vertical mean the screen
+    /// cross (the grid diagonals), and any clearly mixed push means that
+    /// quadrant's shallow neighbor (the grid cardinals, which sit only ~27°
+    /// off horizontal on screen and are nearly impossible to aim at with a
+    /// nearest-angle rule). Out-of-bounds targets fall back to the best
+    /// aligned in-bounds neighbor so borders stay forgiving.
+    fn stepTarget(self: *const @This(), tx: i32, ty: i32, dir: rl.Vector2) ?rl.Vector2 {
+        const deg = std.math.atan2(dir.y, dir.x) * 180.0 / std.math.pi;
+        const a = @abs(deg);
+        var dx: i32 = 0;
+        var dy: i32 = 0;
+        if (a <= 20) {
+            dx = 1;
+            dy = -1; // screen right
+        } else if (a >= 160) {
+            dx = -1;
+            dy = 1; // screen left
+        } else if (deg > 0) { // lower half (screen y grows downward)
+            if (deg < 70) {
+                dx = 1; // down-right shallow
+            } else if (deg <= 110) {
+                dx = 1;
+                dy = 1; // screen down
+            } else {
+                dy = 1; // down-left shallow
+            }
+        } else { // upper half
+            if (deg > -70) {
+                dy = -1; // up-right shallow
+            } else if (deg >= -110) {
+                dx = -1;
+                dy = -1; // screen up
+            } else {
+                dx = -1; // up-left shallow
+            }
+        }
+        const nx = tx + dx;
+        const ny = ty + dy;
+        if (nx >= 0 and ny >= 0 and nx < @as(i32, @intCast(self.gridWidth)) and ny < @as(i32, @intCast(self.gridHeight))) {
+            return self.tileCenter(nx, ny);
+        }
+        return self.bestAlignedNeighbor(tx, ty, dir);
+    }
+
+    /// The in-bounds neighbor of (tx, ty) whose on-screen direction best
+    /// matches `dir` (a normalized stick vector) — comparing in screen space
+    /// so the isometric projection is handled for free. Null when nothing
+    /// aligns even loosely.
+    fn bestAlignedNeighbor(self: *const @This(), tx: i32, ty: i32, dir: rl.Vector2) ?rl.Vector2 {
+        const cur = self.tileCenter(tx, ty);
+        var best: ?rl.Vector2 = null;
+        var bestDot: f32 = 0.35;
+        var dy: i32 = -1;
+        while (dy <= 1) : (dy += 1) {
+            var dx: i32 = -1;
+            while (dx <= 1) : (dx += 1) {
+                if (dx == 0 and dy == 0) continue;
+                const nx = tx + dx;
+                const ny = ty + dy;
+                if (nx < 0 or ny < 0 or nx >= @as(i32, @intCast(self.gridWidth)) or ny >= @as(i32, @intCast(self.gridHeight))) continue;
+                const c = self.tileCenter(nx, ny);
+                const vx = c.x - cur.x;
+                const vy = c.y - cur.y;
+                const len = @sqrt(vx * vx + vy * vy);
+                if (len == 0) continue;
+                const dot = (vx * dir.x + vy * dir.y) / len;
+                if (dot > bestDot) {
+                    bestDot = dot;
+                    best = c;
+                }
+            }
+        }
+        return best;
+    }
+
+    /// Buy one bee without opening any UI (d-pad shortcut). Locked types
+    /// no-op so the mapping stays stable; the "-cost" popup at the cursor is
+    /// the success feedback (same as shop purchases).
+    fn quickBuyBee(self: *@This(), buyAction: actions.BuyAction) !void {
+        const unlocked = switch (buyAction) {
+            .buy_worker_bee => true,
+            .buy_swift_bee => self.upgradeTree.hasEffect(.bee_unlock_swift),
+            .buy_efficient_bee => self.upgradeTree.hasEffect(.bee_unlock_efficient),
+            .buy_gardener_bee => self.upgradeTree.hasEffect(.bee_unlock_gardener),
+        };
+        if (!unlocked) return;
+
+        var handler = self.createActionHandler();
+        const honeyBefore = self.resources.honey;
+        const result = try handler.handleBuy(buyAction);
+        if (result.beeCountDelta > 0) {
+            self.cachedBeeCount += @intCast(result.beeCountDelta);
+            try self.spawnSpendFeedback(honeyBefore);
+            ui.action_hud.flashSlot(switch (buyAction) {
+                .buy_worker_bee => 0,
+                .buy_swift_bee => 1,
+                .buy_efficient_bee => 2,
+                .buy_gardener_bee => 3,
+            });
+        }
     }
 
     fn handleMouseClick(self: *@This(), mousePos: rl.Vector2) void {
@@ -521,13 +730,20 @@ pub const Game = struct {
                 }
                 return; // live flower: nothing to do
             }
-            // Empty tile (not the hive, inside the meadow): open the planter.
-            const centerX = @as(i32, @intCast((self.gridWidth - 1) / 2));
-            const centerY = @as(i32, @intCast((self.gridHeight - 1) / 2));
-            const inBounds = tile.x >= 0 and tile.y >= 0 and tile.x < @as(i32, @intCast(self.gridWidth)) and tile.y < @as(i32, @intCast(self.gridHeight));
-            if (inBounds and !(tile.x == centerX and tile.y == centerY)) {
-                self.plantMenu.openAt(tile.x, tile.y);
-            }
+            self.tryOpenPlanterAtHover();
+        }
+    }
+
+    /// Open the plant chooser on the hovered tile if it's an empty meadow
+    /// cell (not the hive, not already flowered, inside the grid).
+    fn tryOpenPlanterAtHover(self: *@This()) void {
+        const tile = self.grid.getHoveredTile() orelse return;
+        if (self.world.hasFlowerAtGrid(tile.x, tile.y)) return;
+        const centerX = @as(i32, @intCast((self.gridWidth - 1) / 2));
+        const centerY = @as(i32, @intCast((self.gridHeight - 1) / 2));
+        const inBounds = tile.x >= 0 and tile.y >= 0 and tile.x < @as(i32, @intCast(self.gridWidth)) and tile.y < @as(i32, @intCast(self.gridHeight));
+        if (inBounds and !(tile.x == centerX and tile.y == centerY)) {
+            self.plantMenu.openAt(tile.x, tile.y);
         }
     }
 
@@ -624,7 +840,7 @@ pub const Game = struct {
             self.audio.playCollect();
         }
         self.floatingTexts.update(deltaTime);
-        self.ambient.update(deltaTime, self.width - ui.side_panel.PANEL_WIDTH, self.height);
+        self.ambient.update(deltaTime, self.width, self.height);
 
         try self.world.processDestroyQueue();
     }
@@ -636,6 +852,7 @@ pub const Game = struct {
         // zooms it up to the real resolution.
         ui_scale.begin();
         defer ui_scale.end();
+        defer input.drawCursor();
 
         rl.clearBackground(theme.CatppuccinMocha.Color.base);
 
@@ -661,8 +878,8 @@ pub const Game = struct {
         const honeyFactor = self.cachedHoneyFactor;
         self.hud.draw(&self.resources, honeyFactor);
 
-        // Draw side panel (shop)
-        const sideCtx = ui.SidePanelContext{
+        // Draw the floating action HUD (bee cross, tree button, passives)
+        const sideCtx = ui.ActionHudContext{
             .screenWidth = self.width,
             .screenHeight = self.height,
             .resources = &self.resources,
@@ -672,7 +889,7 @@ pub const Game = struct {
             .labs = &self.labs,
             .textures = &self.textures,
         };
-        const sideAction = ui.side_panel.draw(sideCtx);
+        const sideAction = ui.action_hud.draw(sideCtx);
         if (!self.showPauseMenu and !self.showTree and !self.showPrestigeDialog) {
             switch (sideAction) {
                 .none => {},
@@ -722,7 +939,7 @@ pub const Game = struct {
         // Dev FPS/frametime readout, hidden by default. BT_SHOW_DEBUG enables
         // it. (frameTime is still computed below for metrics.)
         if (self.env.get("BT_SHOW_DEBUG") != null) {
-            const fpsX = @as(i32, @intFromFloat(self.width - ui.side_panel.PANEL_WIDTH - 100));
+            const fpsX = @as(i32, @intFromFloat(self.width - 130));
             rl.drawFPS(fpsX, 10);
             text.draw(rl.textFormat("%.2f ms", .{rl.getFrameTime() * 1000.0}), fpsX, 30, 20, rl.Color.white);
         }
@@ -796,7 +1013,7 @@ pub const Game = struct {
     fn spawnSpendFeedback(self: *@This(), honeyBefore: f32) !void {
         const spent = honeyBefore - self.resources.honey;
         if (spent <= 0) return;
-        const mouse = rl.getMousePosition();
+        const mouse = input.pointerPos();
         try self.floatingTexts.spawnScreen(mouse.x, mouse.y - 14, -spent);
     }
 
@@ -839,7 +1056,6 @@ pub const Game = struct {
     }
 
     fn drawAndHandlePrestigeDialog(self: *@This()) !void {
-        const rg = @import("raygui");
         rl.drawRectangle(0, 0, @intFromFloat(self.width), @intFromFloat(self.height), theme.CatppuccinMocha.Color.modalOverlay);
 
         const popupW: f32 = 520;
@@ -874,16 +1090,14 @@ pub const Game = struct {
         const btnH: f32 = 40;
         const btnY = popupY + popupH - btnH - 16;
 
-        if (rg.button(rl.Rectangle.init(popupX + 24, btnY, btnW, btnH), locale.tr("Cancel", "Cancelar"))) {
+        if (widgets.button(rl.Rectangle.init(popupX + 24, btnY, btnW, btnH), locale.tr("Cancel", "Cancelar"))) {
             self.showPrestigeDialog = false;
         }
         const confirmRect = rl.Rectangle.init(popupX + popupW - btnW - 24, btnY, btnW, btnH);
-        if (gain == 0) rg.setState(@intFromEnum(rg.State.disabled));
-        if (rg.button(confirmRect, locale.tr("Confirm", "Confirmar")) and gain > 0) {
+        if (widgets.buttonEx(confirmRect, locale.tr("Confirm", "Confirmar"), .{ .enabled = gain > 0 })) {
             try self.doPrestige(gain);
             self.showPrestigeDialog = false;
         }
-        rg.setState(@intFromEnum(rg.State.normal));
     }
 
     fn doPrestige(self: *@This(), gain: u32) !void {
@@ -1051,6 +1265,7 @@ pub const Game = struct {
             .window_mode = @intFromEnum(settings.windowMode),
             .music_volume = self.audio.musicVolume,
             .fx_volume = self.audio.fxVolume,
+            .cursor_snap = settings.cursorSnap,
             .honey = self.resources.honey,
             .honey_capacity = self.resources.honeyCapacity,
             .storage_level = self.resources.storageLevel,
@@ -1166,6 +1381,7 @@ pub const Game = struct {
         settings.windowMode = settings.WindowMode.fromInt(data.window_mode);
         self.audio.setMusicVolume(finiteInRange(data.music_volume, 0, 1, 0.7));
         self.audio.setFxVolume(finiteInRange(data.fx_volume, 0, 1, 0.7));
+        settings.cursorSnap = data.cursor_snap;
 
         self.world.deinit();
         self.world = World.init(self.allocator);
