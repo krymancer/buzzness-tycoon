@@ -137,7 +137,7 @@ fn drawBeeCross(ctx: Context, mouse: rl.Vector2, out: *Action) void {
     text.drawOutline(qtyLabel, @as(i32, @intFromFloat(ccx)) - @divFloor(qw, 2), @intFromFloat(numY), 30, if (hovered) C.peach else C.yellow, OUTLINE);
     // Badge: 1x (16px) icons, drawn over the number's lower-right corner
     // (notification style), nudged right so the digits stay readable.
-    const badgeX = ccx + 4;
+    const badgeX = ccx + 8;
     const badgeY = numY + 18;
     if (input.gamepadActive()) {
         prompt_icons.draw(.pad_lb, badgeX, badgeY, 16);
