@@ -412,7 +412,8 @@ pub const Game = struct {
             .screenHeight = self.height,
             .windowMode = settings.windowMode,
             .language = locale.current(),
-            .volume = self.audio.volume,
+            .musicVolume = self.audio.musicVolume,
+            .fxVolume = self.audio.fxVolume,
             .uiScale = ui_scale.user(),
         });
         switch (action) {
@@ -420,7 +421,12 @@ pub const Game = struct {
             .back => self.showOptions = false,
             .window_mode => |m| settings.apply(m),
             .language => |l| locale.set(l),
-            .volume => |v| self.audio.setVolume(v),
+            .music_volume => |v| self.audio.setMusicVolume(v),
+            .fx_volume => |v| {
+                self.audio.setFxVolume(v);
+                // Audition the new level so the slider is tunable by ear.
+                self.audio.playCollect();
+            },
             .ui_scale => |s| ui_scale.setUser(s),
         }
     }
@@ -1043,7 +1049,8 @@ pub const Game = struct {
             .language = @intFromEnum(locale.current()),
             .ui_scale = ui_scale.user(),
             .window_mode = @intFromEnum(settings.windowMode),
-            .volume = self.audio.volume,
+            .music_volume = self.audio.musicVolume,
+            .fx_volume = self.audio.fxVolume,
             .honey = self.resources.honey,
             .honey_capacity = self.resources.honeyCapacity,
             .storage_level = self.resources.storageLevel,
@@ -1157,7 +1164,8 @@ pub const Game = struct {
         });
         ui_scale.setUser(finiteInRange(data.ui_scale, 0.6, 2.5, 1.0));
         settings.windowMode = settings.WindowMode.fromInt(data.window_mode);
-        self.audio.setVolume(finiteInRange(data.volume, 0, 1, 0.7));
+        self.audio.setMusicVolume(finiteInRange(data.music_volume, 0, 1, 0.7));
+        self.audio.setFxVolume(finiteInRange(data.fx_volume, 0, 1, 0.7));
 
         self.world.deinit();
         self.world = World.init(self.allocator);

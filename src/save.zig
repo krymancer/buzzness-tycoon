@@ -40,7 +40,8 @@ pub const Data = struct {
     language: u8 = 0,
     ui_scale: f32 = 1,
     window_mode: u8 = 1, // settings.WindowMode (1 = borderless)
-    volume: f32 = 0.7,
+    music_volume: f32 = 0.7,
+    fx_volume: f32 = 0.7,
     honey: f32 = 100,
     honey_capacity: f32 = 500,
     storage_level: u32 = 1,
@@ -115,7 +116,11 @@ pub fn write(io: std.Io, save_path: []const u8, data: *const Data) !void {
     try writer.print("language {d}\n", .{data.language});
     try writer.print("ui_scale {d}\n", .{data.ui_scale});
     try writer.print("window_mode {d}\n", .{data.window_mode});
-    try writer.print("volume {d}\n", .{data.volume});
+    // Legacy single-channel line first so older builds still restore a
+    // volume, and so the split lines below win when this build reloads.
+    try writer.print("volume {d}\n", .{@max(data.music_volume, data.fx_volume)});
+    try writer.print("music_volume {d}\n", .{data.music_volume});
+    try writer.print("fx_volume {d}\n", .{data.fx_volume});
     try writer.print("resources {d} {d} {d} {d} {d} {d} {d}\n", .{
         data.honey,
         data.honey_capacity,
@@ -203,7 +208,14 @@ pub fn read(allocator: std.mem.Allocator, io: std.Io, save_path: []const u8) !Da
         } else if (std.mem.eql(u8, key, "window_mode")) {
             data.window_mode = try parse(u8, tokens.next());
         } else if (std.mem.eql(u8, key, "volume")) {
-            data.volume = try parse(f32, tokens.next());
+            // Pre-split saves: one master volume seeds both channels.
+            const v = try parse(f32, tokens.next());
+            data.music_volume = v;
+            data.fx_volume = v;
+        } else if (std.mem.eql(u8, key, "music_volume")) {
+            data.music_volume = try parse(f32, tokens.next());
+        } else if (std.mem.eql(u8, key, "fx_volume")) {
+            data.fx_volume = try parse(f32, tokens.next());
         } else if (std.mem.eql(u8, key, "resources")) {
             saw_resources = true;
             data.honey = try parse(f32, tokens.next());
@@ -307,6 +319,8 @@ test "save data survives an atomic round trip" {
 
     var original = Data{
         .language = 1,
+        .music_volume = 0.9,
+        .fx_volume = 0.25,
         .honey = 9_000_000,
         .beehive_factor = 128,
         .royal_jelly = 42,
@@ -343,6 +357,8 @@ test "save data survives an atomic round trip" {
     var restored = try read(std.testing.allocator, std.testing.io, save_path);
     defer restored.deinit(std.testing.allocator);
 
+    try std.testing.expectEqual(@as(f32, 0.9), restored.music_volume);
+    try std.testing.expectEqual(@as(f32, 0.25), restored.fx_volume);
     try std.testing.expectEqual(@as(f32, 9_000_000), restored.honey);
     try std.testing.expectEqual(@as(f32, 128), restored.beehive_factor);
     try std.testing.expectEqual(@as(u32, 42), restored.royal_jelly);
@@ -371,6 +387,7 @@ test "flower lines without the is_super field still parse (old saves)" {
 
     const old_save =
         "BUZZNESS_TYCOON 1\n" ++
+        "volume 0.4\n" ++
         "resources 100 500 1 0 0 10 1\n" ++
         "hive 1 20\n" ++
         "grid 17 17\n" ++
@@ -383,6 +400,9 @@ test "flower lines without the is_super field still parse (old saves)" {
     var restored = try read(std.testing.allocator, std.testing.io, save_path);
     defer restored.deinit(std.testing.allocator);
 
+    // A legacy master volume seeds both channels.
+    try std.testing.expectEqual(@as(f32, 0.4), restored.music_volume);
+    try std.testing.expectEqual(@as(f32, 0.4), restored.fx_volume);
     try std.testing.expectEqual(@as(usize, 1), restored.flowers.items.len);
     try std.testing.expect(!restored.flowers.items[0].is_super);
     // Pre-position saves carry no per-cell bee lines; loaders fall back to counts.
