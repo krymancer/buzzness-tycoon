@@ -160,7 +160,7 @@ fn drawControlsTab(ctx: Context, px: f32, startY: f32, mouse: rl.Vector2, action
         .{ .name = locale.tr("Plant on tile", "Plantar na célula"), .keys = locale.tr("Click · A / X", "Clique · A / X") },
         .{ .name = locale.tr("Tech tree", "Árvore de melhorias"), .keys = "T · Y" },
         .{ .name = locale.tr("Quick-buy bees", "Compra rápida de abelhas"), .keys = locale.tr("1-4 · D-pad", "1-4 · Direcional") },
-        .{ .name = locale.tr("Buy quantity", "Quantidade de compra"), .keys = "LB / RB" },
+        .{ .name = locale.tr("Buy quantity", "Quantidade de compra"), .keys = "Tab · LB / RB" },
         .{ .name = locale.tr("Pause", "Pausa"), .keys = "Esc · Start" },
         .{ .name = locale.tr("Back / close", "Voltar / fechar"), .keys = "Esc · B" },
         .{ .name = locale.tr("Mute", "Mudo"), .keys = "N" },

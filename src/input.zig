@@ -185,11 +185,11 @@ pub fn dpadPressed(d: Dir) bool {
     });
 }
 
-/// Shoulder buttons: -1 (LB) / +1 (RB), for cycling the buy quantity.
+/// Buy-quantity cycling: -1 (LB) / +1 (RB or keyboard Tab).
 pub fn shoulderCycle() i32 {
     var d: i32 = 0;
     if (padPressed(.left_trigger_1)) d -= 1;
-    if (padPressed(.right_trigger_1)) d += 1;
+    if (padPressed(.right_trigger_1) or rl.isKeyPressed(rl.KeyboardKey.tab)) d += 1;
     return d;
 }
 
