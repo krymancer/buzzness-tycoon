@@ -135,16 +135,17 @@ fn drawBeeCross(ctx: Context, mouse: rl.Vector2, out: *Action) void {
     const qw = text.measure(qtyLabel, 42);
     const numY = ccy - 22;
     text.drawOutline(qtyLabel, @as(i32, @intFromFloat(ccx)) - @divFloor(qw, 2), @intFromFloat(numY), 42, if (hovered) C.peach else C.yellow, OUTLINE);
-    // Badge: 1x (16px) icons, drawn over the number's lower-right corner
+    // Badge: 24px icons, drawn over the number's lower-right corner
     // (notification style), nudged right so the digits stay readable.
+    const badge: f32 = 24;
     const badgeX = ccx + 10;
-    const badgeY = numY + 30;
+    const badgeY = numY + 28;
     if (input.gamepadActive()) {
-        prompt_icons.draw(.pad_lb, badgeX, badgeY, 16);
-        prompt_icons.draw(.pad_rb, badgeX + 17, badgeY, 16);
+        prompt_icons.draw(.pad_lb, badgeX, badgeY, badge);
+        prompt_icons.draw(.pad_rb, badgeX + badge + 1, badgeY, badge);
     } else {
         // The TAB tile is 32x16; its box centers it, so start half a tile in.
-        prompt_icons.draw(.key_tab, badgeX + 8, badgeY, 16);
+        prompt_icons.draw(.key_tab, badgeX + badge / 2, badgeY, badge);
     }
     if (hovered and input.confirmPressed()) cycleBuyQty(1);
 }
