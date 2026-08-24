@@ -7,10 +7,11 @@ pub const beehive_png = @embedFile("beehive.png");
 
 pub const baloo2_ttf = @embedFile("baloo2.ttf");
 
-// UI prompt icons from MitziTheDev's "Control Prompts" pack (labeled
-// bumpers/triggers, lettered buttons; keyboard keys composed from the pack's
-// blank key + pixel letters), and the pointer from Jasper's "16x Cursors"
-// pack. Both are royalty-free for projects; do not redistribute the packs.
+// UI prompt icons from Kenney's "Input Prompts Pixel" pack (CC0,
+// https://kenney.nl/assets/input-prompts-pixel): lettered face buttons,
+// d-pads with a highlighted direction arm, labeled LT/RT/LB/RB, and keyboard
+// keys including the wide TAB. Pointer from Jasper's "16x Cursors" pack
+// (royalty-free; do not redistribute that pack).
 pub const ui_cursor_png = @embedFile("ui/cursor.png");
 pub const ui_pad_a_png = @embedFile("ui/pad_a.png");
 pub const ui_pad_b_png = @embedFile("ui/pad_b.png");
