@@ -124,8 +124,7 @@ fn drawBeeCross(ctx: Context, mouse: rl.Vector2, out: *Action) void {
         prompt_icons.draw(.pad_lb, center.x + SLOT / 2 - PROMPT - 1, center.y + SLOT / 2 + 4, PROMPT);
         prompt_icons.draw(.pad_rb, center.x + SLOT / 2 + 1, center.y + SLOT / 2 + 4, PROMPT);
     } else {
-        const hw = text.measure("Tab", 14);
-        text.drawOutline("Tab", @as(i32, @intFromFloat(center.x + SLOT / 2)) - @divFloor(hw, 2), @intFromFloat(center.y + SLOT / 2 + 6), 14, C.subtext0, OUTLINE);
+        prompt_icons.draw(.key_tab, center.x + SLOT / 2 - PROMPT / 2, center.y + SLOT / 2 + 2, PROMPT);
     }
     if (hovered and input.confirmPressed()) cycleBuyQty(1);
 }
@@ -136,17 +135,13 @@ fn drawBeeSlot(ctx: Context, spec: SlotSpec, pos: rl.Vector2, mouse: rl.Vector2,
     const cx = rect.x + SLOT / 2;
     const cy = rect.y + SLOT / 2;
 
-    // Soft grounding disc instead of a solid card, so the icons read big and
-    // the meadow shows through.
-    rl.drawCircleV(rl.Vector2.init(cx, cy), SLOT / 2 - 2, rl.Color.init(17, 17, 27, 110));
-
     if (!spec.unlocked) {
         // Locked: dark bee silhouette keeps the cross shape and teases the
         // upcoming type.
         rl.drawTexturePro(
             ctx.textures.bee,
             rl.Rectangle.init(0, 0, 32, 32),
-            rl.Rectangle.init(cx - 19, cy - 19, 38, 38),
+            rl.Rectangle.init(cx - 27, cy - 27, 54, 54),
             rl.Vector2.init(0, 0),
             0,
             rl.Color.init(30, 30, 46, 200),
@@ -161,17 +156,25 @@ fn drawBeeSlot(ctx: Context, spec: SlotSpec, pos: rl.Vector2, mouse: rl.Vector2,
     const hovered = rl.checkCollisionPointRec(mouse, rect);
     const pressed = hovered and afford and input.confirmDown();
 
-    if (hovered and afford) {
-        rl.drawRing(rl.Vector2.init(cx, cy), SLOT / 2 - 4, SLOT / 2 - 1, 0, 360, 32, C.yellow);
-    }
-
-    // Bee sprite, tinted with the type accent (dim when unaffordable).
-    const iconSize: f32 = if (pressed) 40 else 44;
+    // Bee sprite, tinted with the type accent (dim when unaffordable), over
+    // a soft drop shadow; hovering scales it up as the hover cue.
+    // The bee sprite carries generous transparent margins, so it draws well
+    // past the slot box to land at a readable visual size.
+    const iconSize: f32 = if (pressed) 56 else if (hovered and afford) 66 else 60;
     const tint = if (afford) spec.accent else rl.Color.init(spec.accent.r, spec.accent.g, spec.accent.b, 110);
+    const beeDst = rl.Rectangle.init(cx - iconSize / 2, cy - iconSize / 2 - 3, iconSize, iconSize);
     rl.drawTexturePro(
         ctx.textures.bee,
         rl.Rectangle.init(0, 0, 32, 32),
-        rl.Rectangle.init(cx - iconSize / 2, cy - iconSize / 2 - 3, iconSize, iconSize),
+        rl.Rectangle.init(beeDst.x + 2, beeDst.y + 2, iconSize, iconSize),
+        rl.Vector2.init(0, 0),
+        0,
+        rl.Color.init(17, 17, 27, 140),
+    );
+    rl.drawTexturePro(
+        ctx.textures.bee,
+        rl.Rectangle.init(0, 0, 32, 32),
+        beeDst,
         rl.Vector2.init(0, 0),
         0,
         tint,
@@ -211,20 +214,17 @@ fn drawTreeButton(ctx: Context, mouse: rl.Vector2, out: *Action) void {
     const cxf = rect.x + size / 2;
     const cyf = rect.y + size / 2;
 
-    rl.drawCircleV(rl.Vector2.init(cxf, cyf), size / 2 - 2, rl.Color.init(17, 17, 27, 110));
-    if (hovered) {
-        rl.drawRing(rl.Vector2.init(cxf, cyf), size / 2 - 4, size / 2 - 1, 0, 360, 32, C.pink);
-    }
-
-    // The tree card's sparkle, centered.
+    // The tree card's sparkle, centered; it grows a little on hover.
     const cx = @as(i32, @intFromFloat(cxf));
     const cy = @as(i32, @intFromFloat(cyf - 6));
-    rl.drawCircle(cx, cy, 9, C.mauve);
+    const r: f32 = if (hovered) 11 else 9;
+    rl.drawCircle(cx + 1, cy + 1, r, rl.Color.init(17, 17, 27, 140));
+    rl.drawCircle(cx, cy, r, if (hovered) C.pink else C.mauve);
     rl.drawCircle(cx - 13, cy - 10, 3, C.pink);
     rl.drawCircle(cx + 13, cy + 10, 3, C.pink);
     const label = locale.tr("Tree", "Árvore");
     const lw = text.measure(label, 14);
-    text.drawOutline(label, cx - @divFloor(lw, 2), @intFromFloat(rect.y + size - 20), 14, C.subtext0, OUTLINE);
+    text.drawOutline(label, cx - @divFloor(lw, 2), @intFromFloat(rect.y + size - 20), 14, if (hovered) C.pink else C.subtext0, OUTLINE);
 
     prompt_icons.draw(if (input.gamepadActive()) .pad_y else .key_t, rect.x - 3, rect.y - 3, PROMPT);
 

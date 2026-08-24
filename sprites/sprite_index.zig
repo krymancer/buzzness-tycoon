@@ -7,9 +7,10 @@ pub const beehive_png = @embedFile("beehive.png");
 
 pub const baloo2_ttf = @embedFile("baloo2.ttf");
 
-// UI prompt icons (16x16) from falconzitos' "Pixel Art Controller & Keyboard
-// Prompts" pack, and the pointer from Jasper's "16x Cursors" pack. Both are
-// licensed for commercial projects; do not redistribute the packs.
+// UI prompt icons from MitziTheDev's "Control Prompts" pack (labeled
+// bumpers/triggers, lettered buttons; keyboard keys composed from the pack's
+// blank key + pixel letters), and the pointer from Jasper's "16x Cursors"
+// pack. Both are royalty-free for projects; do not redistribute the packs.
 pub const ui_cursor_png = @embedFile("ui/cursor.png");
 pub const ui_pad_a_png = @embedFile("ui/pad_a.png");
 pub const ui_pad_b_png = @embedFile("ui/pad_b.png");
@@ -28,3 +29,4 @@ pub const ui_key_2_png = @embedFile("ui/key_2.png");
 pub const ui_key_3_png = @embedFile("ui/key_3.png");
 pub const ui_key_4_png = @embedFile("ui/key_4.png");
 pub const ui_key_t_png = @embedFile("ui/key_t.png");
+pub const ui_key_tab_png = @embedFile("ui/key_tab.png");

@@ -28,6 +28,7 @@ pub const ui_key_2_png = sprites.ui_key_2_png;
 pub const ui_key_3_png = sprites.ui_key_3_png;
 pub const ui_key_4_png = sprites.ui_key_4_png;
 pub const ui_key_t_png = sprites.ui_key_t_png;
+pub const ui_key_tab_png = sprites.ui_key_tab_png;
 
 pub fn loadImageFromMemory(fileData: []const u8) !rl.Image {
     return rl.loadImageFromMemory(".png", fileData);
