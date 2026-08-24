@@ -581,14 +581,59 @@ pub const Game = struct {
         if (input.quickBuyPressed(.right)) try self.quickBuyBee(.buy_efficient_bee);
         if (input.quickBuyPressed(.down)) try self.quickBuyBee(.buy_gardener_bee);
 
-        // Tile magnetism: a released stick settles the cursor onto the
-        // hovered tile's center (diamond top face) instead of between tiles.
-        if (settings.cursorSnap and input.gamepadActive()) {
-            if (self.grid.getHoveredTile()) |tile| {
-                const pos = utils.isoToXY(@floatFromInt(tile.x), @floatFromInt(tile.y), self.grid.tileWidth, self.grid.tileHeight, self.grid.offset.x, self.grid.offset.y, self.grid.scale);
-                input.magnetPull(rl.Vector2.init(pos.x + 16 * self.grid.scale, pos.y + 8 * self.grid.scale));
+        // Tile snap: over the grid, gentle stick flicks step tile-by-tile
+        // (input.zig's step zone), a released stick settles on the tile
+        // center, and a hard push flies the cursor freely.
+        const hovered = self.grid.getHoveredTile();
+        const pointerInPanel = ui.side_panel.isMouseInPanel(input.pointerPos(), self.width);
+        const snapActive = settings.cursorSnap and input.gamepadActive() and !pointerInPanel and hovered != null;
+        input.setStepMode(snapActive);
+        if (snapActive) {
+            const tile = hovered.?;
+            input.magnetPull(self.tileCenter(tile.x, tile.y));
+            if (input.takeStep()) |dir| {
+                if (self.bestStepNeighbor(tile.x, tile.y, dir)) |center| {
+                    input.warpCursor(center);
+                }
             }
         }
+    }
+
+    /// Screen-space center of a tile's diamond top face.
+    fn tileCenter(self: *const @This(), x: i32, y: i32) rl.Vector2 {
+        const pos = utils.isoToXY(@floatFromInt(x), @floatFromInt(y), self.grid.tileWidth, self.grid.tileHeight, self.grid.offset.x, self.grid.offset.y, self.grid.scale);
+        return rl.Vector2.init(pos.x + 16 * self.grid.scale, pos.y + 8 * self.grid.scale);
+    }
+
+    /// The in-bounds neighbor of (tx, ty) whose on-screen direction best
+    /// matches `dir` (a normalized stick vector) — comparing in screen space
+    /// so the isometric projection is handled for free. Null when nothing
+    /// aligns even loosely.
+    fn bestStepNeighbor(self: *const @This(), tx: i32, ty: i32, dir: rl.Vector2) ?rl.Vector2 {
+        const cur = self.tileCenter(tx, ty);
+        var best: ?rl.Vector2 = null;
+        var bestDot: f32 = 0.35;
+        var dy: i32 = -1;
+        while (dy <= 1) : (dy += 1) {
+            var dx: i32 = -1;
+            while (dx <= 1) : (dx += 1) {
+                if (dx == 0 and dy == 0) continue;
+                const nx = tx + dx;
+                const ny = ty + dy;
+                if (nx < 0 or ny < 0 or nx >= @as(i32, @intCast(self.gridWidth)) or ny >= @as(i32, @intCast(self.gridHeight))) continue;
+                const c = self.tileCenter(nx, ny);
+                const vx = c.x - cur.x;
+                const vy = c.y - cur.y;
+                const len = @sqrt(vx * vx + vy * vy);
+                if (len == 0) continue;
+                const dot = (vx * dir.x + vy * dir.y) / len;
+                if (dot > bestDot) {
+                    bestDot = dot;
+                    best = c;
+                }
+            }
+        }
+        return best;
     }
 
     /// Buy one bee without opening any UI (d-pad shortcut). Locked types

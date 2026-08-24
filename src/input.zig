@@ -20,6 +20,12 @@ const DEADZONE: f32 = 0.18;
 const CURSOR_SPEED: f32 = 900;
 /// Right-stick camera pan speed, logical px/s.
 const PAN_SPEED: f32 = 650;
+/// Step mode (tile snap): deflections up to this step tile-by-tile; only a
+/// harder push moves the cursor freely.
+const STEP_ZONE: f32 = 0.55;
+/// Key-repeat style timing for held tile steps.
+const STEP_REPEAT_FIRST: f32 = 0.30;
+const STEP_REPEAT: f32 = 0.15;
 
 pub const Device = enum { mouse, gamepad };
 pub const Dir = enum { up, down, left, right };
@@ -27,6 +33,16 @@ pub const Dir = enum { up, down, left, right };
 var device: Device = .mouse;
 var cursor = rl.Vector2.init(-1, -1); // -1: placed at screen center on first use
 var menuMode: bool = false;
+
+// Tile-step state (see beginFrame). stepMode is set by the game when the
+// cursor sits on the grid with snap enabled; a step becomes "eligible" only
+// after the stick returns to rest, so easing off from a free flight through
+// the step zone never fires a spurious step.
+var stepMode: bool = false;
+var stepArmed: bool = false;
+var stepEligible: bool = true;
+var stepRepeatTimer: f32 = 0;
+var pendingStep: ?rl.Vector2 = null;
 
 const MAX_HOTSPOTS = 128;
 var hotspots: [MAX_HOTSPOTS]rl.Rectangle = undefined;
@@ -60,11 +76,36 @@ pub fn beginFrame(menu: bool) void {
     if (device != .gamepad) return;
 
     if (cursor.x < 0) cursor = rl.Vector2.init(ui_scale.width() / 2, ui_scale.height() / 2);
-    // Ease-in response: slow near the center for pixel precision, fast at
-    // full deflection to cross the screen quickly.
+    const dt = rl.getFrameTime();
     const mag = @sqrt(stick.x * stick.x + stick.y * stick.y);
-    const curved = mag * mag * CURSOR_SPEED * rl.getFrameTime();
-    if (mag > 0) {
+    pendingStep = null;
+    if (mag == 0) {
+        stepArmed = false;
+        stepEligible = true;
+    } else if (stepMode and mag <= STEP_ZONE) {
+        // Gentle deflection over the grid: discrete tile steps with
+        // key-repeat timing instead of free movement, so neighbors are easy
+        // to hit precisely.
+        const dir = rl.Vector2.init(stick.x / mag, stick.y / mag);
+        if (!stepArmed) {
+            if (stepEligible) pendingStep = dir;
+            stepArmed = true;
+            stepRepeatTimer = STEP_REPEAT_FIRST;
+        } else if (stepEligible) {
+            stepRepeatTimer -= dt;
+            if (stepRepeatTimer <= 0) {
+                pendingStep = dir;
+                stepRepeatTimer = STEP_REPEAT;
+            }
+        }
+    } else {
+        // Free flight, with an ease-in response: slow near the zone edge for
+        // precision, fast at full deflection to cross the screen quickly.
+        stepArmed = false;
+        stepEligible = false;
+        var eff = mag;
+        if (stepMode) eff = (mag - STEP_ZONE) / (1 - STEP_ZONE);
+        const curved = eff * eff * CURSOR_SPEED * dt;
         cursor.x += stick.x / mag * curved;
         cursor.y += stick.y / mag * curved;
     }
@@ -200,6 +241,26 @@ pub fn registerHotspot(rect: rl.Rectangle) void {
     if (hotspotCount >= MAX_HOTSPOTS) return;
     hotspots[hotspotCount] = rect;
     hotspotCount += 1;
+}
+
+/// Enable tile-step mode: the game sets this while the cursor sits on the
+/// grid with snap enabled (takes effect next frame). Off, the stick moves
+/// the cursor freely at every deflection (menus, panels, snap disabled).
+pub fn setStepMode(active: bool) void {
+    if (stepMode != active) stepArmed = false;
+    stepMode = active;
+}
+
+/// The tile-step fired this frame, as a normalized stick direction, or null.
+/// Consume it once per frame after beginFrame.
+pub fn takeStep() ?rl.Vector2 {
+    defer pendingStep = null;
+    return pendingStep;
+}
+
+/// Teleport the virtual cursor (tile stepping lands it on a tile center).
+pub fn warpCursor(pos: rl.Vector2) void {
+    if (device == .gamepad) cursor = pos;
 }
 
 /// Ease the cursor toward `target` (tile magnetism) while the left stick is
