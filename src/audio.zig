@@ -9,14 +9,19 @@ pub const Audio = struct {
     const SAMPLE_RATE: u32 = 44100;
     const A_MIN_PENTATONIC = [_]f32{ 220.0, 261.63, 293.66, 329.63, 392.0, 440.0, 523.25, 587.33 };
 
+    /// Baseline mix levels the channel sliders scale (0..1 each).
+    const MUSIC_BASE: f32 = 0.32;
+    const FX_BASE: f32 = 0.28;
+
     ready: bool,
     music: rl.Sound,
     chime: rl.Sound,
     chimeCooldown: f32,
     chimeIndex: usize,
     muted: bool,
-    /// Master volume the player chose (0..1); mute is applied on top.
-    volume: f32,
+    /// Channel volumes the player chose (0..1); mute is applied on top.
+    musicVolume: f32,
+    fxVolume: f32,
 
     pub fn init(allocator: std.mem.Allocator) Audio {
         rl.initAudioDevice();
@@ -27,11 +32,11 @@ pub const Audio = struct {
             .chimeCooldown = 0,
             .chimeIndex = 0,
             .muted = false,
-            .volume = 0.7,
+            .musicVolume = 0.7,
+            .fxVolume = 0.7,
         };
         if (!self.ready) return self;
 
-        rl.setMasterVolume(0.7);
         self.music = buildMusic(allocator) catch {
             self.ready = false;
             return self;
@@ -41,8 +46,7 @@ pub const Audio = struct {
             self.ready = false;
             return self;
         };
-        rl.setSoundVolume(self.music, 0.32);
-        rl.setSoundVolume(self.chime, 0.28);
+        self.applyVolume();
         rl.playSound(self.music);
         return self;
     }
@@ -60,13 +64,23 @@ pub const Audio = struct {
         self.applyVolume();
     }
 
-    pub fn setVolume(self: *Audio, v: f32) void {
-        self.volume = std.math.clamp(v, 0.0, 1.0);
+    pub fn setMusicVolume(self: *Audio, v: f32) void {
+        self.musicVolume = std.math.clamp(v, 0.0, 1.0);
         self.applyVolume();
     }
 
+    pub fn setFxVolume(self: *Audio, v: f32) void {
+        self.fxVolume = std.math.clamp(v, 0.0, 1.0);
+        self.applyVolume();
+    }
+
+    /// Mute cuts the master bus so both channels silence together and their
+    /// slider values survive unmuting untouched.
     fn applyVolume(self: *Audio) void {
-        rl.setMasterVolume(if (self.muted) 0.0 else self.volume);
+        rl.setMasterVolume(if (self.muted) 0.0 else 1.0);
+        if (!self.ready) return;
+        rl.setSoundVolume(self.music, MUSIC_BASE * self.musicVolume);
+        rl.setSoundVolume(self.chime, FX_BASE * self.fxVolume);
     }
 
     pub fn update(self: *Audio, dt: f32) void {

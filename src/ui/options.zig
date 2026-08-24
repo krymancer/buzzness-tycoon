@@ -13,7 +13,8 @@ pub const Action = union(enum) {
     back,
     window_mode: settings.WindowMode,
     language: locale.Language,
-    volume: f32,
+    music_volume: f32,
+    fx_volume: f32,
     ui_scale: f32,
 };
 
@@ -22,12 +23,13 @@ pub const Context = struct {
     screenHeight: f32,
     windowMode: settings.WindowMode,
     language: locale.Language,
-    volume: f32,
+    musicVolume: f32,
+    fxVolume: f32,
     uiScale: f32,
 };
 
 const PANEL_W: f32 = 520;
-const PANEL_H: f32 = 430;
+const PANEL_H: f32 = 486;
 const ROW_H: f32 = 40;
 
 pub fn draw(ctx: Context) Action {
@@ -69,13 +71,23 @@ pub fn draw(ctx: Context) Action {
     }
     y += ROW_H + 16;
 
-    // Volume
-    drawLabel(locale.tr("Volume", "Volume"), labelX, y);
+    // Music volume
+    drawLabel(locale.tr("Music", "Música"), labelX, y);
     {
-        var v = ctx.volume;
+        var v = ctx.musicVolume;
         const pct = rl.textFormat("%d%%", .{@as(i32, @intFromFloat(@round(v * 100)))});
         _ = rg.slider(rl.Rectangle.init(ctrlX, y + 8, ctrlW - 64, ROW_H - 16), null, pct, &v, 0, 1);
-        if (@abs(v - ctx.volume) > 0.001) action = .{ .volume = v };
+        if (@abs(v - ctx.musicVolume) > 0.001) action = .{ .music_volume = v };
+    }
+    y += ROW_H + 16;
+
+    // Sound-effects volume
+    drawLabel(locale.tr("Effects", "Efeitos"), labelX, y);
+    {
+        var v = ctx.fxVolume;
+        const pct = rl.textFormat("%d%%", .{@as(i32, @intFromFloat(@round(v * 100)))});
+        _ = rg.slider(rl.Rectangle.init(ctrlX, y + 8, ctrlW - 64, ROW_H - 16), null, pct, &v, 0, 1);
+        if (@abs(v - ctx.fxVolume) > 0.001) action = .{ .fx_volume = v };
     }
     y += ROW_H + 16;
 
