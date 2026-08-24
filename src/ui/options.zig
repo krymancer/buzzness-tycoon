@@ -177,23 +177,16 @@ fn drawLabel(label: [:0]const u8, x: f32, y: f32) void {
     text.draw(label, @intFromFloat(x), @intFromFloat(y + 10), 19, theme.CatppuccinMocha.Color.subtext1);
 }
 
-/// Row of equal-width toggle buttons; returns the index clicked this frame.
+/// Row of equal-width toggle chips; returns the index clicked this frame.
 fn drawSegments(x: f32, y: f32, w: f32, names: []const [:0]const u8, selected: usize, mouse: rl.Vector2) ?usize {
-    const C = theme.CatppuccinMocha.Color;
+    _ = mouse;
     const n: f32 = @floatFromInt(names.len);
     const gap: f32 = 6;
     const segW = (w - gap * (n - 1)) / n;
     var clicked: ?usize = null;
     for (names, 0..) |name, i| {
         const sx = x + @as(f32, @floatFromInt(i)) * (segW + gap);
-        const rect = rl.Rectangle.init(sx, y, segW, ROW_H);
-        input.registerHotspot(rect);
-        const hovered = rl.checkCollisionPointRec(mouse, rect);
-        const isSel = i == selected;
-        rl.drawRectangleRounded(rect, 0.3, 6, if (isSel) C.yellow else if (hovered) C.surface2 else C.surface1);
-        const tw = text.measure(name, 17);
-        text.draw(name, @as(i32, @intFromFloat(sx + segW / 2)) - @divFloor(tw, 2), @intFromFloat(y + 10), 17, if (isSel) C.base else C.text);
-        if (hovered and input.confirmPressed()) clicked = i;
+        if (widgets.segment(rl.Rectangle.init(sx, y, segW, ROW_H), name, i == selected)) clicked = i;
     }
     return clicked;
 }

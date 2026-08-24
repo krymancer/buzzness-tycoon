@@ -60,7 +60,14 @@ pub fn refresh() void {
         // Never auto-shrink below the designed size; cap the auto growth so a
         // huge monitor still shows a sensible amount of meadow.
         const fit = @min(renderW / REF_WIDTH, renderH / REF_HEIGHT);
-        break :blk std.math.clamp(fit, 1.0, 4.0) * userMul;
+        var scaled = std.math.clamp(fit, 1.0, 4.0) * userMul;
+        // Never let the logical canvas shrink below what the fixed-size
+        // panels need (options is 520x540) — a big user scale on a small
+        // window would otherwise crop UI off the screen.
+        const MIN_LOGICAL_W: f32 = 660;
+        const MIN_LOGICAL_H: f32 = 600;
+        scaled = @min(scaled, @min(renderW / MIN_LOGICAL_W, renderH / MIN_LOGICAL_H));
+        break :blk scaled;
     };
     f = std.math.clamp(f, 0.75, 6.0);
     factor = f;

@@ -235,6 +235,12 @@ pub fn quickBuyPressed(d: Dir) bool {
     });
 }
 
+/// Left-stick X for slider adjustment while a gamepad drags a widget.
+pub fn menuStickX() f32 {
+    if (device != .gamepad) return 0;
+    return stickVector(.left_x, .left_y).x;
+}
+
 /// Scroll input for menus: mouse wheel plus (in menu mode) the right stick.
 pub fn scrollV() rl.Vector2 {
     var v = rl.getMouseWheelMoveV();
