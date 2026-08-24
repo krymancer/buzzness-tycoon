@@ -1,0 +1,20 @@
+// Steam Input action manifest for Buzzness Tycoon (App 4980570).
+// The game reads gamepads directly (no Steam Input API) — this file only
+// bundles official default layouts, per controller type, with the depot.
+// Steamworks > Application > Steam Input > "Custom Configuration" points at
+// this file's install path: steam_input/action_manifest.vdf
+// Layout "path"s are relative to this file; see README.md to regenerate them.
+"Action Manifest"
+{
+	"configurations"
+	{
+		// Steam Deck built-in controls
+		"controller_neptune"
+		{
+			"0"
+			{
+				"path" "controller_neptune.vdf"
+			}
+		}
+	}
+}

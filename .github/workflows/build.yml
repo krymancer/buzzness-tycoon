@@ -156,11 +156,20 @@ jobs:
           name: buzzness-tycoon-macos
           path: ./macos
 
+      # Official Steam Input layouts ride inside the archives so the Steam
+      # depots (staged from these exact files) pick them up — see steam_input/.
+      - name: Check out repo for steam_input configs
+        uses: actions/checkout@v7
+        with:
+          path: ./repo
+
       - name: Create archives
         run: |
-          cd linux && tar -czf ../buzzness-tycoon-linux-x86_64.tar.gz buzzness-tycoon && cd ..
-          cd windows && zip ../buzzness-tycoon-windows-x86_64.zip buzzness-tycoon.exe && cd ..
-          cd macos && chmod +x buzzness-tycoon && tar -czf ../buzzness-tycoon-macos-arm64.tar.gz buzzness-tycoon && cd ..
+          rm -f repo/steam_input/README.md
+          cp -r repo/steam_input linux/ windows/ macos/
+          cd linux && tar -czf ../buzzness-tycoon-linux-x86_64.tar.gz buzzness-tycoon steam_input && cd ..
+          cd windows && zip -r ../buzzness-tycoon-windows-x86_64.zip buzzness-tycoon.exe steam_input && cd ..
+          cd macos && chmod +x buzzness-tycoon && tar -czf ../buzzness-tycoon-macos-arm64.tar.gz buzzness-tycoon steam_input && cd ..
 
       - name: Upload release assets
         uses: softprops/action-gh-release@v3
