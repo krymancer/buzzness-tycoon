@@ -123,25 +123,27 @@ fn drawBeeCross(ctx: Context, mouse: rl.Vector2, out: *Action) void {
         drawBeeSlot(ctx, spec, pos, mouse, out);
     }
 
-    // Buy quantity row above the cross: "xN" + its prompt (Tab, or LB/RB),
-    // baseline-aligned on one line. Click (or Tab / LB / RB) cycles.
-    const rowH: f32 = 34;
+    // Center: buy quantity, with its prompt as a phone-notification-style
+    // badge overlapping the number's top-right corner (the badge's left edge
+    // starts at the number's center). Click (or Tab / LB / RB) cycles.
+    const center = rl.Rectangle.init(ox + SLOT + GAP, oy + SLOT + GAP, SLOT, SLOT);
+    input.registerBlock(center);
+    const hovered = rl.checkCollisionPointRec(mouse, center);
+    const ccx = center.x + SLOT / 2;
+    const ccy = center.y + SLOT / 2;
     const qtyLabel = rl.textFormat("x%d", .{buyQty()});
-    const qw: f32 = @floatFromInt(text.measure(qtyLabel, 24));
-    const rowX = ox;
-    const rowY = oy - rowH - 14;
-    const rowRect = rl.Rectangle.init(ox, rowY, crossW, rowH);
-    input.registerBlock(rowRect);
-    const hovered = rl.checkCollisionPointRec(mouse, rowRect);
-    text.drawOutline(qtyLabel, @intFromFloat(rowX), @intFromFloat(rowY + (rowH - 24) / 2), 24, if (hovered) C.peach else C.yellow, OUTLINE);
-    const iconX = rowX + qw + 10;
-    const iconY = rowY + (rowH - PROMPT) / 2;
+    const qw = text.measure(qtyLabel, 26);
+    const numY = ccy - 10;
+    text.drawOutline(qtyLabel, @as(i32, @intFromFloat(ccx)) - @divFloor(qw, 2), @intFromFloat(numY), 26, if (hovered) C.peach else C.yellow, OUTLINE);
+    // Badge: 1x (16px) icons, anchored at the number's center-x, riding its
+    // upper-right shoulder.
+    const badgeY = numY - 12;
     if (input.gamepadActive()) {
-        prompt_icons.draw(.pad_lb, iconX, iconY, PROMPT);
-        prompt_icons.draw(.pad_rb, iconX + PROMPT + 2, iconY, PROMPT);
+        prompt_icons.draw(.pad_lb, ccx, badgeY, 16);
+        prompt_icons.draw(.pad_rb, ccx + 17, badgeY, 16);
     } else {
-        // The TAB tile is 32x16 (two tiles wide), so give it a double-wide box.
-        prompt_icons.draw(.key_tab, iconX + PROMPT / 2, iconY, PROMPT);
+        // The TAB tile is 32x16; its box centers it, so start half a tile in.
+        prompt_icons.draw(.key_tab, ccx + 8, badgeY, 16);
     }
     if (hovered and input.confirmPressed()) cycleBuyQty(1);
 }
