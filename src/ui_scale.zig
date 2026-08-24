@@ -18,6 +18,11 @@ const REF_HEIGHT: f32 = 720;
 const USER_MIN: f32 = 0.6;
 const USER_MAX: f32 = 2.5;
 
+// The logical canvas never shrinks below this (fixed-size panels like the
+// 520x540 options dialog must always fit on screen).
+const MIN_LOGICAL_W: f32 = 660;
+const MIN_LOGICAL_H: f32 = 600;
+
 pub var factor: f32 = 1.0;
 
 var userMul: f32 = 1.0;
@@ -61,11 +66,8 @@ pub fn refresh() void {
         // huge monitor still shows a sensible amount of meadow.
         const fit = @min(renderW / REF_WIDTH, renderH / REF_HEIGHT);
         var scaled = std.math.clamp(fit, 1.0, 4.0) * userMul;
-        // Never let the logical canvas shrink below what the fixed-size
-        // panels need (options is 520x540) — a big user scale on a small
-        // window would otherwise crop UI off the screen.
-        const MIN_LOGICAL_W: f32 = 660;
-        const MIN_LOGICAL_H: f32 = 600;
+        // Never let the logical canvas shrink below the fixed-panel minimum —
+        // a big user scale on a small window would otherwise crop UI.
         scaled = @min(scaled, @min(renderW / MIN_LOGICAL_W, renderH / MIN_LOGICAL_H));
         break :blk scaled;
     };
@@ -83,6 +85,18 @@ pub fn refresh() void {
         const mouseToRenderY: f32 = if (builtin.os.tag == .macos) renderH / screenH else 1.0;
         rl.setMouseScale(mouseToRender / factor, mouseToRenderY / factor);
     }
+}
+
+/// Highest user multiplier that still changes anything on the current
+/// window — past it, the minimum-logical-canvas clamp holds the factor.
+/// The options slider uses this as its max so its range matches reality.
+pub fn maxUser() f32 {
+    const renderW: f32 = @floatFromInt(rl.getRenderWidth());
+    const renderH: f32 = @floatFromInt(rl.getRenderHeight());
+    if (renderW <= 0 or renderH <= 0) return USER_MAX;
+    const fit = std.math.clamp(@min(renderW / REF_WIDTH, renderH / REF_HEIGHT), 1.0, 4.0);
+    const cap = @min(renderW / MIN_LOGICAL_W, renderH / MIN_LOGICAL_H);
+    return std.math.clamp(cap / fit, USER_MIN, USER_MAX);
 }
 
 /// Logical screen size: what the game should treat as the window dimensions.

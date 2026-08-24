@@ -28,6 +28,8 @@ pub const Context = struct {
     musicVolume: f32,
     fxVolume: f32,
     uiScale: f32,
+    /// Highest scale that still has an effect on this window (slider max).
+    uiScaleMax: f32,
     cursorSnap: bool,
 };
 
@@ -124,9 +126,9 @@ fn drawGeneralTab(ctx: Context, px: f32, startY: f32, mouse: rl.Vector2, action:
     // UI scale
     drawLabel(locale.tr("UI scale", "Escala da interface"), labelX, y);
     {
-        var s = ctx.uiScale;
+        var s = @min(ctx.uiScale, ctx.uiScaleMax);
         const lbl = rl.textFormat("%.1fx", .{s});
-        _ = widgets.slider(rl.Rectangle.init(ctrlX, y + 8, ctrlW - 64, ROW_H - 16), lbl, &s, 0.6, 2.5);
+        _ = widgets.slider(rl.Rectangle.init(ctrlX, y + 8, ctrlW - 64, ROW_H - 16), lbl, &s, 0.6, ctx.uiScaleMax);
         if (@abs(s - ctx.uiScale) > 0.001) action.* = .{ .ui_scale = s };
     }
     y += ROW_H + 8;

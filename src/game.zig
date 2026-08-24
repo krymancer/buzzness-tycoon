@@ -431,6 +431,7 @@ pub const Game = struct {
             .musicVolume = self.audio.musicVolume,
             .fxVolume = self.audio.fxVolume,
             .uiScale = ui_scale.user(),
+            .uiScaleMax = ui_scale.maxUser(),
             .cursorSnap = settings.cursorSnap,
         });
         switch (action) {
