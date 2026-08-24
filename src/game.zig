@@ -592,7 +592,7 @@ pub const Game = struct {
             const tile = hovered.?;
             input.magnetPull(self.tileCenter(tile.x, tile.y));
             if (input.takeStep()) |dir| {
-                if (self.bestStepNeighbor(tile.x, tile.y, dir)) |center| {
+                if (self.stepTarget(tile.x, tile.y, dir)) |center| {
                     input.warpCursor(center);
                 }
             }
@@ -605,11 +605,56 @@ pub const Game = struct {
         return rl.Vector2.init(pos.x + 16 * self.grid.scale, pos.y + 8 * self.grid.scale);
     }
 
+    /// Neighbor to step to for a stick push, by explicit intent sectors:
+    /// pushes within ~20° of screen-horizontal or -vertical mean the screen
+    /// cross (the grid diagonals), and any clearly mixed push means that
+    /// quadrant's shallow neighbor (the grid cardinals, which sit only ~27°
+    /// off horizontal on screen and are nearly impossible to aim at with a
+    /// nearest-angle rule). Out-of-bounds targets fall back to the best
+    /// aligned in-bounds neighbor so borders stay forgiving.
+    fn stepTarget(self: *const @This(), tx: i32, ty: i32, dir: rl.Vector2) ?rl.Vector2 {
+        const deg = std.math.atan2(dir.y, dir.x) * 180.0 / std.math.pi;
+        const a = @abs(deg);
+        var dx: i32 = 0;
+        var dy: i32 = 0;
+        if (a <= 20) {
+            dx = 1;
+            dy = -1; // screen right
+        } else if (a >= 160) {
+            dx = -1;
+            dy = 1; // screen left
+        } else if (deg > 0) { // lower half (screen y grows downward)
+            if (deg < 70) {
+                dx = 1; // down-right shallow
+            } else if (deg <= 110) {
+                dx = 1;
+                dy = 1; // screen down
+            } else {
+                dy = 1; // down-left shallow
+            }
+        } else { // upper half
+            if (deg > -70) {
+                dy = -1; // up-right shallow
+            } else if (deg >= -110) {
+                dx = -1;
+                dy = -1; // screen up
+            } else {
+                dx = -1; // up-left shallow
+            }
+        }
+        const nx = tx + dx;
+        const ny = ty + dy;
+        if (nx >= 0 and ny >= 0 and nx < @as(i32, @intCast(self.gridWidth)) and ny < @as(i32, @intCast(self.gridHeight))) {
+            return self.tileCenter(nx, ny);
+        }
+        return self.bestAlignedNeighbor(tx, ty, dir);
+    }
+
     /// The in-bounds neighbor of (tx, ty) whose on-screen direction best
     /// matches `dir` (a normalized stick vector) — comparing in screen space
     /// so the isometric projection is handled for free. Null when nothing
     /// aligns even loosely.
-    fn bestStepNeighbor(self: *const @This(), tx: i32, ty: i32, dir: rl.Vector2) ?rl.Vector2 {
+    fn bestAlignedNeighbor(self: *const @This(), tx: i32, ty: i32, dir: rl.Vector2) ?rl.Vector2 {
         const cur = self.tileCenter(tx, ty);
         var best: ?rl.Vector2 = null;
         var bestDot: f32 = 0.35;
