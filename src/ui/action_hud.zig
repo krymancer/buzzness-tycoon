@@ -65,8 +65,18 @@ pub fn cycleBuyQty(delta: i32) void {
 const MARGIN: f32 = 14;
 const SLOT: f32 = 60;
 const GAP: f32 = 8;
-/// Prompt icons draw at 24px so they're readable over the meadow.
-const PROMPT: f32 = 24;
+/// Prompt icons draw at 32px (2x the 16px tiles) — crisp and readable.
+const PROMPT: f32 = 32;
+/// Successful-buy glow duration per slot.
+const FLASH_TIME: f32 = 0.3;
+
+var slotFlash: [4]f32 = @splat(0);
+
+/// Trigger the buy glow on a cross slot (0 worker, 1 swift, 2 efficient,
+/// 3 gardener). Also called from game.zig for d-pad/number quick buys.
+pub fn flashSlot(index: usize) void {
+    if (index < slotFlash.len) slotFlash[index] = FLASH_TIME;
+}
 
 const SlotSpec = struct {
     beeIndex: usize,
@@ -80,6 +90,8 @@ const SlotSpec = struct {
 pub fn draw(ctx: Context) Action {
     var action: Action = .none;
     const mouse = input.pointerPos();
+    const dt = rl.getFrameTime();
+    for (&slotFlash) |*f| f.* = @max(0, f.* - dt);
     drawBeeCross(ctx, mouse, &action);
     drawTreeButton(ctx, mouse, &action);
     drawPassives(ctx, mouse, &action);
@@ -111,20 +123,27 @@ fn drawBeeCross(ctx: Context, mouse: rl.Vector2, out: *Action) void {
         drawBeeSlot(ctx, spec, pos, mouse, out);
     }
 
-    // Center: buy quantity. Click (or Tab / LB / RB) cycles x1/x10/x25.
-    const center = rl.Rectangle.init(ox + SLOT + GAP, oy + SLOT + GAP, SLOT, SLOT);
-    const hovered = rl.checkCollisionPointRec(mouse, center);
-    if (hovered) {
-        rl.drawRectangleRounded(center, 0.35, 6, withAlpha(C.surface1, 130));
-    }
+    // Buy quantity row above the cross: "xN" + its prompt (Tab, or LB/RB),
+    // baseline-aligned on one line. Click (or Tab / LB / RB) cycles.
+    const rowH: f32 = 34;
     const qtyLabel = rl.textFormat("x%d", .{buyQty()});
-    const qw = text.measure(qtyLabel, 22);
-    text.drawOutline(qtyLabel, @as(i32, @intFromFloat(center.x + SLOT / 2)) - @divFloor(qw, 2), @intFromFloat(center.y + SLOT / 2 - 20), 22, C.yellow, OUTLINE);
+    const qw: f32 = @floatFromInt(text.measure(qtyLabel, 24));
+    const iconsW: f32 = if (input.gamepadActive()) PROMPT * 2 + 2 else PROMPT * 2;
+    const totalW = qw + 10 + iconsW;
+    const rowX = ox + (crossW - totalW) / 2;
+    const rowY = oy - rowH - 4;
+    const rowRect = rl.Rectangle.init(ox, rowY, crossW, rowH);
+    input.registerBlock(rowRect);
+    const hovered = rl.checkCollisionPointRec(mouse, rowRect);
+    text.drawOutline(qtyLabel, @intFromFloat(rowX), @intFromFloat(rowY + (rowH - 24) / 2), 24, if (hovered) C.peach else C.yellow, OUTLINE);
+    const iconX = rowX + qw + 10;
+    const iconY = rowY + (rowH - PROMPT) / 2;
     if (input.gamepadActive()) {
-        prompt_icons.draw(.pad_lb, center.x + SLOT / 2 - PROMPT - 1, center.y + SLOT / 2 + 4, PROMPT);
-        prompt_icons.draw(.pad_rb, center.x + SLOT / 2 + 1, center.y + SLOT / 2 + 4, PROMPT);
+        prompt_icons.draw(.pad_lb, iconX, iconY, PROMPT);
+        prompt_icons.draw(.pad_rb, iconX + PROMPT + 2, iconY, PROMPT);
     } else {
-        prompt_icons.draw(.key_tab, center.x + SLOT / 2 - PROMPT / 2, center.y + SLOT / 2 + 2, PROMPT);
+        // The TAB tile is 32x16 (two tiles wide), so give it a double-wide box.
+        prompt_icons.draw(.key_tab, iconX + PROMPT / 2, iconY, PROMPT);
     }
     if (hovered and input.confirmPressed()) cycleBuyQty(1);
 }
@@ -180,26 +199,34 @@ fn drawBeeSlot(ctx: Context, spec: SlotSpec, pos: rl.Vector2, mouse: rl.Vector2,
         tint,
     );
 
+    // Successful-buy glow: a bright overlay of the bee that swells and fades.
+    const flash = slotFlash[spec.beeIndex];
+    if (flash > 0) {
+        const t = flash / FLASH_TIME;
+        const fs = iconSize * (1 + 0.4 * (1 - t));
+        rl.drawTexturePro(
+            ctx.textures.bee,
+            rl.Rectangle.init(0, 0, 32, 32),
+            rl.Rectangle.init(cx - fs / 2, cy - fs / 2 - 3, fs, fs),
+            rl.Vector2.init(0, 0),
+            0,
+            rl.Color.init(255, 246, 190, @intFromFloat(220 * t)),
+        );
+    }
+
     // Cost along the slot's bottom edge.
     var cbuf: [32]u8 = undefined;
     const cstr = format.formatShort(totalCost, &cbuf);
     const costLabel = rl.textFormat("%s", .{cstr.ptr});
-    const cw = text.measure(costLabel, 14);
-    text.drawOutline(costLabel, @as(i32, @intFromFloat(cx)) - @divFloor(cw, 2), @intFromFloat(rect.y + SLOT - 16), 14, if (afford) C.yellow else C.overlay0, OUTLINE);
-
-    // Owned count, top-right.
-    const owned = ctx.beeTypeCounts[spec.beeIndex];
-    if (owned > 0) {
-        const ownedLabel = rl.textFormat("%d", .{owned});
-        const ow = text.measure(ownedLabel, 13);
-        text.drawOutline(ownedLabel, @as(i32, @intFromFloat(rect.x + SLOT - 2)) - ow, @intFromFloat(rect.y), 13, withAlpha(spec.accent, 230), OUTLINE);
-    }
+    const cw = text.measure(costLabel, 16);
+    text.drawOutline(costLabel, @as(i32, @intFromFloat(cx)) - @divFloor(cw, 2), @intFromFloat(rect.y + SLOT - 15), 16, if (afford) C.yellow else C.overlay0, OUTLINE);
 
     // Input prompt, top-left corner: d-pad direction or number key.
     const prompt: prompt_icons.Icon = if (input.gamepadActive()) spec.dpad else prompt_icons.numberKey(spec.beeIndex);
-    prompt_icons.draw(prompt, rect.x - 3, rect.y - 3, PROMPT);
+    prompt_icons.draw(prompt, rect.x - 9, rect.y - 9, PROMPT);
 
     if (hovered and afford and input.confirmPressed()) {
+        flashSlot(spec.beeIndex);
         out.* = .{ .buy = .{ .action = spec.buyAction, .qty = qty } };
     }
 }
@@ -212,31 +239,74 @@ fn drawTreeButton(ctx: Context, mouse: rl.Vector2, out: *Action) void {
     input.registerHotspot(rect);
     const hovered = rl.checkCollisionPointRec(mouse, rect);
     const cxf = rect.x + size / 2;
-    const cyf = rect.y + size / 2;
+    const cyf = rect.y + size / 2 + 4;
 
-    // The tree card's sparkle, centered; it grows a little on hover.
-    const cx = @as(i32, @intFromFloat(cxf));
-    const cy = @as(i32, @intFromFloat(cyf - 6));
-    const r: f32 = if (hovered) 11 else 9;
-    rl.drawCircle(cx + 1, cy + 1, r, rl.Color.init(17, 17, 27, 140));
-    rl.drawCircle(cx, cy, r, if (hovered) C.pink else C.mauve);
-    rl.drawCircle(cx - 13, cy - 10, 3, C.pink);
-    rl.drawCircle(cx + 13, cy + 10, 3, C.pink);
-    const label = locale.tr("Tree", "Árvore");
-    const lw = text.measure(label, 14);
-    text.drawOutline(label, cx - @divFloor(lw, 2), @intFromFloat(rect.y + size - 20), 14, if (hovered) C.pink else C.subtext0, OUTLINE);
+    // Mini upgrade-tree glyph: a root node branching into two child nodes,
+    // with a drop shadow; it grows a little on hover.
+    const k: f32 = if (hovered) 1.15 else 1.0;
+    const top = rl.Vector2.init(cxf, cyf - 11 * k);
+    const bl = rl.Vector2.init(cxf - 11 * k, cyf + 9 * k);
+    const br = rl.Vector2.init(cxf + 11 * k, cyf + 9 * k);
+    const sh = rl.Color.init(17, 17, 27, 140);
+    for ([_]rl.Vector2{ rl.Vector2.init(2, 2), rl.Vector2.init(0, 0) }, 0..) |o, pass| {
+        const branch = if (pass == 0) sh else C.overlay1;
+        const nodeTop = if (pass == 0) sh else if (hovered) C.pink else C.mauve;
+        const nodeKid = if (pass == 0) sh else C.pink;
+        rl.drawLineEx(rl.Vector2.init(top.x + o.x, top.y + o.y), rl.Vector2.init(bl.x + o.x, bl.y + o.y), 3, branch);
+        rl.drawLineEx(rl.Vector2.init(top.x + o.x, top.y + o.y), rl.Vector2.init(br.x + o.x, br.y + o.y), 3, branch);
+        rl.drawCircleV(rl.Vector2.init(top.x + o.x, top.y + o.y), 7 * k, nodeTop);
+        rl.drawCircleV(rl.Vector2.init(bl.x + o.x, bl.y + o.y), 5.5 * k, nodeKid);
+        rl.drawCircleV(rl.Vector2.init(br.x + o.x, br.y + o.y), 5.5 * k, nodeKid);
+    }
 
-    prompt_icons.draw(if (input.gamepadActive()) .pad_y else .key_t, rect.x - 3, rect.y - 3, PROMPT);
+    prompt_icons.draw(if (input.gamepadActive()) .pad_y else .key_t, rect.x - 9, rect.y - 9, PROMPT);
 
     if (hovered and input.confirmPressed()) out.* = .open_tree;
 }
 
+/// Bee census row: one icon + owned count per type; locked types show the
+/// dark silhouette (same treatment as the cross).
+fn drawBeeCensus(ctx: Context, x: f32, y: f32, w: f32, h: f32) void {
+    const C = theme.CatppuccinMocha.Color;
+    const rect = rl.Rectangle.init(x, y, w, h);
+    input.registerBlock(rect);
+    rl.drawRectangleRounded(rect, 0.4, 6, withAlpha(C.surface0, 225));
+    rl.drawRectangleRoundedLinesEx(rect, 0.4, 6, 1, C.surface1);
+
+    const accents = [_]rl.Color{ C.text, C.blue, C.green, C.pink };
+    const unlocked = [_]bool{
+        true,
+        ctx.treeState.hasEffect(.bee_unlock_swift),
+        ctx.treeState.hasEffect(.bee_unlock_efficient),
+        ctx.treeState.hasEffect(.bee_unlock_gardener),
+    };
+    const cell = w / 4;
+    for (accents, unlocked, 0..) |accent, isUnlocked, i| {
+        const cx = x + cell * @as(f32, @floatFromInt(i));
+        const iconS: f32 = 30;
+        const tint = if (isUnlocked) accent else rl.Color.init(30, 30, 46, 200);
+        rl.drawTexturePro(
+            ctx.textures.bee,
+            rl.Rectangle.init(0, 0, 32, 32),
+            rl.Rectangle.init(cx + 2, y + (h - iconS) / 2, iconS, iconS),
+            rl.Vector2.init(0, 0),
+            0,
+            tint,
+        );
+        const label = rl.textFormat("x%d", .{ctx.beeTypeCounts[i]});
+        text.draw(label, @intFromFloat(cx + iconS - 1), @intFromFloat(y + (h - 16) / 2), 16, if (isUnlocked) C.text else C.overlay0);
+    }
+}
+
 fn drawPassives(ctx: Context, mouse: rl.Vector2, out: *Action) void {
     const C = theme.CatppuccinMocha.Color;
-    const x: f32 = 12;
-    const w: f32 = 235;
+    const w: f32 = 250;
     const h: f32 = 34;
-    var y: f32 = 64;
+    const x: f32 = ctx.screenWidth - w - 12;
+    var y: f32 = 12;
+
+    drawBeeCensus(ctx, x, y, w, h);
+    y += h + 6;
 
     if (ctx.treeState.hasEffect(.growth_boost_unlock)) {
         const ready = ctx.resources.canUseGrowthBoost();

@@ -700,6 +700,12 @@ pub const Game = struct {
         if (result.beeCountDelta > 0) {
             self.cachedBeeCount += @intCast(result.beeCountDelta);
             try self.spawnSpendFeedback(honeyBefore);
+            ui.action_hud.flashSlot(switch (buyAction) {
+                .buy_worker_bee => 0,
+                .buy_swift_bee => 1,
+                .buy_efficient_bee => 2,
+                .buy_gardener_bee => 3,
+            });
         }
     }
 
