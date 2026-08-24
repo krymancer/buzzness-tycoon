@@ -26,6 +26,8 @@ const save = @import("save.zig");
 const utils = @import("utils.zig");
 const ui_scale = @import("ui_scale.zig");
 const settings = @import("settings.zig");
+const input = @import("input.zig");
+const widgets = @import("ui/widgets.zig");
 
 const World = @import("ecs/world.zig").World;
 const components = @import("ecs/components.zig");
@@ -312,7 +314,7 @@ pub const Game = struct {
             switch (self.state) {
                 .title_screen => try self.drawTitleScreen(),
                 .playing => {
-                    self.handlePlayingInput();
+                    try self.handlePlayingInput();
                     try self.update();
                     try self.draw();
                 },
@@ -335,8 +337,16 @@ pub const Game = struct {
         }
     }
 
+    /// True when a menu/modal owns input: d-pad navigates and the right
+    /// stick scrolls instead of driving world shortcuts and the camera.
+    fn inMenuContext(self: *const @This()) bool {
+        return self.state == .title_screen or self.showOptions or self.showPauseMenu or
+            self.showTree or self.showPrestigeDialog or self.plantMenu.open;
+    }
+
     /// Handle input common to all game states (fullscreen, window resize)
     fn handleCommonInput(self: *@This()) void {
+        input.beginFrame(self.inMenuContext());
         // Keep the ambient audio bed looping in every state, and allow muting.
         self.audio.update(clock.frameTime());
         if (rl.isKeyPressed(rl.KeyboardKey.n)) self.audio.toggleMute();
@@ -377,6 +387,7 @@ pub const Game = struct {
         defer rl.endDrawing();
         ui_scale.begin();
         defer ui_scale.end();
+        defer input.drawCursor();
 
         rl.clearBackground(theme.CatppuccinMocha.Color.base);
 
@@ -387,7 +398,7 @@ pub const Game = struct {
         rl.drawRectangle(0, 0, @intFromFloat(self.width), @intFromFloat(self.height), rl.Color.init(20, 20, 40, 90));
 
         if (self.showOptions) {
-            if (rl.isKeyPressed(rl.KeyboardKey.escape)) self.showOptions = false;
+            if (rl.isKeyPressed(rl.KeyboardKey.escape) or input.cancelPressed()) self.showOptions = false;
             self.drawAndHandleOptions();
             return;
         }
@@ -432,9 +443,10 @@ pub const Game = struct {
     }
 
     /// Handle input specific to playing state
-    fn handlePlayingInput(self: *@This()) void {
-        // Handle Escape key - close popups first, then show/hide pause menu
-        if (rl.isKeyPressed(rl.KeyboardKey.escape)) {
+    fn handlePlayingInput(self: *@This()) !void {
+        // Handle Escape key (or gamepad B) - close popups first, then
+        // show/hide pause menu
+        if (rl.isKeyPressed(rl.KeyboardKey.escape) or input.cancelPressed()) {
             if (self.showOptions) {
                 self.showOptions = false;
                 return;
@@ -459,6 +471,33 @@ pub const Game = struct {
             }
         }
 
+        // Gamepad Start: pause toggle (only over the plain world, so it never
+        // silently closes another menu).
+        if (input.startPressed()) {
+            if (self.showPauseMenu) {
+                self.showPauseMenu = false;
+                self.isPaused = false;
+                return;
+            } else if (!self.inMenuContext()) {
+                self.showPauseMenu = true;
+                self.isPaused = true;
+                self.saveProgress() catch |err| std.debug.print("Could not save progress: {}\n", .{err});
+                return;
+            }
+        }
+
+        // Gamepad Y: upgrade tree toggle.
+        if (input.treePressed()) {
+            if (self.showTree) {
+                self.showTree = false;
+                return;
+            } else if (!self.inMenuContext()) {
+                self.showTree = true;
+                ui.tree_view.resetScroll();
+                return;
+            }
+        }
+
         // Block input when popup, pause menu, tree, or prestige dialog is open
         if (self.showPauseMenu or self.showTree or self.showPrestigeDialog) {
             return;
@@ -466,16 +505,16 @@ pub const Game = struct {
         // The plant chooser owns the mouse while open (draw() handles it).
         if (self.plantMenu.open) return;
 
-        const mousePos = rl.getMousePosition();
+        const mousePos = input.pointerPos();
         const mouseInPanel = ui.side_panel.isMouseInPanel(mousePos, self.width);
 
-        if (rl.isMouseButtonPressed(rl.MouseButton.left) and !mouseInPanel) {
+        if (input.confirmPressed() and !mouseInPanel) {
             self.isDragging = true;
             self.lastMousePos = mousePos;
             self.clickStartPos = mousePos;
         }
 
-        if (rl.isMouseButtonReleased(rl.MouseButton.left)) {
+        if (input.confirmReleased()) {
             if (!mouseInPanel) {
                 self.handleMouseClick(mousePos);
             }
@@ -499,6 +538,66 @@ pub const Game = struct {
         if (wheelMove != 0.0) {
             self.grid.zoom(wheelMove * 0.3);
         }
+
+        try self.handleGamepadWorldInput();
+    }
+
+    /// World-mode gamepad controls: right-stick camera pan, trigger zoom,
+    /// X plants on the hovered tile, LB/RB cycle the buy quantity, and the
+    /// d-pad quick-buys one bee per direction.
+    fn handleGamepadWorldInput(self: *@This()) !void {
+        if (!input.gamepadActive()) return;
+
+        // The pan stick moves the camera, so the world shifts the other way
+        // (same bookkeeping as a mouse drag).
+        const pan = input.cameraPan();
+        if (pan.x != 0 or pan.y != 0) {
+            const delta = rl.Vector2.init(-pan.x, -pan.y);
+            self.cameraOffset.x += delta.x;
+            self.cameraOffset.y += delta.y;
+            self.grid.offset.x += delta.x;
+            self.grid.offset.y += delta.y;
+            self.translateBees(delta);
+        }
+
+        const zoom = input.zoomAxis();
+        if (zoom != 0) {
+            self.grid.zoom(zoom * 2.0 * rl.getFrameTime());
+        }
+
+        if (input.plantPressed()) {
+            self.tryOpenPlanterAtHover();
+        }
+
+        const cycle = input.shoulderCycle();
+        if (cycle != 0) ui.side_panel.cycleBuyQty(cycle);
+
+        // D-pad quick buys: one bee per press, mapped by direction.
+        if (input.dpadPressed(.up)) try self.quickBuyBee(.buy_worker_bee);
+        if (input.dpadPressed(.left)) try self.quickBuyBee(.buy_swift_bee);
+        if (input.dpadPressed(.right)) try self.quickBuyBee(.buy_efficient_bee);
+        if (input.dpadPressed(.down)) try self.quickBuyBee(.buy_gardener_bee);
+    }
+
+    /// Buy one bee without opening any UI (d-pad shortcut). Locked types
+    /// no-op so the mapping stays stable; the "-cost" popup at the cursor is
+    /// the success feedback (same as shop purchases).
+    fn quickBuyBee(self: *@This(), buyAction: actions.BuyAction) !void {
+        const unlocked = switch (buyAction) {
+            .buy_worker_bee => true,
+            .buy_swift_bee => self.upgradeTree.hasEffect(.bee_unlock_swift),
+            .buy_efficient_bee => self.upgradeTree.hasEffect(.bee_unlock_efficient),
+            .buy_gardener_bee => self.upgradeTree.hasEffect(.bee_unlock_gardener),
+        };
+        if (!unlocked) return;
+
+        var handler = self.createActionHandler();
+        const honeyBefore = self.resources.honey;
+        const result = try handler.handleBuy(buyAction);
+        if (result.beeCountDelta > 0) {
+            self.cachedBeeCount += @intCast(result.beeCountDelta);
+            try self.spawnSpendFeedback(honeyBefore);
+        }
     }
 
     fn handleMouseClick(self: *@This(), mousePos: rl.Vector2) void {
@@ -521,13 +620,20 @@ pub const Game = struct {
                 }
                 return; // live flower: nothing to do
             }
-            // Empty tile (not the hive, inside the meadow): open the planter.
-            const centerX = @as(i32, @intCast((self.gridWidth - 1) / 2));
-            const centerY = @as(i32, @intCast((self.gridHeight - 1) / 2));
-            const inBounds = tile.x >= 0 and tile.y >= 0 and tile.x < @as(i32, @intCast(self.gridWidth)) and tile.y < @as(i32, @intCast(self.gridHeight));
-            if (inBounds and !(tile.x == centerX and tile.y == centerY)) {
-                self.plantMenu.openAt(tile.x, tile.y);
-            }
+            self.tryOpenPlanterAtHover();
+        }
+    }
+
+    /// Open the plant chooser on the hovered tile if it's an empty meadow
+    /// cell (not the hive, not already flowered, inside the grid).
+    fn tryOpenPlanterAtHover(self: *@This()) void {
+        const tile = self.grid.getHoveredTile() orelse return;
+        if (self.world.hasFlowerAtGrid(tile.x, tile.y)) return;
+        const centerX = @as(i32, @intCast((self.gridWidth - 1) / 2));
+        const centerY = @as(i32, @intCast((self.gridHeight - 1) / 2));
+        const inBounds = tile.x >= 0 and tile.y >= 0 and tile.x < @as(i32, @intCast(self.gridWidth)) and tile.y < @as(i32, @intCast(self.gridHeight));
+        if (inBounds and !(tile.x == centerX and tile.y == centerY)) {
+            self.plantMenu.openAt(tile.x, tile.y);
         }
     }
 
@@ -636,6 +742,7 @@ pub const Game = struct {
         // zooms it up to the real resolution.
         ui_scale.begin();
         defer ui_scale.end();
+        defer input.drawCursor();
 
         rl.clearBackground(theme.CatppuccinMocha.Color.base);
 
@@ -796,7 +903,7 @@ pub const Game = struct {
     fn spawnSpendFeedback(self: *@This(), honeyBefore: f32) !void {
         const spent = honeyBefore - self.resources.honey;
         if (spent <= 0) return;
-        const mouse = rl.getMousePosition();
+        const mouse = input.pointerPos();
         try self.floatingTexts.spawnScreen(mouse.x, mouse.y - 14, -spent);
     }
 
@@ -839,7 +946,6 @@ pub const Game = struct {
     }
 
     fn drawAndHandlePrestigeDialog(self: *@This()) !void {
-        const rg = @import("raygui");
         rl.drawRectangle(0, 0, @intFromFloat(self.width), @intFromFloat(self.height), theme.CatppuccinMocha.Color.modalOverlay);
 
         const popupW: f32 = 520;
@@ -874,16 +980,14 @@ pub const Game = struct {
         const btnH: f32 = 40;
         const btnY = popupY + popupH - btnH - 16;
 
-        if (rg.button(rl.Rectangle.init(popupX + 24, btnY, btnW, btnH), locale.tr("Cancel", "Cancelar"))) {
+        if (widgets.button(rl.Rectangle.init(popupX + 24, btnY, btnW, btnH), locale.tr("Cancel", "Cancelar"))) {
             self.showPrestigeDialog = false;
         }
         const confirmRect = rl.Rectangle.init(popupX + popupW - btnW - 24, btnY, btnW, btnH);
-        if (gain == 0) rg.setState(@intFromEnum(rg.State.disabled));
-        if (rg.button(confirmRect, locale.tr("Confirm", "Confirmar")) and gain > 0) {
+        if (widgets.buttonEx(confirmRect, locale.tr("Confirm", "Confirmar"), .{ .enabled = gain > 0 })) {
             try self.doPrestige(gain);
             self.showPrestigeDialog = false;
         }
-        rg.setState(@intFromEnum(rg.State.normal));
     }
 
     fn doPrestige(self: *@This(), gain: u32) !void {

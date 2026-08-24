@@ -2,11 +2,12 @@
 //! reports what the player changed and game.zig applies/persists it.
 
 const rl = @import("raylib");
-const rg = @import("raygui");
 const text = @import("../text.zig");
 const theme = @import("../theme.zig");
 const locale = @import("../localization.zig");
 const settings = @import("../settings.zig");
+const input = @import("../input.zig");
+const widgets = @import("widgets.zig");
 
 pub const Action = union(enum) {
     none,
@@ -45,7 +46,7 @@ pub fn draw(ctx: Context) Action {
     const title = locale.tr("Options", "Opções");
     text.draw(title, @as(i32, @intFromFloat(px + PANEL_W / 2)) - @divFloor(text.measure(title, 32), 2), @intFromFloat(py + 22), 32, C.text);
 
-    const mouse = rl.getMousePosition();
+    const mouse = input.pointerPos();
     var action: Action = .none;
     const labelX = px + 28;
     const ctrlX = px + 200;
@@ -76,7 +77,7 @@ pub fn draw(ctx: Context) Action {
     {
         var v = ctx.musicVolume;
         const pct = rl.textFormat("%d%%", .{@as(i32, @intFromFloat(@round(v * 100)))});
-        _ = rg.slider(rl.Rectangle.init(ctrlX, y + 8, ctrlW - 64, ROW_H - 16), null, pct, &v, 0, 1);
+        _ = widgets.slider(rl.Rectangle.init(ctrlX, y + 8, ctrlW - 64, ROW_H - 16), pct, &v, 0, 1);
         if (@abs(v - ctx.musicVolume) > 0.001) action = .{ .music_volume = v };
     }
     y += ROW_H + 16;
@@ -86,7 +87,7 @@ pub fn draw(ctx: Context) Action {
     {
         var v = ctx.fxVolume;
         const pct = rl.textFormat("%d%%", .{@as(i32, @intFromFloat(@round(v * 100)))});
-        _ = rg.slider(rl.Rectangle.init(ctrlX, y + 8, ctrlW - 64, ROW_H - 16), null, pct, &v, 0, 1);
+        _ = widgets.slider(rl.Rectangle.init(ctrlX, y + 8, ctrlW - 64, ROW_H - 16), pct, &v, 0, 1);
         if (@abs(v - ctx.fxVolume) > 0.001) action = .{ .fx_volume = v };
     }
     y += ROW_H + 16;
@@ -96,7 +97,7 @@ pub fn draw(ctx: Context) Action {
     {
         var s = ctx.uiScale;
         const lbl = rl.textFormat("%.1fx", .{s});
-        _ = rg.slider(rl.Rectangle.init(ctrlX, y + 8, ctrlW - 64, ROW_H - 16), null, lbl, &s, 0.6, 2.5);
+        _ = widgets.slider(rl.Rectangle.init(ctrlX, y + 8, ctrlW - 64, ROW_H - 16), lbl, &s, 0.6, 2.5);
         if (@abs(s - ctx.uiScale) > 0.001) action = .{ .ui_scale = s };
     }
     y += ROW_H + 8;
@@ -106,7 +107,7 @@ pub fn draw(ctx: Context) Action {
     // Back
     const bw: f32 = 200;
     const bh: f32 = 46;
-    if (rg.button(rl.Rectangle.init(px + (PANEL_W - bw) / 2, py + PANEL_H - bh - 22, bw, bh), locale.tr("Back", "Voltar"))) action = .back;
+    if (widgets.button(rl.Rectangle.init(px + (PANEL_W - bw) / 2, py + PANEL_H - bh - 22, bw, bh), locale.tr("Back", "Voltar"))) action = .back;
 
     return action;
 }
@@ -125,12 +126,13 @@ fn drawSegments(x: f32, y: f32, w: f32, names: []const [:0]const u8, selected: u
     for (names, 0..) |name, i| {
         const sx = x + @as(f32, @floatFromInt(i)) * (segW + gap);
         const rect = rl.Rectangle.init(sx, y, segW, ROW_H);
+        input.registerHotspot(rect);
         const hovered = rl.checkCollisionPointRec(mouse, rect);
         const isSel = i == selected;
         rl.drawRectangleRounded(rect, 0.3, 6, if (isSel) C.yellow else if (hovered) C.surface2 else C.surface1);
         const tw = text.measure(name, 17);
         text.draw(name, @as(i32, @intFromFloat(sx + segW / 2)) - @divFloor(tw, 2), @intFromFloat(y + 10), 17, if (isSel) C.base else C.text);
-        if (hovered and rl.isMouseButtonPressed(rl.MouseButton.left)) clicked = i;
+        if (hovered and input.confirmPressed()) clicked = i;
     }
     return clicked;
 }

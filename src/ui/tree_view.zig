@@ -1,7 +1,8 @@
 const rl = @import("raylib");
 const text = @import("../text.zig");
-const rg = @import("raygui");
 const std = @import("std");
+const input = @import("../input.zig");
+const widgets = @import("widgets.zig");
 
 const theme = @import("../theme.zig");
 const format = @import("../format.zig");
@@ -142,24 +143,25 @@ pub fn draw(ctx: TreeContext) TreeAction {
     const overflowY = @max(0, treeH - contentH);
     const scrollable = overflowX > 0 or overflowY > 0;
 
-    const mouse = rl.getMousePosition();
+    const mouse = input.pointerPos();
     const inContent = rl.checkCollisionPointRec(mouse, rl.Rectangle.init(contentX, contentY, contentW, contentH));
 
-    // Wheel (vertical; shift or horizontal wheel for X) and left-drag panning.
+    // Wheel or right stick (vertical; shift or horizontal wheel for X) and
+    // left-drag panning.
     if (scrollable) {
-        const wheel = rl.getMouseWheelMoveV();
+        const wheel = input.scrollV();
         const shift = rl.isKeyDown(rl.KeyboardKey.left_shift) or rl.isKeyDown(rl.KeyboardKey.right_shift);
-        if (inContent) {
+        if (inContent or input.gamepadActive()) {
             if (shift) scrollX -= wheel.y * 40 else scrollY -= wheel.y * 40;
             scrollX -= wheel.x * 40;
         }
-        if (inContent and rl.isMouseButtonPressed(rl.MouseButton.left)) {
+        if (inContent and input.confirmPressed()) {
             dragging = true;
             dragMoved = 0;
             lastMouse = mouse;
         }
         if (dragging) {
-            if (rl.isMouseButtonDown(rl.MouseButton.left)) {
+            if (input.confirmDown()) {
                 const dx = mouse.x - lastMouse.x;
                 const dy = mouse.y - lastMouse.y;
                 dragMoved += @abs(dx) + @abs(dy);
@@ -223,6 +225,7 @@ pub fn draw(ctx: TreeContext) TreeAction {
 
         // Hover highlight on actionable nodes
         const hovered = inContent and rl.checkCollisionPointRec(mouse, rect);
+        if (buyable) input.registerHotspot(rect);
         if (buyable and afford and hovered) {
             var glow = C.blue;
             glow.a = 40;
@@ -260,7 +263,7 @@ pub fn draw(ctx: TreeContext) TreeAction {
             text.draw(cstr, @as(i32, @intFromFloat(pos.x + nodeW / 2)) - @divFloor(cw, 2), subY, costSize, style.costColor);
         }
 
-        if (buyable and afford and hovered and clickOk and rl.isMouseButtonReleased(rl.MouseButton.left)) {
+        if (buyable and afford and hovered and clickOk and input.confirmReleased()) {
             action = .{ .purchase = node.id };
         }
     }
@@ -286,7 +289,7 @@ pub fn draw(ctx: TreeContext) TreeAction {
     const closeH: f32 = 44;
     const closeX = panelX + panelW - closeW - 14;
     const closeY = panelY + panelH - closeH - 14;
-    if (rg.button(rl.Rectangle.init(closeX, closeY, closeW, closeH), locale.tr("Close", "Fechar"))) {
+    if (widgets.button(rl.Rectangle.init(closeX, closeY, closeW, closeH), locale.tr("Close", "Fechar"))) {
         action = .close;
     }
 

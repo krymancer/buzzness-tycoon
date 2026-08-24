@@ -5,6 +5,7 @@ const utils = @import("../../utils.zig");
 const theme = @import("../../theme.zig");
 const clock = @import("../../clock.zig");
 const ui_scale = @import("../../ui_scale.zig");
+const input = @import("../../input.zig");
 
 const FlowerRenderData = struct {
     entity: u32,
@@ -183,7 +184,7 @@ pub fn draw(world: *World, gridOffset: rl.Vector2, gridScale: f32, worldTint: rl
     std.mem.sort(FlowerRenderData, flowerList[0..flowerCount], {}, compareFlowers);
 
     // Cell under the mouse, for the rotten-flower hover hint.
-    const mouseIso = utils.xyToIso(rl.getMousePosition().x, rl.getMousePosition().y, 32, 32, gridOffset.x, gridOffset.y, gridScale);
+    const mouseIso = utils.xyToIso(input.pointerPos().x, input.pointerPos().y, 32, 32, gridOffset.x, gridOffset.y, gridScale);
     const hoverX: f32 = @floor(mouseIso.x);
     const hoverY: f32 = @floor(mouseIso.y);
 

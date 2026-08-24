@@ -1,7 +1,7 @@
 const rl = @import("raylib");
 const text = @import("../text.zig");
-const rg = @import("raygui");
 const std = @import("std");
+const input = @import("../input.zig");
 
 const theme = @import("../theme.zig");
 const format = @import("../format.zig");
@@ -45,6 +45,12 @@ pub fn buyQty() u32 {
     return BUY_QTYS[buyQtyIndex];
 }
 
+/// Step the quantity chip selection (gamepad LB/RB), wrapping around.
+pub fn cycleBuyQty(delta: i32) void {
+    const n: i32 = @intCast(BUY_QTYS.len);
+    buyQtyIndex = @intCast(@mod(@as(i32, @intCast(buyQtyIndex)) + delta, n));
+}
+
 pub fn isMouseInPanel(mousePos: rl.Vector2, screenWidth: f32) bool {
     return mousePos.x >= screenWidth - PANEL_WIDTH;
 }
@@ -74,7 +80,7 @@ pub fn draw(ctx: SidePanelContext) SidePanelAction {
     var y: f32 = 62;
 
     var action: SidePanelAction = .none;
-    const mouse = rl.getMousePosition();
+    const mouse = input.pointerPos();
 
     // Upgrade Tree card (mauve-accent)
     y = drawTreeCard(contentX, y, contentW, mouse, &action);
@@ -160,6 +166,7 @@ fn drawMeter(m: Meter) bool {
     const C = theme.CatppuccinMocha.Color;
     const h = FOOTER_H;
     const rect = rl.Rectangle.init(m.x, m.y, m.w, h);
+    if (m.clickable) input.registerHotspot(rect);
     const hovered = m.clickable and m.ready and rl.checkCollisionPointRec(m.mouse, rect);
 
     rl.drawRectangleRounded(rect, 0.4, 6, if (hovered) C.surface1 else C.surface0);
@@ -197,7 +204,7 @@ fn drawMeter(m: Meter) bool {
         text.draw(key, @as(i32, @intFromFloat(kx + chip / 2)) - @divFloor(kw, 2), @intFromFloat(ky + 3), 13, C.subtext0);
     }
 
-    return hovered and rl.isMouseButtonPressed(rl.MouseButton.left);
+    return hovered and input.confirmPressed();
 }
 
 fn drawSectionHeader(x: f32, y: f32, w: f32, label: [:0]const u8, color: rl.Color) f32 {
@@ -217,6 +224,7 @@ fn drawTreeCard(x: f32, y: f32, w: f32, mouse: rl.Vector2, out: *SidePanelAction
     const C = theme.CatppuccinMocha.Color;
     const h: f32 = 60;
     const rect = rl.Rectangle.init(x, y, w, h);
+    input.registerHotspot(rect);
     const hovered = rl.checkCollisionPointRec(mouse, rect);
 
     const border = if (hovered) C.mauve else C.surface2;
@@ -233,7 +241,7 @@ fn drawTreeCard(x: f32, y: f32, w: f32, mouse: rl.Vector2, out: *SidePanelAction
     text.draw(locale.tr("Upgrade Tree", "Árvore de Melhorias"), sparkleX + 22, @as(i32, @intFromFloat(y + 7)), 20, C.text);
     text.draw(locale.tr("Progression & perks", "Progressão e bônus"), sparkleX + 22, @as(i32, @intFromFloat(y + 34)), 16, C.subtext0);
 
-    if (hovered and rl.isMouseButtonPressed(rl.MouseButton.left)) {
+    if (hovered and input.confirmPressed()) {
         out.* = .open_tree;
     }
 
@@ -258,6 +266,7 @@ fn drawBeeCard(
     const C = theme.CatppuccinMocha.Color;
     const h: f32 = 66;
     const rect = rl.Rectangle.init(x, y, w, h);
+    input.registerHotspot(rect);
     const shift = rl.isKeyDown(rl.KeyboardKey.left_shift) or rl.isKeyDown(rl.KeyboardKey.right_shift);
     const qty: u32 = if (shift) @max(buyQty(), 10) else buyQty();
     const totalCost = cost * @as(f32, @floatFromInt(qty));
@@ -266,7 +275,7 @@ fn drawBeeCard(
 
     // Pressed cards sink a couple of pixels and darken, so a click reads as a
     // physical push even before the "-cost" popup confirms it.
-    const pressed = hovered and afford and rl.isMouseButtonDown(rl.MouseButton.left);
+    const pressed = hovered and afford and input.confirmDown();
     const off: f32 = if (pressed) 2 else 0;
     const px = x + off;
     const py = y + off;
@@ -324,7 +333,7 @@ fn drawBeeCard(
     const costY = pillY + (pillH - @as(f32, @floatFromInt(costSize))) / 2;
     text.draw(costLabel, @as(i32, @intFromFloat(contentX + dropSpan)), @as(i32, @intFromFloat(costY)), costSize, pillTextColor);
 
-    if (hovered and afford and rl.isMouseButtonPressed(rl.MouseButton.left)) {
+    if (hovered and afford and input.confirmPressed()) {
         out.* = .{ .buy = .{ .action = buyAction, .qty = qty } };
     }
 
@@ -345,11 +354,12 @@ fn drawQtyChips(rightX: f32, y: f32, mouse: rl.Vector2) void {
         const chipW = tw + 14;
         x -= chipW;
         const rect = rl.Rectangle.init(x, y, chipW, chipH);
+        input.registerHotspot(rect);
         const selected = i == buyQtyIndex;
         const hovered = rl.checkCollisionPointRec(mouse, rect);
         rl.drawRectangleRounded(rect, 0.4, 4, if (selected) C.yellow else if (hovered) C.surface2 else C.surface1);
         text.draw(label, @intFromFloat(x + 7), @intFromFloat(y + 4), 14, if (selected) C.base else C.subtext1);
-        if (hovered and rl.isMouseButtonPressed(rl.MouseButton.left)) buyQtyIndex = i;
+        if (hovered and input.confirmPressed()) buyQtyIndex = i;
         x -= gap;
     }
 }
@@ -381,6 +391,7 @@ fn drawPrestigeCard(x: f32, y: f32, w: f32, mouse: rl.Vector2, prestige: *const 
     const btnY = y + 58;
     const btnH: f32 = 28;
     const btnRect = rl.Rectangle.init(x + 12, btnY, w - 24, btnH);
+    input.registerHotspot(btnRect);
     const btnHovered = rl.checkCollisionPointRec(mouse, btnRect);
     const btnBg = if (btnHovered) C.mauve else C.surface1;
     rl.drawRectangleRounded(btnRect, 0.5, 6, btnBg);
@@ -388,7 +399,7 @@ fn drawPrestigeCard(x: f32, y: f32, w: f32, mouse: rl.Vector2, prestige: *const 
     const btnTW = text.measure(btnText, 17);
     text.draw(btnText, @as(i32, @intFromFloat(x + 12 + (w - 24) / 2)) - @divFloor(btnTW, 2), @as(i32, @intFromFloat(btnY + 3)), 17, if (btnHovered) C.base else C.text);
 
-    if (btnHovered and rl.isMouseButtonPressed(rl.MouseButton.left)) {
+    if (btnHovered and input.confirmPressed()) {
         out.* = .open_prestige;
     }
 
