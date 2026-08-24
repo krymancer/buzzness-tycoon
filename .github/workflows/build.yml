@@ -166,7 +166,7 @@ jobs:
       - name: Create archives
         run: |
           rm -f repo/steam_input/README.md
-          cp -r repo/steam_input linux/ windows/ macos/
+          for d in linux windows macos; do cp -r repo/steam_input "$d"/; done
           cd linux && tar -czf ../buzzness-tycoon-linux-x86_64.tar.gz buzzness-tycoon steam_input && cd ..
           cd windows && zip -r ../buzzness-tycoon-windows-x86_64.zip buzzness-tycoon.exe steam_input && cd ..
           cd macos && chmod +x buzzness-tycoon && tar -czf ../buzzness-tycoon-macos-arm64.tar.gz buzzness-tycoon steam_input && cd ..
