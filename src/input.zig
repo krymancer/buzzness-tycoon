@@ -13,6 +13,7 @@ const std = @import("std");
 const rl = @import("raylib");
 const theme = @import("theme.zig");
 const ui_scale = @import("ui_scale.zig");
+const assets = @import("assets.zig");
 
 const PAD: i32 = 0;
 const DEADZONE: f32 = 0.18;
@@ -52,6 +53,15 @@ var hotspotCount: usize = 0;
 var prevHotspots: [MAX_HOTSPOTS]rl.Rectangle = undefined;
 var prevHotspotCount: usize = 0;
 
+// Screen regions owned by HUD/UI this frame (same one-frame-behind scheme
+// as hotspots). World input (camera drag, tile clicks) is suppressed while
+// the pointer is over one.
+const MAX_BLOCKS = 32;
+var blockRects: [MAX_BLOCKS]rl.Rectangle = undefined;
+var blockCount: usize = 0;
+var prevBlockRects: [MAX_BLOCKS]rl.Rectangle = undefined;
+var prevBlockCount: usize = 0;
+
 /// Poll devices, advance the virtual cursor, and (in menus) handle d-pad
 /// jumps. Call once per frame before any input handling or drawing.
 /// `menu` marks modal/menu contexts: d-pad navigates instead of quick-buying,
@@ -61,6 +71,9 @@ pub fn beginFrame(menu: bool) void {
     prevHotspots = hotspots;
     prevHotspotCount = hotspotCount;
     hotspotCount = 0;
+    prevBlockRects = blockRects;
+    prevBlockCount = blockCount;
+    blockCount = 0;
 
     if (!rl.isGamepadAvailable(PAD)) {
         device = .mouse;
@@ -243,6 +256,23 @@ pub fn registerHotspot(rect: rl.Rectangle) void {
     hotspotCount += 1;
 }
 
+/// Mark a rect as HUD-owned this frame: while the pointer is over it, world
+/// input (camera drag, tile clicks, tile snap) is suppressed.
+pub fn registerBlock(rect: rl.Rectangle) void {
+    if (blockCount >= MAX_BLOCKS) return;
+    blockRects[blockCount] = rect;
+    blockCount += 1;
+}
+
+/// Whether the pointer is over a HUD region registered last frame.
+pub fn pointerInUi() bool {
+    const p = pointerPos();
+    for (prevBlockRects[0..prevBlockCount]) |r| {
+        if (rl.checkCollisionPointRec(p, r)) return true;
+    }
+    return false;
+}
+
 /// Enable tile-step mode: the game sets this while the cursor sits on the
 /// grid with snap enabled (takes effect next frame). Off, the stick moves
 /// the cursor freely at every deflection (menus, panels, snap disabled).
@@ -275,21 +305,34 @@ pub fn magnetPull(target: rl.Vector2) void {
     cursor.y += (target.y - cursor.y) * k;
 }
 
+var cursorTex: ?rl.Texture = null;
+
 /// Draw the pointer (mouse and gamepad alike — the OS cursor is hidden).
-/// Call last in the frame, inside ui_scale scope.
+/// Call last in the frame, inside ui_scale scope. Uses the 16x16 pixel-art
+/// cursor sprite; falls back to a drawn triangle if it fails to load.
 pub fn drawCursor() void {
     const p = pointerPos();
-    const x = p.x;
-    const y = p.y;
+    if (cursorTex == null) {
+        cursorTex = assets.loadTextureFromMemory(assets.ui_cursor_png) catch null;
+    }
+    if (cursorTex) |tex| {
+        // The arrow's tip sits at ~(2,1) in the sprite; offset so the tip
+        // lands exactly on the pointer position. x2 scale, point-filtered.
+        const s: f32 = 2;
+        rl.drawTextureEx(tex, rl.Vector2.init(p.x - 2 * s, p.y - 1 * s), 0, s, rl.Color.white);
+        return;
+    }
     const C = theme.CatppuccinMocha.Color;
-    // Classic pointer triangle with a soft drop shadow.
-    const tip = rl.Vector2.init(x, y);
-    const a = rl.Vector2.init(x + 4.5, y + 17);
-    const b = rl.Vector2.init(x + 12.5, y + 12);
-    const sh = rl.Vector2.init(2, 2);
-    rl.drawTriangle(rl.Vector2.init(tip.x + sh.x, tip.y + sh.y), rl.Vector2.init(a.x + sh.x, a.y + sh.y), rl.Vector2.init(b.x + sh.x, b.y + sh.y), rl.Color.init(17, 17, 27, 110));
+    const tip = rl.Vector2.init(p.x, p.y);
+    const a = rl.Vector2.init(p.x + 4.5, p.y + 17);
+    const b = rl.Vector2.init(p.x + 12.5, p.y + 12);
     rl.drawTriangle(tip, a, b, C.yellow);
     rl.drawTriangleLines(tip, a, b, C.crust);
+}
+
+pub fn deinit() void {
+    if (cursorTex) |tex| rl.unloadTexture(tex);
+    cursorTex = null;
 }
 
 fn modDown() bool {

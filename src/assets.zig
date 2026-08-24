@@ -10,6 +10,25 @@ pub const grass_cube_png = sprites.grass_cube_png;
 pub const beehive_png = sprites.beehive_png;
 pub const baloo2_ttf = sprites.baloo2_ttf;
 
+pub const ui_cursor_png = sprites.ui_cursor_png;
+pub const ui_pad_a_png = sprites.ui_pad_a_png;
+pub const ui_pad_b_png = sprites.ui_pad_b_png;
+pub const ui_pad_x_png = sprites.ui_pad_x_png;
+pub const ui_pad_y_png = sprites.ui_pad_y_png;
+pub const ui_pad_lb_png = sprites.ui_pad_lb_png;
+pub const ui_pad_rb_png = sprites.ui_pad_rb_png;
+pub const ui_pad_lt_png = sprites.ui_pad_lt_png;
+pub const ui_pad_rt_png = sprites.ui_pad_rt_png;
+pub const ui_dpad_up_png = sprites.ui_dpad_up_png;
+pub const ui_dpad_down_png = sprites.ui_dpad_down_png;
+pub const ui_dpad_left_png = sprites.ui_dpad_left_png;
+pub const ui_dpad_right_png = sprites.ui_dpad_right_png;
+pub const ui_key_1_png = sprites.ui_key_1_png;
+pub const ui_key_2_png = sprites.ui_key_2_png;
+pub const ui_key_3_png = sprites.ui_key_3_png;
+pub const ui_key_4_png = sprites.ui_key_4_png;
+pub const ui_key_t_png = sprites.ui_key_t_png;
+
 pub fn loadImageFromMemory(fileData: []const u8) !rl.Image {
     return rl.loadImageFromMemory(".png", fileData);
 }

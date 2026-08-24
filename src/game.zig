@@ -172,7 +172,7 @@ pub const Game = struct {
         const height: f32 = ui_scale.height();
 
         const textures = try Textures.init();
-        const grid = try Grid.init(INITIAL_GRID_WIDTH, INITIAL_GRID_HEIGHT, width - ui.side_panel.PANEL_WIDTH, height);
+        const grid = try Grid.init(INITIAL_GRID_WIDTH, INITIAL_GRID_HEIGHT, width, height);
 
         var world = World.init(allocator);
 
@@ -289,6 +289,8 @@ pub const Game = struct {
         self.allocator.free(self.savePath);
         text.unload();
         ui.title_screen.deinit();
+        ui.prompt_icons.deinit();
+        input.deinit();
 
         rl.closeWindow();
         rl.unloadImage(self.windowIcon);
@@ -375,7 +377,7 @@ pub const Game = struct {
         const currentHeight = ui_scale.height();
         if (currentWidth != self.width or currentHeight != self.height) {
             const oldOffset = self.grid.offset;
-            self.grid.updateViewport(currentWidth - ui.side_panel.PANEL_WIDTH, currentHeight);
+            self.grid.updateViewport(currentWidth, currentHeight);
             self.translateBees(.{
                 .x = self.grid.offset.x - oldOffset.x,
                 .y = self.grid.offset.y - oldOffset.y,
@@ -511,7 +513,7 @@ pub const Game = struct {
         if (self.plantMenu.open) return;
 
         const mousePos = input.pointerPos();
-        const mouseInPanel = ui.side_panel.isMouseInPanel(mousePos, self.width);
+        const mouseInPanel = input.pointerInUi();
 
         if (input.confirmPressed() and !mouseInPanel) {
             self.isDragging = true;
@@ -573,7 +575,7 @@ pub const Game = struct {
         }
 
         const cycle = input.shoulderCycle();
-        if (cycle != 0) ui.side_panel.cycleBuyQty(cycle);
+        if (cycle != 0) ui.action_hud.cycleBuyQty(cycle);
 
         // Quick buys: one bee per press, mapped by direction/number.
         if (input.quickBuyPressed(.up)) try self.quickBuyBee(.buy_worker_bee);
@@ -585,8 +587,7 @@ pub const Game = struct {
         // (input.zig's step zone), a released stick settles on the tile
         // center, and a hard push flies the cursor freely.
         const hovered = self.grid.getHoveredTile();
-        const pointerInPanel = ui.side_panel.isMouseInPanel(input.pointerPos(), self.width);
-        const snapActive = settings.cursorSnap and input.gamepadActive() and !pointerInPanel and hovered != null;
+        const snapActive = settings.cursorSnap and input.gamepadActive() and !input.pointerInUi() and hovered != null;
         input.setStepMode(snapActive);
         if (snapActive) {
             const tile = hovered.?;
@@ -832,7 +833,7 @@ pub const Game = struct {
             self.audio.playCollect();
         }
         self.floatingTexts.update(deltaTime);
-        self.ambient.update(deltaTime, self.width - ui.side_panel.PANEL_WIDTH, self.height);
+        self.ambient.update(deltaTime, self.width, self.height);
 
         try self.world.processDestroyQueue();
     }
@@ -870,8 +871,8 @@ pub const Game = struct {
         const honeyFactor = self.cachedHoneyFactor;
         self.hud.draw(&self.resources, honeyFactor);
 
-        // Draw side panel (shop)
-        const sideCtx = ui.SidePanelContext{
+        // Draw the floating action HUD (bee cross, tree button, passives)
+        const sideCtx = ui.ActionHudContext{
             .screenWidth = self.width,
             .screenHeight = self.height,
             .resources = &self.resources,
@@ -881,7 +882,7 @@ pub const Game = struct {
             .labs = &self.labs,
             .textures = &self.textures,
         };
-        const sideAction = ui.side_panel.draw(sideCtx);
+        const sideAction = ui.action_hud.draw(sideCtx);
         if (!self.showPauseMenu and !self.showTree and !self.showPrestigeDialog) {
             switch (sideAction) {
                 .none => {},
@@ -931,7 +932,7 @@ pub const Game = struct {
         // Dev FPS/frametime readout, hidden by default. BT_SHOW_DEBUG enables
         // it. (frameTime is still computed below for metrics.)
         if (self.env.get("BT_SHOW_DEBUG") != null) {
-            const fpsX = @as(i32, @intFromFloat(self.width - ui.side_panel.PANEL_WIDTH - 100));
+            const fpsX = @as(i32, @intFromFloat(self.width - 130));
             rl.drawFPS(fpsX, 10);
             text.draw(rl.textFormat("%.2f ms", .{rl.getFrameTime() * 1000.0}), fpsX, 30, 20, rl.Color.white);
         }
