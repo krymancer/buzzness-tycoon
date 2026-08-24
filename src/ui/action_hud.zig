@@ -135,9 +135,9 @@ fn drawBeeCross(ctx: Context, mouse: rl.Vector2, out: *Action) void {
     const qw = text.measure(qtyLabel, 26);
     const numY = ccy - 10;
     text.drawOutline(qtyLabel, @as(i32, @intFromFloat(ccx)) - @divFloor(qw, 2), @intFromFloat(numY), 26, if (hovered) C.peach else C.yellow, OUTLINE);
-    // Badge: 1x (16px) icons, anchored at the number's center-x, riding its
-    // upper-right shoulder.
-    const badgeY = numY - 12;
+    // Badge: 1x (16px) icons, anchored at the number's center-x, drawn over
+    // its lower-right corner (notification style).
+    const badgeY = numY + 15;
     if (input.gamepadActive()) {
         prompt_icons.draw(.pad_lb, ccx, badgeY, 16);
         prompt_icons.draw(.pad_rb, ccx + 17, badgeY, 16);
