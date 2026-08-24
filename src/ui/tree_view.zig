@@ -244,18 +244,10 @@ pub fn draw(ctx: TreeContext) TreeAction {
         const nameX = @as(i32, @intFromFloat(pos.x + nodeW / 2)) - @divFloor(nameW, 2);
         text.draw(nameZ, nameX, @as(i32, @intFromFloat(pos.y + 8 * s)), nameSize, style.nameColor);
 
-        // Cost / OWNED line
-        const subSize = fs(15, s);
-        const subY: i32 = @intFromFloat(pos.y + 39 * s);
-        if (style.showOwned) {
-            const owned = locale.tr("OWNED", "ADQUIRIDO");
-            const ow = text.measure(owned, subSize);
-            text.draw(owned, @as(i32, @intFromFloat(pos.x + nodeW / 2)) - @divFloor(ow, 2), subY, subSize, style.costColor);
-        } else if (!unlocked) {
-            const locked = locale.tr("LOCKED", "BLOQUEADO");
-            const lw = text.measure(locked, subSize);
-            text.draw(locked, @as(i32, @intFromFloat(pos.x + nodeW / 2)) - @divFloor(lw, 2), subY, subSize, style.costColor);
-        } else {
+        // Cost line — only on nodes that can still be bought; owned and
+        // locked states already read through the border/text colors.
+        if (!style.showOwned and unlocked) {
+            const subY: i32 = @intFromFloat(pos.y + 39 * s);
             var cbuf: [32]u8 = undefined;
             const cstr = format.formatShort(cost, &cbuf);
             const costSize = fs(16, s);
@@ -277,13 +269,6 @@ pub fn draw(ctx: TreeContext) TreeAction {
         text.draw(hint, @as(i32, @intFromFloat(panelX + panelW - 18)) - hw, @as(i32, @intFromFloat(panelY + 24)), 14, C.overlay1);
     }
 
-    // Legend
-    const legendY = panelY + panelH - 64;
-    drawLegendChip(panelX + 18, legendY, locale.tr("Owned", "Adquirido"), C.green);
-    drawLegendChip(panelX + 130, legendY, locale.tr("Ready", "Disponível"), C.blue);
-    drawLegendChip(panelX + 270, legendY, locale.tr("Too pricy", "Muito caro"), C.red);
-    drawLegendChip(panelX + 410, legendY, locale.tr("Locked", "Bloqueado"), C.overlay0);
-
     // Close button
     const closeW: f32 = 140;
     const closeH: f32 = 44;
@@ -296,8 +281,3 @@ pub fn draw(ctx: TreeContext) TreeAction {
     return action;
 }
 
-fn drawLegendChip(x: f32, y: f32, label: [:0]const u8, color: rl.Color) void {
-    const chipSize: f32 = 12;
-    rl.drawRectangleRounded(rl.Rectangle.init(x, y + 2, chipSize, chipSize), 0.4, 4, color);
-    text.draw(label, @as(i32, @intFromFloat(x + chipSize + 6)), @as(i32, @intFromFloat(y - 2)), 17, theme.CatppuccinMocha.Color.subtext1);
-}
