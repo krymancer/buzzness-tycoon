@@ -936,6 +936,7 @@ pub const Game = struct {
                 .state = &self.upgradeTree,
                 .resources = &self.resources,
                 .textures = &self.textures,
+                .prestigeCostMul = self.prestige.costMul(),
             };
             const treeAction = ui.tree_view.draw(treeCtx);
             switch (treeAction) {
@@ -1169,6 +1170,9 @@ pub const Game = struct {
         self.upgradeTree.deinit();
         self.upgradeTree = upgrade_tree.State.init(self.allocator);
         spawners.superFlowersUnlocked = false;
+        // Prestige survives run resets, so bee prices pick up the new
+        // multiplier here (doPrestige bumps royalJelly before calling us).
+        spawners.beeCostMul = self.prestige.costMul();
         bee_ai_system.gardenerPlantChance = bee_ai_system.GARDENER_BASE_CHANCE;
         bee_ai_system.gardenerCompost = false;
         bee_ai_system.gardenerSweep = false;
@@ -1250,7 +1254,7 @@ pub const Game = struct {
     fn purchaseUpgrade(self: *@This(), nodeId: upgrade_tree.NodeId) !void {
         const node = upgrade_tree.findNode(nodeId) orelse return;
         if (!self.upgradeTree.canBuy(node)) return;
-        if (!self.resources.spendHoney(self.upgradeTree.nextCost(node))) return;
+        if (!self.resources.spendHoney(self.upgradeTree.nextCost(node, self.prestige.costMul()))) return;
 
         switch (node.effect) {
             .honey_factor_mul => {
@@ -1561,6 +1565,7 @@ pub const Game = struct {
         self.prestige.royalJelly = data.royal_jelly;
         self.prestige.thisRunHoney = finiteAtLeast(data.this_run_honey, 0, 0);
         self.prestige.hasUnlockedPrestige = data.prestige_unlocked or self.upgradeTree.hasEffect(.prestige_unlock);
+        spawners.beeCostMul = self.prestige.costMul();
         spawners.superFlowersUnlocked = self.upgradeTree.hasEffect(.super_flower_unlock);
         bee_ai_system.gardenerPlantChance = bee_ai_system.gardenerChanceForLevel(self.upgradeTree.level(upgrade_tree.GREEN_THUMB_ID));
         bee_ai_system.gardenerCompost = self.upgradeTree.hasEffect(.gardener_compost);

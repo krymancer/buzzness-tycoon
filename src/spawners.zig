@@ -25,6 +25,10 @@ pub const FLOWER_COSTS = struct {
 /// Bee cost for purchasing (per type)
 pub const BEE_COST: f32 = 10.0;
 
+/// Prestige price multiplier applied to bee purchases (PrestigeState.costMul).
+/// game.zig refreshes it on run reset and on save load.
+pub var beeCostMul: f32 = 1.0;
+
 pub const BEE_TYPE_COSTS = struct {
     pub const worker: f32 = 10.0;
     pub const swift: f32 = 100.0;
@@ -32,12 +36,13 @@ pub const BEE_TYPE_COSTS = struct {
     pub const gardener: f32 = 2000.0;
 
     pub fn get(beeType: components.BeeType) f32 {
-        return switch (beeType) {
+        const base: f32 = switch (beeType) {
             .worker => worker,
             .swift => swift,
             .efficient => efficient,
             .gardener => gardener,
         };
+        return base * beeCostMul;
     }
 };
 
