@@ -65,6 +65,8 @@ pub const UpdateCtx = struct {
     labs: *const labs_mod.LabState,
     prestige: *prestige_mod.PrestigeState,
     honeyFactor: f32,
+    /// Sky night factor for this frame: 0 = full day, 1 = deep night.
+    nightFactor: f32,
     frameHoneyGain: *f32,
 };
 
@@ -79,6 +81,11 @@ pub fn resetCaches() void {
 
 pub fn update(ctx: UpdateCtx) !void {
     const scaledDeltaTime = ctx.deltaTime * @as(f32, @floatFromInt(STAGGER_GROUPS));
+
+    // Night penalty: honey and speed ramp down smoothly with the night
+    // factor, scaled back by the Night Shift node (see nightPenaltyScale).
+    const nightHoney = nightHoneyMul(ctx.nightFactor);
+    const nightSpeed = nightSpeedMul(ctx.nightFactor);
 
     pollinationTimer += ctx.deltaTime;
     const checkPollination = pollinationTimer >= POLLINATION_CHECK_INTERVAL;
@@ -168,7 +175,7 @@ pub fn update(ctx: UpdateCtx) !void {
             if (distance < 30.0) {
                 if (ctx.world.getPollenCollector(entity)) |collector| {
                     if (collector.pollenCollected > 0) {
-                        const newHoney = collector.pollenCollected * ctx.honeyFactor * ctx.prestige.globalMul();
+                        const newHoney = collector.pollenCollected * ctx.honeyFactor * ctx.prestige.globalMul() * nightHoney;
                         ctx.resources.addHoney(newHoney);
                         ctx.prestige.trackHoney(newHoney);
                         ctx.frameHoneyGain.* += newHoney;
@@ -180,7 +187,7 @@ pub fn update(ctx: UpdateCtx) !void {
                     }
                 }
             } else {
-                moveTowardsWithSpeed(position, beehiveWorldPos, scaledDeltaTime, beeAI.beeType.getSpeedMultiplier());
+                moveTowardsWithSpeed(position, beehiveWorldPos, scaledDeltaTime, beeAI.beeType.getSpeedMultiplier() * nightSpeed);
             }
             continue;
         }
@@ -257,7 +264,7 @@ pub fn update(ctx: UpdateCtx) !void {
             beeAI.targetLocked = false;
             beeAI.targetEntity = null;
         } else {
-            moveTowardsWithSpeed(position, targetPos, scaledDeltaTime, beeAI.beeType.getSpeedMultiplier());
+            moveTowardsWithSpeed(position, targetPos, scaledDeltaTime, beeAI.beeType.getSpeedMultiplier() * nightSpeed);
         }
     }
 
@@ -415,6 +422,58 @@ pub var gardenerCompost: bool = false;
 /// Cleanup Crew node: gardeners actively seek out rotten flowers and fly
 /// there to clear them (instead of only clearing rot they happen to cross).
 pub var gardenerSweep: bool = false;
+
+/// Night penalty: at deep night bees produce half honey and fly slower,
+/// ramping smoothly through dusk/dawn via the sky's night factor. The
+/// repeatable Night Shift tree node buys the penalty off in quarters.
+pub const NIGHT_HONEY_PENALTY: f32 = 0.5;
+pub const NIGHT_SPEED_PENALTY: f32 = 0.25;
+pub const NIGHT_SHIFT_MAX_LEVEL: u16 = 4;
+
+/// Fraction of the night penalty still active: 1 = no Night Shift levels,
+/// 0 = node maxed. Set from the tree by game.zig (purchase/load/reset).
+pub var nightPenaltyScale: f32 = 1.0;
+
+pub fn nightPenaltyScaleForLevel(level: u16) f32 {
+    const lvl: f32 = @floatFromInt(@min(level, NIGHT_SHIFT_MAX_LEVEL));
+    return 1.0 - lvl / @as(f32, @floatFromInt(NIGHT_SHIFT_MAX_LEVEL));
+}
+
+/// Honey multiplier at night factor `night` under the current penalty scale.
+pub fn nightHoneyMul(night: f32) f32 {
+    return 1.0 - NIGHT_HONEY_PENALTY * nightPenaltyScale * night;
+}
+
+/// Bee speed multiplier at night factor `night` under the current penalty scale.
+pub fn nightSpeedMul(night: f32) f32 {
+    return 1.0 - NIGHT_SPEED_PENALTY * nightPenaltyScale * night;
+}
+
+/// Deep-night honey multiplier at a given Night Shift level (tree tooltip).
+pub fn nightHoneyMulForLevel(level: u16) f32 {
+    return 1.0 - NIGHT_HONEY_PENALTY * nightPenaltyScaleForLevel(level);
+}
+
+test "night penalty ramps with the night factor and Night Shift buys it off" {
+    nightPenaltyScale = 1.0;
+    defer nightPenaltyScale = 1.0;
+    try std.testing.expectApproxEqRel(@as(f32, 1.0), nightHoneyMul(0.0), 1e-6);
+    try std.testing.expectApproxEqRel(@as(f32, 0.5), nightHoneyMul(1.0), 1e-6);
+    try std.testing.expectApproxEqRel(@as(f32, 0.75), nightHoneyMul(0.5), 1e-6);
+    try std.testing.expectApproxEqRel(@as(f32, 1.0), nightSpeedMul(0.0), 1e-6);
+    try std.testing.expectApproxEqRel(@as(f32, 0.75), nightSpeedMul(1.0), 1e-6);
+
+    // Each level removes a quarter of the penalty; level 4 removes it all.
+    try std.testing.expectApproxEqRel(@as(f32, 0.5), nightHoneyMulForLevel(0), 1e-6);
+    try std.testing.expectApproxEqRel(@as(f32, 0.625), nightHoneyMulForLevel(1), 1e-6);
+    try std.testing.expectApproxEqRel(@as(f32, 0.75), nightHoneyMulForLevel(2), 1e-6);
+    try std.testing.expectApproxEqRel(@as(f32, 0.875), nightHoneyMulForLevel(3), 1e-6);
+    try std.testing.expectApproxEqRel(@as(f32, 1.0), nightHoneyMulForLevel(4), 1e-6);
+
+    nightPenaltyScale = nightPenaltyScaleForLevel(4);
+    try std.testing.expectApproxEqRel(@as(f32, 1.0), nightHoneyMul(1.0), 1e-6);
+    try std.testing.expectApproxEqRel(@as(f32, 1.0), nightSpeedMul(1.0), 1e-6);
+}
 
 pub fn gardenerChanceForLevel(level: u16) i32 {
     return @min(100, GARDENER_BASE_CHANCE + GARDENER_CHANCE_PER_LEVEL * @as(i32, level));

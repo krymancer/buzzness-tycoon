@@ -363,6 +363,15 @@ fn drawNodeIcon(ctx: TreeContext, node: *const upgrade_tree.Node, cx: f32, cy: f
             }
         },
         .lab_aura, .aura_reach => icons.drawAura(cx, cy, 8 * s, if (unlocked) C.lavender else dim),
+        .night_penalty_sub => {
+            // Full moon with craters, echoing the night sky's moon.
+            const col = if (unlocked) C.lavender else dim;
+            const crater = if (unlocked) C.overlay1 else C.surface1;
+            rl.drawCircle(@intFromFloat(cx), @intFromFloat(cy), 7 * s, col);
+            rl.drawCircle(@intFromFloat(cx - 2 * s), @intFromFloat(cy - 1.5 * s), 1.5 * s, crater);
+            rl.drawCircle(@intFromFloat(cx + 2 * s), @intFromFloat(cy + 1.5 * s), 2 * s, crater);
+            rl.drawCircle(@intFromFloat(cx + 0.5 * s), @intFromFloat(cy - 4 * s), 1.2 * s, crater);
+        },
         .prestige_unlock => {
             // Crown dots, same motif as the prestige card.
             const col1 = if (unlocked) C.mauve else dim;
@@ -442,6 +451,14 @@ fn nodeStatus(ctx: TreeContext, node: *const upgrade_tree.Node, lvl: u16, buf: [
         },
         .rot_chance_sub => {
             return std.fmt.bufPrintZ(buf, "{s}: {d}%  ·  {s}: {d}%", .{ now, lifespan_system.rotChanceForLevel(lvl), nxt, lifespan_system.rotChanceForLevel(lvl + 1) }) catch null;
+        },
+        .night_penalty_sub => {
+            var b1: [24]u8 = undefined;
+            var b2: [24]u8 = undefined;
+            const suffix = locale.tr("honey at night", "de mel à noite");
+            const cur = bee_ai_system.nightHoneyMulForLevel(lvl);
+            if (maxed) return std.fmt.bufPrintZ(buf, "{s}: x{s} {s}", .{ now, fmtMul(cur, &b1), suffix }) catch null;
+            return std.fmt.bufPrintZ(buf, "{s}: x{s}  ·  {s}: x{s} {s}", .{ now, fmtMul(cur, &b1), nxt, fmtMul(bee_ai_system.nightHoneyMulForLevel(lvl + 1), &b2), suffix }) catch null;
         },
         .bulk_buy_tier => {
             if (lvl == 0) return std.fmt.bufPrintZ(buf, "{s}", .{locale.tr("Next: adds the x50 option", "Próx.: adiciona a opção x50")}) catch null;
