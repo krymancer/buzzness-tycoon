@@ -68,6 +68,7 @@ var prevBlockCount: usize = 0;
 /// and the right stick scrolls instead of panning the camera.
 pub fn beginFrame(menu: bool) void {
     menuMode = menu;
+    confirmConsumed = false;
     prevHotspots = hotspots;
     prevHotspotCount = hotspotCount;
     hotspotCount = 0;
@@ -143,9 +144,23 @@ pub fn gamepadActive() bool {
     return device == .gamepad;
 }
 
-/// Primary click: mouse left button or gamepad A.
+// Set once a widget accepts this frame's confirm press; immediate-mode
+// widgets draw in sequence, so without it one click can activate every
+// overlapping widget drawn later the same frame (e.g. the HUD tree button
+// opening the tree and the tree's Close button, which share the
+// bottom-right corner, both firing on one press).
+var confirmConsumed: bool = false;
+
+/// Primary click: mouse left button or gamepad A. False for the rest of
+/// the frame once a widget consumes the press (consumeConfirm).
 pub fn confirmPressed() bool {
+    if (confirmConsumed) return false;
     return rl.isMouseButtonPressed(rl.MouseButton.left) or padPressed(.right_face_down);
+}
+
+/// Mark this frame's confirm press as handled so no later widget reuses it.
+pub fn consumeConfirm() void {
+    confirmConsumed = true;
 }
 
 pub fn confirmDown() bool {

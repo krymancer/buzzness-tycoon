@@ -38,6 +38,10 @@ pub const Context = struct {
     prestige: *const prestige_mod.PrestigeState,
     labs: *const labs_mod.LabState,
     textures: *const Textures,
+    // False while a modal (tree, pause, prestige) covers the HUD: it still
+    // draws underneath, but must not react to clicks aimed at the modal —
+    // the tree's Close button sits on the same corner as the tree button.
+    inputEnabled: bool = true,
 };
 
 pub const Action = union(enum) {
@@ -163,7 +167,10 @@ fn drawBeeCross(ctx: Context, mouse: rl.Vector2, out: *Action) void {
         // The 32x16 TAB tile in a 2x box renders 64x32, centered on the slot.
         prompt_icons.draw(.key_tab, ccx - PROMPT / 2, iconY, PROMPT);
     }
-    if (hovered and input.confirmPressed()) cycleBuyQty(1);
+    if (ctx.inputEnabled and hovered and input.confirmPressed()) {
+        input.consumeConfirm();
+        cycleBuyQty(1);
+    }
 }
 
 fn drawBeeSlot(ctx: Context, spec: SlotSpec, pos: rl.Vector2, mouse: rl.Vector2, out: *Action) void {
@@ -242,7 +249,8 @@ fn drawBeeSlot(ctx: Context, spec: SlotSpec, pos: rl.Vector2, mouse: rl.Vector2,
     const prompt: prompt_icons.Icon = if (input.gamepadActive()) spec.dpad else prompt_icons.numberKey(spec.beeIndex);
     prompt_icons.draw(prompt, rect.x - 9, rect.y - 9, PROMPT);
 
-    if (hovered and afford and input.confirmPressed()) {
+    if (ctx.inputEnabled and hovered and afford and input.confirmPressed()) {
+        input.consumeConfirm();
         flashSlot(spec.beeIndex);
         out.* = .{ .buy = .{ .action = spec.buyAction, .qty = qty } };
     }
@@ -278,7 +286,10 @@ fn drawTreeButton(ctx: Context, mouse: rl.Vector2, out: *Action) void {
 
     prompt_icons.draw(if (input.gamepadActive()) .pad_y else .key_t, rect.x - 9, rect.y - 9, PROMPT);
 
-    if (hovered and input.confirmPressed()) out.* = .open_tree;
+    if (ctx.inputEnabled and hovered and input.confirmPressed()) {
+        input.consumeConfirm();
+        out.* = .open_tree;
+    }
 }
 
 /// Bee census row: one icon + owned count per type; locked types show the
@@ -359,7 +370,10 @@ fn drawPassives(ctx: Context, mouse: rl.Vector2, out: *Action) void {
         const jstr = format.formatShort(@floatFromInt(ctx.prestige.royalJelly), &jbuf);
         const label = rl.textFormat(locale.tr("Prestige  RJ %s · x%.2f", "Prestígio  GR %s · x%.2f"), .{ jstr.ptr, ctx.prestige.globalMul() });
         text.draw(label, @intFromFloat(x + 32), @intFromFloat(y + 8), 16, if (hovered) C.pink else C.subtext1);
-        if (hovered and input.confirmPressed()) out.* = .open_prestige;
+        if (ctx.inputEnabled and hovered and input.confirmPressed()) {
+            input.consumeConfirm();
+            out.* = .open_prestige;
+        }
     }
 }
 

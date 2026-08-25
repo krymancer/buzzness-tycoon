@@ -73,7 +73,9 @@ pub fn buttonEx(rect: rl.Rectangle, label: [:0]const u8, opts: ButtonOpts) bool 
     const ty = @as(i32, @intFromFloat(r.y + (r.height - LIP - @as(f32, @floatFromInt(opts.fontSize))) / 2 + 1));
     text.draw(label, tx, ty, opts.fontSize, labelColor);
 
-    return hovered and opts.enabled and input.confirmPressed();
+    const clicked = hovered and opts.enabled and input.confirmPressed();
+    if (clicked) input.consumeConfirm();
+    return clicked;
 }
 
 /// Segmented toggle chip (used for option rows). True when clicked.
@@ -91,7 +93,9 @@ pub fn segment(rect: rl.Rectangle, label: [:0]const u8, selected: bool) bool {
         17,
         if (selected) C.base else C.text,
     );
-    return hovered and input.confirmPressed();
+    const clicked = hovered and input.confirmPressed();
+    if (clicked) input.consumeConfirm();
+    return clicked;
 }
 
 // The slider being dragged, so the handle follows the pointer even when it
@@ -116,7 +120,10 @@ pub fn slider(rect: rl.Rectangle, rightLabel: ?[:0]const u8, value: *f32, min: f
     const hovered = rl.checkCollisionPointRec(mouse, grabRect);
 
     if (activeSlider == value and !input.confirmDown()) activeSlider = null;
-    if (hovered and input.confirmPressed()) activeSlider = value;
+    if (hovered and input.confirmPressed()) {
+        activeSlider = value;
+        input.consumeConfirm();
+    }
     const dragging = activeSlider == value;
 
     const old = value.*;

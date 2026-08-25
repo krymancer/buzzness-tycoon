@@ -897,33 +897,32 @@ pub const Game = struct {
             .prestige = &self.prestige,
             .labs = &self.labs,
             .textures = &self.textures,
+            .inputEnabled = !self.showPauseMenu and !self.showTree and !self.showPrestigeDialog,
         };
         const sideAction = ui.action_hud.draw(sideCtx);
-        if (!self.showPauseMenu and !self.showTree and !self.showPrestigeDialog) {
-            switch (sideAction) {
-                .none => {},
-                .open_tree => {
-                    self.showTree = true;
-                    ui.tree_view.resetScroll();
-                },
-                .open_prestige => self.showPrestigeDialog = true,
-                .buy => |b| {
-                    var handler = self.createActionHandler();
-                    const honeyBefore = self.resources.honey;
-                    var delta: i32 = 0;
-                    // Bulk buy: repeat until the quantity is met or honey runs out.
-                    var n: u32 = 0;
-                    while (n < b.qty) : (n += 1) {
-                        const result = try handler.handleBuy(b.action);
-                        if (result.beeCountDelta == 0) break;
-                        delta += result.beeCountDelta;
-                    }
-                    try self.spawnSpendFeedback(honeyBefore);
-                    if (delta != 0) {
-                        self.cachedBeeCount = @intCast(@as(i64, @intCast(self.cachedBeeCount)) + delta);
-                    }
-                },
-            }
+        switch (sideAction) {
+            .none => {},
+            .open_tree => {
+                self.showTree = true;
+                ui.tree_view.resetScroll();
+            },
+            .open_prestige => self.showPrestigeDialog = true,
+            .buy => |b| {
+                var handler = self.createActionHandler();
+                const honeyBefore = self.resources.honey;
+                var delta: i32 = 0;
+                // Bulk buy: repeat until the quantity is met or honey runs out.
+                var n: u32 = 0;
+                while (n < b.qty) : (n += 1) {
+                    const result = try handler.handleBuy(b.action);
+                    if (result.beeCountDelta == 0) break;
+                    delta += result.beeCountDelta;
+                }
+                try self.spawnSpendFeedback(honeyBefore);
+                if (delta != 0) {
+                    self.cachedBeeCount = @intCast(@as(i64, @intCast(self.cachedBeeCount)) + delta);
+                }
+            },
         }
 
         if (self.showPrestigeDialog) {
