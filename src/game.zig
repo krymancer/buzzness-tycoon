@@ -833,6 +833,7 @@ pub const Game = struct {
             .labs = &self.labs,
             .prestige = &self.prestige,
             .honeyFactor = self.cachedHoneyFactor,
+            .nightFactor = self.sky.nightFactor(),
             .frameHoneyGain = &frameHoneyGain,
         });
         try flower_spawning_system.update(&self.world, deltaTime, self.grid.offset, self.grid.scale, self.gridWidth, self.gridHeight, self.textures);
@@ -1176,6 +1177,7 @@ pub const Game = struct {
         bee_ai_system.gardenerPlantChance = bee_ai_system.GARDENER_BASE_CHANCE;
         bee_ai_system.gardenerCompost = false;
         bee_ai_system.gardenerSweep = false;
+        bee_ai_system.nightPenaltyScale = 1.0;
         flower_growth_system.growthMul = 1.0;
         spawners.beeLifespanMul = 1.0;
         lifespan_system.rotChancePercent = lifespan_system.ROT_CHANCE_PERCENT;
@@ -1270,6 +1272,7 @@ pub const Game = struct {
             .gardener_chance => bee_ai_system.gardenerPlantChance = bee_ai_system.gardenerChanceForLevel(self.upgradeTree.level(nodeId) + 1),
             .gardener_compost => bee_ai_system.gardenerCompost = true,
             .gardener_sweep => bee_ai_system.gardenerSweep = true,
+            .night_penalty_sub => bee_ai_system.nightPenaltyScale = bee_ai_system.nightPenaltyScaleForLevel(self.upgradeTree.level(nodeId) + 1),
             .bulk_buy_tier => ui.action_hud.setBulkTier(self.upgradeTree.level(nodeId) + 1),
             .flower_growth_mul => flower_growth_system.growthMul = flower_growth_system.growthMulForLevel(self.upgradeTree.level(nodeId) + 1),
             .bee_lifespan_mul => {
@@ -1570,6 +1573,7 @@ pub const Game = struct {
         bee_ai_system.gardenerPlantChance = bee_ai_system.gardenerChanceForLevel(self.upgradeTree.level(upgrade_tree.GREEN_THUMB_ID));
         bee_ai_system.gardenerCompost = self.upgradeTree.hasEffect(.gardener_compost);
         bee_ai_system.gardenerSweep = self.upgradeTree.hasEffect(.gardener_sweep);
+        bee_ai_system.nightPenaltyScale = bee_ai_system.nightPenaltyScaleForLevel(self.upgradeTree.level(upgrade_tree.NIGHT_SHIFT_ID));
         flower_growth_system.growthMul = flower_growth_system.growthMulForLevel(self.upgradeTree.level(upgrade_tree.FERTILE_SOIL_ID));
         spawners.beeLifespanMul = spawners.beeLifespanMulForLevel(self.upgradeTree.level(upgrade_tree.BEE_VITALITY_ID));
         lifespan_system.rotChancePercent = lifespan_system.rotChanceForLevel(self.upgradeTree.level(upgrade_tree.HARDY_BLOOMS_ID));

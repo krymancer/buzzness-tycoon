@@ -23,6 +23,7 @@ pub const EffectKind = enum {
     prestige_unlock,
     growth_boost_unlock,
     super_flower_unlock,
+    night_penalty_sub,
 };
 
 /// Marks a node as re-buyable. Each purchase raises its level and re-applies
@@ -114,6 +115,9 @@ pub const NODES = [_]Node{
     .{ .id = 29, .name = "Fertile Soil", .cost = 300, .prereqs = r_worker, .effect = .flower_growth_mul, .value = 1.2, .col = 2, .row = 2, .repeat = .{ .cost_growth = 1.6 } },
     .{ .id = 30, .name = "Bee Vitality", .cost = 800, .prereqs = r_worker, .effect = .bee_lifespan_mul, .value = 1.2, .col = 2, .row = 3, .repeat = .{ .cost_growth = 1.7 } },
     .{ .id = 31, .name = "Hardy Blooms", .cost = 2500, .prereqs = r_worker, .effect = .rot_chance_sub, .value = 0.85, .col = 2, .row = 4, .repeat = .{ .cost_growth = 1.8 } },
+    // Bees produce half honey and fly slower at night (see bee_ai_system);
+    // each level removes a quarter of the penalty, all of it at level 4.
+    .{ .id = 33, .name = "Night Shift", .cost = 2000, .prereqs = r_worker, .effect = .night_penalty_sub, .col = 2, .row = 5, .repeat = .{ .cost_growth = 1.8, .max_level = 4 } },
 
     // Labs branch (col 0, rows 4-6) — gated behind cross-branch t3 nodes
     // Aura: flowers inside the rings around the hive yield more pollen.
@@ -144,6 +148,7 @@ pub const FERTILE_SOIL_ID: NodeId = 29;
 pub const BEE_VITALITY_ID: NodeId = 30;
 pub const HARDY_BLOOMS_ID: NodeId = 31;
 pub const BULK_ORDER_ID: NodeId = 32;
+pub const NIGHT_SHIFT_ID: NodeId = 33;
 
 /// Old one-shot chains that are now single repeatable nodes. Each legacy id
 /// purchased in an old save counts as +1 level on its target.
@@ -261,6 +266,16 @@ test "colony vitality nodes are buyable at start and never max out" {
         try std.testing.expect(s.canBuy(n));
         try std.testing.expect(!n.isMaxed(100));
     }
+}
+
+test "night shift is buyable from the start and maxes at level 4" {
+    var s = State.init(std.testing.allocator);
+    defer s.deinit();
+    const night = findNode(NIGHT_SHIFT_ID).?;
+    try std.testing.expect(s.canBuy(night));
+    try std.testing.expectApproxEqRel(@as(f32, 2000 * 1.8), night.costAtLevel(1), 1e-5);
+    try std.testing.expect(!night.isMaxed(3));
+    try std.testing.expect(night.isMaxed(4));
 }
 
 test "state tracks levels and gates buying" {
