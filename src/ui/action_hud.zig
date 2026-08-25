@@ -124,10 +124,10 @@ fn drawBeeCross(ctx: Context, mouse: rl.Vector2, out: *Action) void {
     input.registerBlock(rl.Rectangle.init(ox, oy, crossW, crossW));
 
     const specs = [_]SlotSpec{
-        .{ .beeIndex = 0, .buyAction = .buy_worker_bee, .cost = spawners.BEE_TYPE_COSTS.worker, .accent = C.text, .dpad = .dpad_up, .unlocked = true },
-        .{ .beeIndex = 1, .buyAction = .buy_swift_bee, .cost = spawners.BEE_TYPE_COSTS.swift, .accent = C.blue, .dpad = .dpad_left, .unlocked = ctx.treeState.hasEffect(.bee_unlock_swift) },
-        .{ .beeIndex = 2, .buyAction = .buy_efficient_bee, .cost = spawners.BEE_TYPE_COSTS.efficient, .accent = C.green, .dpad = .dpad_right, .unlocked = ctx.treeState.hasEffect(.bee_unlock_efficient) },
-        .{ .beeIndex = 3, .buyAction = .buy_gardener_bee, .cost = spawners.BEE_TYPE_COSTS.gardener, .accent = C.pink, .dpad = .dpad_down, .unlocked = ctx.treeState.hasEffect(.bee_unlock_gardener) },
+        .{ .beeIndex = 0, .buyAction = .buy_worker_bee, .cost = spawners.BEE_TYPE_COSTS.get(.worker), .accent = C.text, .dpad = .dpad_up, .unlocked = true },
+        .{ .beeIndex = 1, .buyAction = .buy_swift_bee, .cost = spawners.BEE_TYPE_COSTS.get(.swift), .accent = C.blue, .dpad = .dpad_left, .unlocked = ctx.treeState.hasEffect(.bee_unlock_swift) },
+        .{ .beeIndex = 2, .buyAction = .buy_efficient_bee, .cost = spawners.BEE_TYPE_COSTS.get(.efficient), .accent = C.green, .dpad = .dpad_right, .unlocked = ctx.treeState.hasEffect(.bee_unlock_efficient) },
+        .{ .beeIndex = 3, .buyAction = .buy_gardener_bee, .cost = spawners.BEE_TYPE_COSTS.get(.gardener), .accent = C.pink, .dpad = .dpad_down, .unlocked = ctx.treeState.hasEffect(.bee_unlock_gardener) },
     };
     // Slot positions on the cross: up, left, right, down (matches the
     // quick-buy d-pad mapping).

@@ -56,6 +56,8 @@ pub const TreeContext = struct {
     state: *const upgrade_tree.State,
     resources: *const Resources,
     textures: *const Textures,
+    /// PrestigeState.costMul() — scales displayed node prices.
+    prestigeCostMul: f32,
 };
 
 const NodeStyle = struct {
@@ -225,7 +227,7 @@ pub fn draw(ctx: TreeContext) TreeAction {
         const purchased = lvl > 0;
         const maxed = node.isMaxed(lvl);
         const unlocked = ctx.state.isUnlocked(node);
-        const cost = ctx.state.nextCost(node);
+        const cost = ctx.state.nextCost(node, ctx.prestigeCostMul);
         const afford = ctx.resources.honey >= cost;
         const buyable = !maxed and unlocked;
         const style = styleFor(purchased, maxed, unlocked, afford);

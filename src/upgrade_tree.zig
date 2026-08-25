@@ -197,9 +197,14 @@ pub const State = struct {
         return self.isUnlocked(node) and !node.isMaxed(self.level(node.id));
     }
 
-    /// Honey price of the next purchase of this node.
-    pub fn nextCost(self: *const @This(), node: *const Node) f32 {
-        return node.costAtLevel(self.level(node.id));
+    /// Honey price of the next purchase of this node. `prestigeCostMul` is
+    /// the global prestige price multiplier (PrestigeState.costMul), so each
+    /// prestige run keeps a real cost curve. Storage is exempt: its price
+    /// must stay inside the honey capacity, which does not prestige-scale,
+    /// or the next capacity upgrade becomes unaffordable and softlocks.
+    pub fn nextCost(self: *const @This(), node: *const Node, prestigeCostMul: f32) f32 {
+        const base = node.costAtLevel(self.level(node.id));
+        return if (node.effect == .storage_add) base else base * prestigeCostMul;
     }
 
     /// Raise the node by one level (first purchase = level 1).
@@ -275,5 +280,16 @@ test "state tracks levels and gates buying" {
     try s.markPurchased(24);
     try std.testing.expectEqual(@as(u16, 2), s.level(24));
     try std.testing.expect(s.canBuy(boost));
-    try std.testing.expectApproxEqRel(@as(f32, 8000 * 1.5 * 1.5), s.nextCost(boost), 1e-5);
+    try std.testing.expectApproxEqRel(@as(f32, 8000 * 1.5 * 1.5), s.nextCost(boost, 1.0), 1e-5);
+}
+
+test "prestige multiplier scales node prices but never storage" {
+    var s = State.init(std.testing.allocator);
+    defer s.deinit();
+
+    const honey2 = findNode(1).?;
+    try std.testing.expectApproxEqRel(@as(f32, 50 * 1.3), s.nextCost(honey2, 1.3), 1e-5);
+
+    const storage = findNode(STORAGE_ID).?;
+    try std.testing.expectEqual(storage.cost, s.nextCost(storage, 1.3));
 }

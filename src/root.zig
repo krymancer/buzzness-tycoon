@@ -4,4 +4,5 @@ test {
     _ = @import("spawners.zig");
     _ = @import("upgrade_tree.zig");
     _ = @import("labs.zig");
+    _ = @import("prestige.zig");
 }
