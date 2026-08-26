@@ -19,8 +19,7 @@ tried in `src/steam.zig` (v011–v013 today).
 
 ## Current files
 
-Valve's unmodified redistributables (SDK 1.6x: `SteamAPI_InitFlat`,
-`ISteamUserStats` v013), taken from the Steamworks.NET 2025.164.1 standalone
-release (`OSX-Linux-x64/`, `Windows-x64/`) because the partner-site SDK
-download needs a login. Swapping in the same files from the official SDK zip
-is a drop-in replacement.
+Valve's unmodified redistributables from the official Steamworks SDK 1.65
+(`sdk/redistributable_bin/{linux64,win64,osx}`): `SteamAPI_InitFlat`,
+`ISteamUserStats` v013. Only these three files are committed — the rest of
+the SDK is not redistributable.
