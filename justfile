@@ -108,6 +108,60 @@ late-game:
     EOF
     env {{dev_env}} BT_SAVE_PATH="$save" BT_OPEN_PRESTIGE=1 zig build run
 
+# Windowed run on a save staged one step from several achievements: 99 bees
+# (buy one -> Hive Mind), 990 lifetime honey (First Drop), swift+efficient
+# owned (buy a gardener -> Full Crew), bulk buy x100 unlocked (Wholesale),
+# Grid Ring 9 (Land Baron), Night Shift 3. Unlocks log to stderr + banner.
+achievements:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    save=/tmp/bt_achievements_save.txt
+    cat > "$save" <<'EOF'
+    BUZZNESS_TYCOON 1
+    resources 400000 500000 1 0 0 10 1
+    hive 8 20
+    grid 35 35
+    prestige 40 0 1
+    labs 1 0 0 0
+    stat lifetime_honey 990
+    stat prestige_count 0
+    stat super_flowers_merged 0
+    stat rotten_cleared 48
+    stat max_bees_alive 99
+    upgrade 19
+    upgrade 4
+    upgrade 5
+    upgrade 6
+    upgrade 27
+    upgrade 28
+    level 10 9
+    level 32 4
+    level 33 3
+    bees 0 97
+    bees 1 1
+    bees 2 1
+    END
+    EOF
+    env {{dev_env}} BT_SAVE_PATH="$save" BT_RESET_ACHIEVEMENTS=1 zig build run
+
+# Windowed run against the real Steam client: needs the Steamworks SDK's
+# redistributable_bin copied to steam/redist/ and Steam running
+steam-dev:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    echo 4980570 > steam_appid.txt
+    [ -f steam/redist/linux64/libsteam_api.so ] || echo "warning: steam/redist/linux64/libsteam_api.so not found; running with the local backend only"
+    env {{dev_env}} zig build run
+
+# Regenerate docs/achievements.md (Steamworks entry sheet) and the Steamworks
+# localization VDF/zip files (steam/achievements/loc/) from src/achievements.zig
+achievements-sheet:
+    zig build achievements-sheet
+
+# Regenerate the achievement icons (ImageMagick) into steam/achievements/icons/
+achievement-icons:
+    bash steam/achievements/render_icons.sh
+
 # Run in Portuguese regardless of the system locale
 pt:
     {{dev_env}} BT_LANG=pt zig build run

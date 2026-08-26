@@ -1,4 +1,5 @@
 const std = @import("std");
+const achievements = @import("achievements.zig");
 
 pub const VERSION: u32 = 1;
 pub const MAX_UPGRADES: usize = 64;
@@ -77,6 +78,11 @@ pub const Data = struct {
     /// persisted (loaders fall back to bee_counts).
     bee_cells: std.ArrayList(BeeCell) = .empty,
     flowers: std.ArrayList(Flower) = .empty,
+    /// Lifetime counters (`stat <api> <value>` lines) and unlocked
+    /// achievements (`achievement <api>` lines). Both are profile-level:
+    /// they survive prestige and New Game. Absent in older saves.
+    stats: achievements.Stats = .{},
+    achievements: [achievements.COUNT]bool = @splat(false),
 
     pub fn deinit(self: *@This(), allocator: std.mem.Allocator) void {
         self.bee_cells.deinit(allocator);
@@ -144,6 +150,13 @@ pub fn write(io: std.Io, save_path: []const u8, data: *const Data) !void {
     try writer.print("jelly_spent {d}\n", .{data.jelly_spent});
     for (data.shop_levels, 0..) |lvl, id| {
         if (lvl > 0) try writer.print("shop {d} {d}\n", .{ id, lvl });
+    }
+    inline for (@typeInfo(achievements.Stat).@"enum".fields) |f| {
+        const stat: achievements.Stat = @enumFromInt(f.value);
+        try writer.print("stat {s} {d}\n", .{ stat.api(), data.stats.get(stat) });
+    }
+    for (data.achievements, 0..) |unlocked, i| {
+        if (unlocked) try writer.print("achievement {s}\n", .{achievements.DEFS[i].api});
     }
 
     for (data.purchased, 0..) |purchased, id| {
@@ -263,6 +276,14 @@ pub fn read(allocator: std.mem.Allocator, io: std.Io, save_path: []const u8) !Da
             const id = try parse(usize, tokens.next());
             const lvl = try parse(u16, tokens.next());
             if (id < data.shop_levels.len) data.shop_levels[id] = lvl;
+        } else if (std.mem.eql(u8, key, "stat")) {
+            // Unknown stat names (from a newer build) are skipped, not fatal.
+            const stat_name = tokens.next() orelse return error.InvalidSave;
+            const value = try parse(f64, tokens.next());
+            if (achievements.Stat.fromApi(stat_name)) |stat| data.stats.set(stat, value);
+        } else if (std.mem.eql(u8, key, "achievement")) {
+            const api = tokens.next() orelse return error.InvalidSave;
+            if (achievements.findByApi(api)) |id| data.achievements[@intFromEnum(id)] = true;
         } else if (std.mem.eql(u8, key, "upgrade")) {
             const id = try parse(usize, tokens.next());
             if (id < data.purchased.len) data.purchased[id] = true;
@@ -351,6 +372,11 @@ test "save data survives an atomic round trip" {
     };
     defer original.deinit(std.testing.allocator);
     original.shop_levels[2] = 3;
+    original.stats.lifetimeHoney = 2.5e12;
+    original.stats.prestigeCount = 6;
+    original.stats.maxBeesAlive = 12_345;
+    original.achievements[@intFromEnum(achievements.Id.first_drop)] = true;
+    original.achievements[@intFromEnum(achievements.Id.sticky_situation)] = true;
     original.purchased[19] = true;
     original.purchased[24] = true;
     original.levels[24] = 7;
@@ -386,6 +412,13 @@ test "save data survives an atomic round trip" {
     try std.testing.expectEqual(@as(u32, 17), restored.jelly_spent);
     try std.testing.expectEqual(@as(u16, 3), restored.shop_levels[2]);
     try std.testing.expectEqual(@as(u16, 0), restored.shop_levels[0]);
+    try std.testing.expectEqual(@as(f64, 2.5e12), restored.stats.lifetimeHoney);
+    try std.testing.expectEqual(@as(u32, 6), restored.stats.prestigeCount);
+    try std.testing.expectEqual(@as(u32, 12_345), restored.stats.maxBeesAlive);
+    try std.testing.expectEqual(@as(u32, 0), restored.stats.rottenCleared);
+    try std.testing.expect(restored.achievements[@intFromEnum(achievements.Id.first_drop)]);
+    try std.testing.expect(restored.achievements[@intFromEnum(achievements.Id.sticky_situation)]);
+    try std.testing.expect(!restored.achievements[@intFromEnum(achievements.Id.dynasty)]);
     try std.testing.expect(restored.purchased[19]);
     try std.testing.expectEqual(@as(u16, 0), restored.levels[19]);
     try std.testing.expect(restored.purchased[24]);
@@ -434,4 +467,35 @@ test "flower lines without the is_super field still parse (old saves)" {
     try std.testing.expect(!restored.flowers.items[0].is_super);
     // Pre-position saves carry no per-cell bee lines; loaders fall back to counts.
     try std.testing.expectEqual(@as(usize, 0), restored.bee_cells.items.len);
+    // No stat/achievement lines: fresh profile.
+    try std.testing.expectEqual(@as(f64, 0), restored.stats.lifetimeHoney);
+    try std.testing.expectEqual(@as(usize, 0), (achievements.Tracker{ .unlocked = restored.achievements }).unlockedCount());
+}
+
+test "unknown stat and achievement names are ignored" {
+    var temp = std.testing.tmpDir(.{});
+    defer temp.cleanup();
+
+    var path_buffer: [128]u8 = undefined;
+    const save_path = try std.fmt.bufPrint(&path_buffer, ".zig-cache/tmp/{s}/save_future.txt", .{temp.sub_path});
+
+    const future_save =
+        "BUZZNESS_TYCOON 1\n" ++
+        "resources 100 500 1 0 0 10 1\n" ++
+        "hive 1 20\n" ++
+        "grid 17 17\n" ++
+        "prestige 0 0 0\n" ++
+        "labs 1 0 0 0\n" ++
+        "stat lifetime_honey 4200\n" ++
+        "stat from_the_future 7\n" ++
+        "achievement first_drop\n" ++
+        "achievement from_the_future\n" ++
+        "END\n";
+    try std.Io.Dir.cwd().writeFile(std.testing.io, .{ .sub_path = save_path, .data = future_save });
+
+    var restored = try read(std.testing.allocator, std.testing.io, save_path);
+    defer restored.deinit(std.testing.allocator);
+    try std.testing.expectEqual(@as(f64, 4200), restored.stats.lifetimeHoney);
+    try std.testing.expect(restored.achievements[@intFromEnum(achievements.Id.first_drop)]);
+    try std.testing.expectEqual(@as(usize, 1), (achievements.Tracker{ .unlocked = restored.achievements }).unlockedCount());
 }

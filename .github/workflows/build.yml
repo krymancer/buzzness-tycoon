@@ -163,13 +163,23 @@ jobs:
         with:
           path: ./repo
 
+      # Steamworks redistributables (achievements) ride next to the binaries;
+      # the game dlopens them at runtime and no-ops when they're missing.
+      - name: Bundle Steamworks redistributables
+        run: |
+          set -euo pipefail
+          copy() { if [ -f "repo/steam/redist/$1" ]; then cp "repo/steam/redist/$1" "$2/"; echo "bundled $1"; else echo "::warning::steam/redist/$1 missing — Steam achievements will be local-only in this build"; fi; }
+          copy linux64/libsteam_api.so linux
+          copy win64/steam_api64.dll windows
+          copy osx/libsteam_api.dylib macos
+
       - name: Create archives
         run: |
           rm -f repo/steam_input/README.md
           for d in linux windows macos; do cp -r repo/steam_input "$d"/; done
-          cd linux && tar -czf ../buzzness-tycoon-linux-x86_64.tar.gz buzzness-tycoon steam_input && cd ..
-          cd windows && zip -r ../buzzness-tycoon-windows-x86_64.zip buzzness-tycoon.exe steam_input && cd ..
-          cd macos && chmod +x buzzness-tycoon && tar -czf ../buzzness-tycoon-macos-arm64.tar.gz buzzness-tycoon steam_input && cd ..
+          cd linux && tar -czf ../buzzness-tycoon-linux-x86_64.tar.gz buzzness-tycoon steam_input $(ls libsteam_api.so 2>/dev/null) && cd ..
+          cd windows && zip -r ../buzzness-tycoon-windows-x86_64.zip buzzness-tycoon.exe steam_input $(ls steam_api64.dll 2>/dev/null) && cd ..
+          cd macos && chmod +x buzzness-tycoon && tar -czf ../buzzness-tycoon-macos-arm64.tar.gz buzzness-tycoon steam_input $(ls libsteam_api.dylib 2>/dev/null) && cd ..
 
       - name: Upload release assets
         uses: softprops/action-gh-release@v3

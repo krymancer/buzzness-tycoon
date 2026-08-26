@@ -29,6 +29,9 @@ const ui_scale = @import("ui_scale.zig");
 const settings = @import("settings.zig");
 const input = @import("input.zig");
 const widgets = @import("ui/widgets.zig");
+const achievements = @import("achievements.zig");
+const steam = @import("steam.zig");
+const build_options = @import("build_options");
 
 const World = @import("ecs/world.zig").World;
 const components = @import("ecs/components.zig");
@@ -98,6 +101,22 @@ pub const Game = struct {
     showPrestigeDialog: bool,
     /// Seconds left on the full-screen ascend flash after a prestige.
     prestigeFlash: f32,
+
+    // Achievements + lifetime stats (profile-level: survive prestige and
+    // New Game; mirrored to Steam when connected).
+    stats: achievements.Stats,
+    achievementTracker: achievements.Tracker,
+    achievementToasts: ui.achievement_toast.Manager,
+    /// Rules are cheap but the SUPER-flower census walks every flower, so
+    /// they run a few times a second rather than every frame.
+    achievementTimer: f32,
+    /// Consecutive clicks on the hive tile (any other click resets it).
+    hiveClickStreak: u32,
+    /// Seconds spent at full storage with no purchase.
+    fullStorageSeconds: f32,
+    lastSpendCount: u32,
+    /// Most bees bought in one click since the last achievement check.
+    largestPurchase: u32,
 
     // Tile popup state
     clickStartPos: rl.Vector2,
@@ -248,6 +267,15 @@ pub const Game = struct {
             .showPrestigeDialog = env.get("BT_OPEN_PRESTIGE") != null,
             .prestigeFlash = 0,
 
+            .stats = .{},
+            .achievementTracker = .{},
+            .achievementToasts = .{},
+            .achievementTimer = 0,
+            .hiveClickStreak = 0,
+            .fullStorageSeconds = 0,
+            .lastSpendCount = 0,
+            .largestPurchase = 0,
+
             .cameraOffset = rl.Vector2.init(0, 0),
             .isDragging = false,
             .lastMousePos = rl.Vector2.init(0, 0),
@@ -283,6 +311,18 @@ pub const Game = struct {
             else => std.debug.print("Could not load save '{s}': {}\n", .{ savePath, err }),
         }
         if (useSavedWindowMode) settings.apply(settings.windowMode);
+
+        // Steam comes up after the save so offline unlocks can be re-asserted.
+        steam.init(env);
+        // Dev: BT_RESET_ACHIEVEMENTS=1 wipes local unlocks + stats (and the
+        // Steam ones when connected) so triggers can be re-tested.
+        if (env.get("BT_RESET_ACHIEVEMENTS") != null) {
+            game.achievementTracker.reset();
+            game.stats = .{};
+            steam.resetAll();
+            std.debug.print("[achievements] local unlocks and stats reset\n", .{});
+        }
+        game.syncAchievementsToSteam();
         return game;
     }
 
@@ -301,6 +341,7 @@ pub const Game = struct {
         ui.title_screen.deinit();
         ui.prompt_icons.deinit();
         input.deinit();
+        steam.deinit();
 
         rl.closeWindow();
         rl.unloadImage(self.windowIcon);
@@ -325,6 +366,7 @@ pub const Game = struct {
         var frame: u32 = 0;
 
         while (!rl.windowShouldClose() and !self.shouldExit) {
+            steam.runCallbacks();
             self.handleCommonInput();
             switch (self.state) {
                 .title_screen => try self.drawTitleScreen(),
@@ -718,6 +760,7 @@ pub const Game = struct {
         }
         if (delta > 0) {
             self.cachedBeeCount += @intCast(delta);
+            self.largestPurchase = @max(self.largestPurchase, @as(u32, @intCast(delta)));
             try self.spawnSpendFeedback(honeyBefore);
             ui.action_hud.flashSlot(switch (buyAction) {
                 .buy_worker_bee => 0,
@@ -735,6 +778,19 @@ pub const Game = struct {
         // Generous threshold so a small hand-wobble during a click still counts
         // as a click, not a camera drag.
         if (dragDistance >= 12.0) return;
+
+        // "Don't Poke the Hive": consecutive clicks on the hive tile.
+        if (self.grid.getHoveredTile()) |tile| {
+            const hiveX: i32 = @intCast((self.gridWidth - 1) / 2);
+            const hiveY: i32 = @intCast((self.gridHeight - 1) / 2);
+            if (tile.x == hiveX and tile.y == hiveY) {
+                self.hiveClickStreak += 1;
+            } else {
+                self.hiveClickStreak = 0;
+            }
+        } else {
+            self.hiveClickStreak = 0;
+        }
 
         // Rotten flower under the cursor: clear it so the cell can regrow.
         if (self.grid.getHoveredTile()) |tile| {
@@ -809,6 +865,7 @@ pub const Game = struct {
         if (self.autosaveTimer >= 10.0) {
             self.saveProgress() catch |err| std.debug.print("Could not autosave progress: {}\n", .{err});
             self.autosaveTimer = 0;
+            steam.pushStats(&self.stats);
         }
 
         self.resources.updateCooldown(deltaTime);
@@ -851,6 +908,26 @@ pub const Game = struct {
         self.cachedBeeCount = self.world.entityToBeeAI.count();
         self.cachedFlowerCount = self.world.entityToFlowerGrowth.count();
         self.recountBeeTypes();
+
+        // Lifetime counters feed the achievements and, later, a stats screen.
+        self.stats.lifetimeHoney += frameHoneyGain;
+        self.stats.superFlowersMerged +|= spawners.takeSuperMerges();
+        self.stats.rottenCleared +|= bee_ai_system.takeRottenCleared();
+        self.stats.maxBeesAlive = @max(self.stats.maxBeesAlive, @as(u32, @intCast(@min(self.cachedBeeCount, std.math.maxInt(u32)))));
+        // "Sticky Situation": time at the cap, reset by any purchase.
+        if (self.resources.spendCount != self.lastSpendCount) {
+            self.lastSpendCount = self.resources.spendCount;
+            self.fullStorageSeconds = 0;
+        } else if (self.resources.isAtCapacity()) {
+            self.fullStorageSeconds += deltaTime;
+        } else {
+            self.fullStorageSeconds = 0;
+        }
+        self.achievementTimer += deltaTime;
+        if (self.achievementTimer >= 0.5) {
+            self.achievementTimer = 0;
+            self.evaluateAchievements();
+        }
 
         if (frameHoneyGain > 0) {
             const centerX: f32 = @floatFromInt((self.gridWidth - 1) / 2);
@@ -932,6 +1009,7 @@ pub const Game = struct {
                 if (delta != 0) {
                     self.cachedBeeCount = @intCast(@as(i64, @intCast(self.cachedBeeCount)) + delta);
                 }
+                if (delta > 0) self.largestPurchase = @max(self.largestPurchase, @as(u32, @intCast(delta)));
             },
         }
 
@@ -960,12 +1038,15 @@ pub const Game = struct {
             }
         }
 
-        // Dev FPS/frametime readout, hidden by default. BT_SHOW_DEBUG enables
-        // it. (frameTime is still computed below for metrics.)
-        if (self.env.get("BT_SHOW_DEBUG") != null) {
-            const fpsX = @as(i32, @intFromFloat(self.width - 130));
+        // Dev FPS/frametime/entity readout, hidden by default. BT_SHOW_DEBUG
+        // or a -Dshow_debug build enables it. (frameTime is still computed
+        // below for metrics.)
+        if (self.env.get("BT_SHOW_DEBUG") != null or build_options.show_debug) {
+            const fpsX = @as(i32, @intFromFloat(self.width - 190));
             rl.drawFPS(fpsX, 10);
             text.draw(rl.textFormat("%.2f ms", .{rl.getFrameTime() * 1000.0}), fpsX, 30, 20, rl.Color.white);
+            text.draw(rl.textFormat("bees %d", .{@as(c_int, @intCast(@min(self.cachedBeeCount, std.math.maxInt(c_int))))}), fpsX, 52, 20, rl.Color.white);
+            text.draw(rl.textFormat("flowers %d", .{@as(c_int, @intCast(@min(self.cachedFlowerCount, std.math.maxInt(c_int))))}), fpsX, 74, 20, rl.Color.white);
         }
 
         if (self.plantMenu.open) try self.drawAndHandlePlantMenu();
@@ -981,6 +1062,11 @@ pub const Game = struct {
             const pink = theme.CatppuccinMocha.Color.pink;
             rl.drawRectangle(0, 0, @intFromFloat(self.width), @intFromFloat(self.height), rl.Color.init(pink.r, pink.g, pink.b, @intFromFloat(235 * t * t)));
         }
+
+        // Achievement banner: animates on the frame clock so it still plays
+        // out while the game is paused underneath it.
+        self.achievementToasts.update(clock.frameTime());
+        self.achievementToasts.draw(self.width);
 
         // Draw pause menu
         if (self.showPauseMenu) {
@@ -1128,6 +1214,9 @@ pub const Game = struct {
 
     fn doPrestige(self: *@This(), gain: u32) !void {
         self.prestige.resetRun(gain);
+        // Royal jelly alone can't recover the run count (sqrt-based), so
+        // prestiges are counted here.
+        self.stats.prestigeCount +|= 1;
         try self.resetRun();
         self.prestigeFlash = PRESTIGE_FLASH_TIME;
         self.audio.playPrestige();
@@ -1181,6 +1270,8 @@ pub const Game = struct {
     }
 
     /// Wipe everything, including prestige, and overwrite the save on disk.
+    /// Lifetime stats and achievements are profile-level (like Steam's) and
+    /// deliberately survive.
     fn startNewGame(self: *@This()) !void {
         self.prestige = .{};
         try self.resetRun();
@@ -1240,6 +1331,74 @@ pub const Game = struct {
         self.cachedFlowerCount = self.world.entityToFlowerGrowth.count();
         self.recountBeeTypes();
         self.floatingTexts.items.clearRetainingCapacity();
+        // The respawn above may merge random blocks; those aren't the player's.
+        _ = spawners.takeSuperMerges();
+        _ = bee_ai_system.takeRottenCleared();
+        self.hiveClickStreak = 0;
+        self.fullStorageSeconds = 0;
+        self.lastSpendCount = self.resources.spendCount;
+    }
+
+    // ---- achievements ------------------------------------------------------
+
+    /// Sample the rules' inputs and unlock whatever newly qualifies.
+    fn evaluateAchievements(self: *@This()) void {
+        var superAlive: u32 = 0;
+        var superTypes = [3]bool{ false, false, false };
+        var it = self.world.iterateFlowers();
+        while (it.next()) |entity| {
+            const growth = self.world.getFlowerGrowth(entity) orelse continue;
+            if (!growth.isSuper or growth.isRotten) continue;
+            superAlive += 1;
+            superTypes[@intFromEnum(growth.flowerType)] = true;
+        }
+        var beeTypes: [4]u32 = undefined;
+        for (self.cachedBeeTypeCounts, 0..) |n, i| beeTypes[i] = @intCast(@min(n, std.math.maxInt(u32)));
+
+        const snapshot = achievements.Snapshot{
+            .stats = self.stats,
+            .beesAlive = @intCast(@min(self.cachedBeeCount, std.math.maxInt(u32))),
+            .beeTypeCounts = beeTypes,
+            .superFlowersAlive = superAlive,
+            .superTypesAlive = superTypes,
+            .availableJelly = self.prestige.availableJelly(),
+            .largestPurchase = self.largestPurchase,
+            .allOneShotNodesOwned = self.upgradeTree.allOneShotsOwned(),
+            .gridRingLevel = self.upgradeTree.level(10),
+            .nightShiftLevel = self.upgradeTree.level(upgrade_tree.NIGHT_SHIFT_ID),
+            .hiveClickStreak = self.hiveClickStreak,
+            .fullStorageSeconds = self.fullStorageSeconds,
+        };
+        self.largestPurchase = 0;
+
+        var fresh: [achievements.COUNT]achievements.Id = undefined;
+        const unlocked = self.achievementTracker.evaluate(&snapshot, &fresh);
+        for (unlocked) |id| self.onAchievementUnlocked(id);
+        if (unlocked.len > 0) {
+            steam.pushStats(&self.stats);
+            // Rare and account-level: persist now rather than on the next autosave.
+            self.saveProgress() catch |err| std.debug.print("Could not save achievements: {}\n", .{err});
+        }
+    }
+
+    fn onAchievementUnlocked(self: *@This(), id: achievements.Id) void {
+        const d = achievements.def(id);
+        std.debug.print("[achievements] unlocked {s} ({s})\n", .{ d.api, d.name_en });
+        steam.unlockAchievement(d.api);
+        self.achievementToasts.push(id);
+        self.audio.playShopBuy();
+    }
+
+    /// Re-assert every locally unlocked achievement and the stat mirror.
+    /// Unlocks earned offline (or before the Steam build) land on the
+    /// profile the first time the game runs connected. SetAchievement is
+    /// idempotent, so this is safe on every launch.
+    fn syncAchievementsToSteam(self: *@This()) void {
+        if (!steam.isConnected()) return;
+        for (&achievements.DEFS) |*d| {
+            if (self.achievementTracker.isUnlocked(d.id)) steam.unlockAchievement(d.api);
+        }
+        steam.pushStats(&self.stats);
     }
 
     fn expandGrid(self: *@This()) !void {
@@ -1378,6 +1537,8 @@ pub const Game = struct {
             .prestige_unlocked = self.prestige.hasUnlockedPrestige,
             .jelly_spent = self.prestige.jellySpent,
             .aura_multiplier = self.labs.auraMul,
+            .stats = self.stats,
+            .achievements = self.achievementTracker.unlocked,
         };
         defer data.deinit(self.allocator);
         for (self.prestige.shopLevels, 0..) |lvl, i| data.shop_levels[i] = lvl;
@@ -1626,6 +1787,11 @@ pub const Game = struct {
         self.prestige.jellySpent = data.jelly_spent;
         for (&self.prestige.shopLevels, 0..) |*lvl, i| lvl.* = data.shop_levels[i];
         self.prestige.sanitize();
+        self.stats = data.stats;
+        self.achievementTracker.unlocked = data.achievements;
+        self.lastSpendCount = self.resources.spendCount;
+        self.hiveClickStreak = 0;
+        self.fullStorageSeconds = 0;
         spawners.beeCostMul = self.prestige.costMul();
         spawners.superFlowersUnlocked = self.upgradeTree.hasEffect(.super_flower_unlock);
         bee_ai_system.gardenerPlantChance = bee_ai_system.gardenerChanceForLevel(self.upgradeTree.level(upgrade_tree.GREEN_THUMB_ID));

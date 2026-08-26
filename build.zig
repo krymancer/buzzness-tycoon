@@ -27,8 +27,12 @@ pub fn build(b: *std.Build) void {
         const trimmed = std.mem.trim(u8, out, " \n\r\t");
         break :blk if (code == 0 and trimmed.len > 0) trimmed else "dev";
     };
+    // -Dshow_debug=true bakes the FPS/frametime/entity readout on (for perf
+    // builds handed to testers on Windows, where BT_SHOW_DEBUG is awkward).
+    const show_debug = b.option(bool, "show_debug", "Always show the FPS/frametime readout") orelse false;
     const build_options = b.addOptions();
     build_options.addOption([]const u8, "version", version);
+    build_options.addOption(bool, "show_debug", show_debug);
     const build_options_module = build_options.createModule();
 
     const exe = b.addExecutable(.{
@@ -113,4 +117,20 @@ pub fn build(b: *std.Build) void {
     const test_step = b.step("test", "Run unit tests");
     test_step.dependOn(&run_lib_unit_tests.step);
     test_step.dependOn(&run_exe_unit_tests.step);
+
+    // Steamworks entry sheet (docs/achievements.md) generated from
+    // src/achievements.zig so the partner-site data can't drift.
+    const sheet_tool = b.addExecutable(.{
+        .name = "achievement-sheet",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/achievement_sheet_tool.zig"),
+            .target = b.graph.host,
+            .optimize = .Debug,
+        }),
+    });
+    const run_sheet = b.addRunArtifact(sheet_tool);
+    run_sheet.setCwd(b.path("."));
+    run_sheet.has_side_effects = true;
+    const sheet_step = b.step("achievements-sheet", "Regenerate docs/achievements.md from src/achievements.zig");
+    sheet_step.dependOn(&run_sheet.step);
 }

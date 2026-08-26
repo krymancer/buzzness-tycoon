@@ -36,3 +36,6 @@ steam/output/
 # Steam session token (never commit)
 config.vdf
 .DS_Store
+
+# Steamworks dev-run marker (the redistributables live in steam/redist/)
+steam_appid.txt

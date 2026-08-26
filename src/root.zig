@@ -6,4 +6,5 @@ test {
     _ = @import("ecs/systems/bee_ai_system.zig");
     _ = @import("labs.zig");
     _ = @import("prestige.zig");
+    _ = @import("achievements.zig");
 }

@@ -261,6 +261,16 @@ pub const SUPER_SPRITE_SCALE: f32 = 4.0;
 /// game.zig keeps this in sync with the upgrade tree (purchase/load/prestige).
 pub var superFlowersUnlocked: bool = false;
 
+/// Merges since the game last drained it (achievements / lifetime stats).
+/// Merges come from several systems, so they are counted at the source.
+pub var superMergesPending: u32 = 0;
+
+pub fn takeSuperMerges() u32 {
+    const n = superMergesPending;
+    superMergesPending = 0;
+    return n;
+}
+
 /// Mark an existing flower entity as SUPER: double-size sprite and ownership
 /// of all four cells of the 2x2 block anchored at its grid position.
 pub fn applySuperForm(world: *World, entity: u32, anchorX: i32, anchorY: i32) void {
@@ -363,6 +373,7 @@ pub fn tryMergeSuperFlower(world: *World, gridX: i32, gridY: i32) !bool {
             try world.destroyEntity(entity);
         }
         applySuperForm(world, keeper, ax, ay);
+        superMergesPending += 1;
         return true;
     }
     return false;

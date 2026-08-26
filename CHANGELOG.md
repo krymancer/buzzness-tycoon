@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.3.0 — 2026-08-26
+
+### Achievements (Steam) — issue #53
+- **Lifetime stats layer** in the save file (`stat` lines): lifetime honey,
+  prestige count, SUPER flowers merged, rotten flowers cleared by gardeners,
+  max bees alive. Profile-level: survive prestige and New Game.
+- **21 achievements** (`src/achievements.zig`, EN + PT-BR copy): honey
+  milestones, super flowers, prestige, colony, upgrade tree, and three hidden
+  easter eggs. Unlocks persist in the save (`achievement` lines) and show an
+  in-game banner; `docs/achievements.md` is the generated Steamworks sheet.
+- **Steamworks binding at runtime** (`src/steam.zig`): loads
+  `libsteam_api.so` / `steam_api64.dll` next to the executable, mirrors the
+  stats and pushes unlocks; silent no-op without the library or Steam.
+- Dev: `just achievements` (staged save one step from several unlocks),
+  `just steam-dev`, `BT_STEAM=0`, `BT_RESET_ACHIEVEMENTS=1`,
+  `just achievement-icons` (renders the 64×64 icons from game sprites).
+
 ## 0.2.6 — 2026-08-24
 
 ### New upgrades
