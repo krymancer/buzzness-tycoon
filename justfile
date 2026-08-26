@@ -153,9 +153,11 @@ steam-dev:
     [ -f libsteam_api.so ] || echo "warning: libsteam_api.so not found in $(pwd); running with the local backend only"
     env {{dev_env}} zig build run
 
-# Regenerate docs/achievements.md (Steamworks entry sheet) from src/achievements.zig
+# Regenerate docs/achievements.md (Steamworks entry sheet) and the Steamworks
+# localization VDF/zip files (steam/achievements/loc/) from src/achievements.zig
 achievements-sheet:
     zig build achievements-sheet
+    python3 -c "import zipfile,os; [zipfile.ZipFile(f'steam/achievements/loc/{s}/4980570_loc_{l}.zip','w',zipfile.ZIP_DEFLATED).write(f'steam/achievements/loc/{s}/4980570_loc_{l}.vdf',f'4980570_loc_{l}.vdf') for s in ('api','index') for l in ('english','brazilian')]"
 
 # Regenerate the achievement icons (ImageMagick) into steam/achievements/icons/
 achievement-icons:

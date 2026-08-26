@@ -152,6 +152,34 @@ pub fn main(init: std.process.Init) !void {
 
     try std.Io.Dir.cwd().writeFile(init.io, .{ .sub_path = OUT_PATH, .data = w.buffered() });
     std.debug.print("wrote {s} ({d} achievements, {d} stats)\n", .{ OUT_PATH, achievements.COUNT, achievements.Stat.COUNT });
+
+    // Steamworks localization files (Stats & Achievements → Localization →
+    // Import). Tokens are "<API name>_NAME" / "_DESC"; the "index" variant
+    // keys them as NEW_ACHIEVEMENT_6_<n> for an app whose API names were
+    // left at the Steamworks defaults (same display order).
+    inline for (.{ "api", "index" }) |scheme| {
+        inline for (.{ .{ "english", true }, .{ "brazilian", false } }) |lang| {
+            var lbuf: [16 * 1024]u8 = undefined;
+            var lw = std.Io.Writer.fixed(&lbuf);
+            try lw.print("\"lang\"\n{{\n\t\"Language\"\t\"{s}\"\n\t\"Tokens\"\n\t{{\n", .{lang[0]});
+            for (&achievements.DEFS, 0..) |*d, i| {
+                var tbuf: [64]u8 = undefined;
+                const token = if (comptime std.mem.eql(u8, scheme, "api"))
+                    d.api
+                else
+                    try std.fmt.bufPrint(&tbuf, "NEW_ACHIEVEMENT_6_{d}", .{i});
+                const nm = if (lang[1]) d.name_en else d.name_pt;
+                const ds = if (lang[1]) d.desc_en else d.desc_pt;
+                try lw.print("\t\t\"{s}_NAME\"\t\"{s}\"\n\t\t\"{s}_DESC\"\t\"{s}\"\n", .{ token, nm, token, ds });
+            }
+            try lw.writeAll("\t}\n}\n");
+            var pbuf: [128]u8 = undefined;
+            const path = try std.fmt.bufPrint(&pbuf, "steam/achievements/loc/{s}/4980570_loc_{s}.vdf", .{ scheme, lang[0] });
+            try std.Io.Dir.cwd().createDirPath(init.io, "steam/achievements/loc/" ++ scheme);
+            try std.Io.Dir.cwd().writeFile(init.io, .{ .sub_path = path, .data = lw.buffered() });
+            std.debug.print("wrote {s}\n", .{path});
+        }
+    }
 }
 
 fn statMeaning(stat: achievements.Stat) []const u8 {

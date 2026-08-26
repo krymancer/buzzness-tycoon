@@ -33,27 +33,27 @@ listed) that draws the bar on the achievement page.
 
 | # | API name | Name (EN) | Name (PT-BR) | Description (EN) | Description (PT-BR) | Hidden | Progress |
 |---|---|---|---|---|---|---|---|
-| 1 | `first_drop` | First Drop | Primeira Gota | Earn 1,000 honey in total. | Ganhe 1.000 de mel ao todo. | no | `lifetime_honey` 0 → 1000 |
-| 2 | `super_bloom` | Super Bloom | Superflorada | Merge your first SUPER flower. | Funda sua primeira SUPERflor. | no | `super_flowers_merged` 0 → 1 |
-| 3 | `full_crew` | Full Crew | Equipe Completa | Own all four bee types at once. | Tenha os quatro tipos de abelha ao mesmo tempo. | no | — |
-| 4 | `local_business` | Local Business | Negócio Local | Earn 100,000 honey in total. | Ganhe 100.000 de mel ao todo. | no | `lifetime_honey` 0 → 100000 |
-| 5 | `hive_mind` | Hive Mind | Mente de Colmeia | Have 100 bees alive at once. | Tenha 100 abelhas vivas ao mesmo tempo. | no | `max_bees_alive` 0 → 100 |
-| 6 | `wholesale` | Wholesale | Atacado | Buy 100 bees in a single purchase. | Compre 100 abelhas de uma só vez. | no | — |
-| 7 | `long_live_the_queen` | Long Live the Queen | Vida Longa à Rainha | Prestige for the first time. | Faça prestígio pela primeira vez. | no | `prestige_count` 0 → 1 |
-| 8 | `liquid_gold` | Liquid Gold | Ouro Líquido | Earn 1,000,000 honey in total. | Ganhe 1.000.000 de mel ao todo. | no | `lifetime_honey` 0 → 1000000 |
-| 9 | `field_of_giants` | Field of Giants | Campo de Gigantes | Have 8 SUPER flowers alive at once. | Tenha 8 SUPERflores vivas ao mesmo tempo. | no | — |
-| 10 | `botanical_trifecta` | Botanical Trifecta | Trinca Botânica | Have a SUPER rose, SUPER tulip and SUPER dandelion alive at the same time. | Tenha uma SUPER rosa, uma SUPER tulipa e um SUPER dente-de-leão vivos ao mesmo tempo. | no | — |
-| 11 | `circle_of_life` | Circle of Life | Ciclo da Vida | Let your gardeners clear 50 rotten flowers. | Deixe suas jardineiras limparem 50 flores podres. | no | `rotten_cleared` 0 → 50 |
-| 12 | `land_baron` | Land Baron | Barão das Terras | Max out Grid Ring. | Leve o Anel da Grade ao nível máximo. | no | — |
-| 13 | `well_read` | Well Read | Sabe-Tudo | Purchase every one-shot node in the upgrade tree. | Compre todos os nós únicos da árvore de melhorias. | no | — |
-| 14 | `royal_treatment` | Royal Treatment | Tratamento Real | Hold 100 unspent Royal Jelly. | Acumule 100 de Geleia Real sem gastar. | no | — |
-| 15 | `dynasty` | Dynasty | Dinastia | Prestige 5 times. | Faça prestígio 5 vezes. | no | `prestige_count` 0 → 5 |
-| 16 | `perennial` | Perennial | Perene | Prestige 10 times. | Faça prestígio 10 vezes. | no | `prestige_count` 0 → 10 |
-| 17 | `bee_llionaire` | Bee-llionaire | Abelhionário | Earn 1,000,000,000 honey in total. | Ganhe 1 bilhão de mel ao todo. | no | `lifetime_honey` 0 → 1000000000 |
-| 18 | `swarm` | BZZZZZZZZZZZZZ | BZZZZZZZZZZZZZ | Have 1,000,000 bees alive at once. | Tenha 1.000.000 de abelhas vivas ao mesmo tempo. | no | `max_bees_alive` 0 → 1000000 |
-| 19 | `night_shift` | Night Shift | Turno da Noite | Max out Night Shift so the colony works through the whole night. | Leve o Turno da Noite ao máximo: a colônia trabalha a noite inteira. | **yes** | — |
-| 20 | `dont_poke_the_hive` | Don't Poke the Hive | Não Cutuque a Colmeia | Click the hive 20 times in a row. | Clique na colmeia 20 vezes seguidas. | **yes** | — |
-| 21 | `sticky_situation` | Sticky Situation | Situação Pegajosa | Sit at full honey storage for 60 seconds without spending. | Fique com o armazém de mel cheio por 60 segundos sem gastar nada. | **yes** | — |
+| 1 | `first_drop` | First Drop | Primeira Gota | Earn 1,000 honey in total | Ganhe 1.000 de mel ao todo | no | `lifetime_honey` 0 → 1000 |
+| 2 | `super_bloom` | Super Bloom | Superflorada | Merge your first SUPER flower | Funda sua primeira SUPERflor | no | `super_flowers_merged` 0 → 1 |
+| 3 | `full_crew` | Full Crew | Equipe Completa | Own all four bee types at once | Tenha os quatro tipos de abelha ao mesmo tempo | no | — |
+| 4 | `local_business` | Local Buzzness | Buzzness Local | Earn 100,000 honey in total | Ganhe 100.000 de mel ao todo | no | `lifetime_honey` 0 → 100000 |
+| 5 | `hive_mind` | Hive Mind | Mente de Colmeia | Have 100 bees alive at once | Tenha 100 abelhas vivas ao mesmo tempo | no | `max_bees_alive` 0 → 100 |
+| 6 | `wholesale` | Wholesale | Atacado | Buy 100 bees in a single purchase | Compre 100 abelhas de uma só vez | no | — |
+| 7 | `long_live_the_queen` | Long Live the Queen | Vida Longa à Rainha | Prestige for the first time | Faça prestígio pela primeira vez | no | `prestige_count` 0 → 1 |
+| 8 | `liquid_gold` | Liquid Gold | Ouro Líquido | Earn 1,000,000 honey in total | Ganhe 1.000.000 de mel ao todo | no | `lifetime_honey` 0 → 1000000 |
+| 9 | `field_of_giants` | Field of Giants | Campo de Gigantes | Have 8 SUPER flowers alive at once | Tenha 8 SUPERflores vivas ao mesmo tempo | no | — |
+| 10 | `botanical_trifecta` | Botanical Trifecta | Trinca Botânica | Have a SUPER rose, SUPER tulip and SUPER dandelion alive at the same time | Tenha uma SUPER rosa, uma SUPER tulipa e um SUPER dente-de-leão vivos ao mesmo tempo | no | — |
+| 11 | `circle_of_life` | Circle of Life | Ciclo da Vida | Let your gardeners clear 50 rotten flowers | Deixe suas jardineiras limparem 50 flores podres | no | `rotten_cleared` 0 → 50 |
+| 12 | `land_baron` | Land Baron | Barão das Terras | Max out Grid Ring | Leve o Anel da Grade ao nível máximo | no | — |
+| 13 | `well_read` | Well Read | Sabe-Tudo | Purchase every one-shot node in the upgrade tree | Compre todos os nós únicos da árvore de melhorias | no | — |
+| 14 | `royal_treatment` | Royal Treatment | Tratamento Real | Hold 100 unspent Royal Jelly | Acumule 100 de Geleia Real sem gastar | no | — |
+| 15 | `dynasty` | Dynasty | Dinastia | Prestige 5 times | Faça prestígio 5 vezes | no | `prestige_count` 0 → 5 |
+| 16 | `perennial` | Perennial | Perene | Prestige 10 times | Faça prestígio 10 vezes | no | `prestige_count` 0 → 10 |
+| 17 | `bee_llionaire` | Bee-llionaire | Abelhionário | Earn 1,000,000,000 honey in total | Ganhe 1 bilhão de mel ao todo | no | `lifetime_honey` 0 → 1000000000 |
+| 18 | `swarm` | BZZZZZZZZZZZZZ | BZZZZZZZZZZZZZ | Have 1,000,000 bees alive at once | Tenha 1.000.000 de abelhas vivas ao mesmo tempo | no | `max_bees_alive` 0 → 1000000 |
+| 19 | `night_shift` | Night Shift | Turno da Noite | Max out Night Shift so the colony works through the whole night | Leve o Turno da Noite ao máximo: a colônia trabalha a noite inteira | **yes** | — |
+| 20 | `dont_poke_the_hive` | Don't Poke the Hive | Não Cutuque a Colmeia | Click the hive 20 times in a row | Clique na colmeia 20 vezes seguidas | **yes** | — |
+| 21 | `sticky_situation` | Sticky Situation | Situação Pegajosa | Sit at full honey storage for 60 seconds without spending | Fique com o armazém de mel cheio por 60 segundos sem gastar nada | **yes** | — |
 
 ### Copy/paste blocks (one per Steamworks achievement form)
 
@@ -62,9 +62,9 @@ Language dropdown on the form: *English* first, then *Add language → Portugues
 ```
 API name:             first_drop
 Display name (EN):    First Drop
-Description (EN):     Earn 1,000 honey in total.
+Description (EN):     Earn 1,000 honey in total
 Display name (PT-BR): Primeira Gota
-Description (PT-BR):  Ganhe 1.000 de mel ao todo.
+Description (PT-BR):  Ganhe 1.000 de mel ao todo
 Hidden:               no
 Progress stat:        lifetime_honey, min 0, max 1000
 Achieved icon:        steam/achievements/icons/unlocked/first_drop.png
@@ -75,9 +75,9 @@ Unachieved icon:      steam/achievements/icons/locked/first_drop.png
 ```
 API name:             super_bloom
 Display name (EN):    Super Bloom
-Description (EN):     Merge your first SUPER flower.
+Description (EN):     Merge your first SUPER flower
 Display name (PT-BR): Superflorada
-Description (PT-BR):  Funda sua primeira SUPERflor.
+Description (PT-BR):  Funda sua primeira SUPERflor
 Hidden:               no
 Progress stat:        super_flowers_merged, min 0, max 1
 Achieved icon:        steam/achievements/icons/unlocked/super_bloom.png
@@ -88,9 +88,9 @@ Unachieved icon:      steam/achievements/icons/locked/super_bloom.png
 ```
 API name:             full_crew
 Display name (EN):    Full Crew
-Description (EN):     Own all four bee types at once.
+Description (EN):     Own all four bee types at once
 Display name (PT-BR): Equipe Completa
-Description (PT-BR):  Tenha os quatro tipos de abelha ao mesmo tempo.
+Description (PT-BR):  Tenha os quatro tipos de abelha ao mesmo tempo
 Hidden:               no
 Progress stat:        none
 Achieved icon:        steam/achievements/icons/unlocked/full_crew.png
@@ -100,10 +100,10 @@ Unachieved icon:      steam/achievements/icons/locked/full_crew.png
 **4. `local_business`**
 ```
 API name:             local_business
-Display name (EN):    Local Business
-Description (EN):     Earn 100,000 honey in total.
-Display name (PT-BR): Negócio Local
-Description (PT-BR):  Ganhe 100.000 de mel ao todo.
+Display name (EN):    Local Buzzness
+Description (EN):     Earn 100,000 honey in total
+Display name (PT-BR): Buzzness Local
+Description (PT-BR):  Ganhe 100.000 de mel ao todo
 Hidden:               no
 Progress stat:        lifetime_honey, min 0, max 100000
 Achieved icon:        steam/achievements/icons/unlocked/local_business.png
@@ -114,9 +114,9 @@ Unachieved icon:      steam/achievements/icons/locked/local_business.png
 ```
 API name:             hive_mind
 Display name (EN):    Hive Mind
-Description (EN):     Have 100 bees alive at once.
+Description (EN):     Have 100 bees alive at once
 Display name (PT-BR): Mente de Colmeia
-Description (PT-BR):  Tenha 100 abelhas vivas ao mesmo tempo.
+Description (PT-BR):  Tenha 100 abelhas vivas ao mesmo tempo
 Hidden:               no
 Progress stat:        max_bees_alive, min 0, max 100
 Achieved icon:        steam/achievements/icons/unlocked/hive_mind.png
@@ -127,9 +127,9 @@ Unachieved icon:      steam/achievements/icons/locked/hive_mind.png
 ```
 API name:             wholesale
 Display name (EN):    Wholesale
-Description (EN):     Buy 100 bees in a single purchase.
+Description (EN):     Buy 100 bees in a single purchase
 Display name (PT-BR): Atacado
-Description (PT-BR):  Compre 100 abelhas de uma só vez.
+Description (PT-BR):  Compre 100 abelhas de uma só vez
 Hidden:               no
 Progress stat:        none
 Achieved icon:        steam/achievements/icons/unlocked/wholesale.png
@@ -140,9 +140,9 @@ Unachieved icon:      steam/achievements/icons/locked/wholesale.png
 ```
 API name:             long_live_the_queen
 Display name (EN):    Long Live the Queen
-Description (EN):     Prestige for the first time.
+Description (EN):     Prestige for the first time
 Display name (PT-BR): Vida Longa à Rainha
-Description (PT-BR):  Faça prestígio pela primeira vez.
+Description (PT-BR):  Faça prestígio pela primeira vez
 Hidden:               no
 Progress stat:        prestige_count, min 0, max 1
 Achieved icon:        steam/achievements/icons/unlocked/long_live_the_queen.png
@@ -153,9 +153,9 @@ Unachieved icon:      steam/achievements/icons/locked/long_live_the_queen.png
 ```
 API name:             liquid_gold
 Display name (EN):    Liquid Gold
-Description (EN):     Earn 1,000,000 honey in total.
+Description (EN):     Earn 1,000,000 honey in total
 Display name (PT-BR): Ouro Líquido
-Description (PT-BR):  Ganhe 1.000.000 de mel ao todo.
+Description (PT-BR):  Ganhe 1.000.000 de mel ao todo
 Hidden:               no
 Progress stat:        lifetime_honey, min 0, max 1000000
 Achieved icon:        steam/achievements/icons/unlocked/liquid_gold.png
@@ -166,9 +166,9 @@ Unachieved icon:      steam/achievements/icons/locked/liquid_gold.png
 ```
 API name:             field_of_giants
 Display name (EN):    Field of Giants
-Description (EN):     Have 8 SUPER flowers alive at once.
+Description (EN):     Have 8 SUPER flowers alive at once
 Display name (PT-BR): Campo de Gigantes
-Description (PT-BR):  Tenha 8 SUPERflores vivas ao mesmo tempo.
+Description (PT-BR):  Tenha 8 SUPERflores vivas ao mesmo tempo
 Hidden:               no
 Progress stat:        none
 Achieved icon:        steam/achievements/icons/unlocked/field_of_giants.png
@@ -179,9 +179,9 @@ Unachieved icon:      steam/achievements/icons/locked/field_of_giants.png
 ```
 API name:             botanical_trifecta
 Display name (EN):    Botanical Trifecta
-Description (EN):     Have a SUPER rose, SUPER tulip and SUPER dandelion alive at the same time.
+Description (EN):     Have a SUPER rose, SUPER tulip and SUPER dandelion alive at the same time
 Display name (PT-BR): Trinca Botânica
-Description (PT-BR):  Tenha uma SUPER rosa, uma SUPER tulipa e um SUPER dente-de-leão vivos ao mesmo tempo.
+Description (PT-BR):  Tenha uma SUPER rosa, uma SUPER tulipa e um SUPER dente-de-leão vivos ao mesmo tempo
 Hidden:               no
 Progress stat:        none
 Achieved icon:        steam/achievements/icons/unlocked/botanical_trifecta.png
@@ -192,9 +192,9 @@ Unachieved icon:      steam/achievements/icons/locked/botanical_trifecta.png
 ```
 API name:             circle_of_life
 Display name (EN):    Circle of Life
-Description (EN):     Let your gardeners clear 50 rotten flowers.
+Description (EN):     Let your gardeners clear 50 rotten flowers
 Display name (PT-BR): Ciclo da Vida
-Description (PT-BR):  Deixe suas jardineiras limparem 50 flores podres.
+Description (PT-BR):  Deixe suas jardineiras limparem 50 flores podres
 Hidden:               no
 Progress stat:        rotten_cleared, min 0, max 50
 Achieved icon:        steam/achievements/icons/unlocked/circle_of_life.png
@@ -205,9 +205,9 @@ Unachieved icon:      steam/achievements/icons/locked/circle_of_life.png
 ```
 API name:             land_baron
 Display name (EN):    Land Baron
-Description (EN):     Max out Grid Ring.
+Description (EN):     Max out Grid Ring
 Display name (PT-BR): Barão das Terras
-Description (PT-BR):  Leve o Anel da Grade ao nível máximo.
+Description (PT-BR):  Leve o Anel da Grade ao nível máximo
 Hidden:               no
 Progress stat:        none
 Achieved icon:        steam/achievements/icons/unlocked/land_baron.png
@@ -218,9 +218,9 @@ Unachieved icon:      steam/achievements/icons/locked/land_baron.png
 ```
 API name:             well_read
 Display name (EN):    Well Read
-Description (EN):     Purchase every one-shot node in the upgrade tree.
+Description (EN):     Purchase every one-shot node in the upgrade tree
 Display name (PT-BR): Sabe-Tudo
-Description (PT-BR):  Compre todos os nós únicos da árvore de melhorias.
+Description (PT-BR):  Compre todos os nós únicos da árvore de melhorias
 Hidden:               no
 Progress stat:        none
 Achieved icon:        steam/achievements/icons/unlocked/well_read.png
@@ -231,9 +231,9 @@ Unachieved icon:      steam/achievements/icons/locked/well_read.png
 ```
 API name:             royal_treatment
 Display name (EN):    Royal Treatment
-Description (EN):     Hold 100 unspent Royal Jelly.
+Description (EN):     Hold 100 unspent Royal Jelly
 Display name (PT-BR): Tratamento Real
-Description (PT-BR):  Acumule 100 de Geleia Real sem gastar.
+Description (PT-BR):  Acumule 100 de Geleia Real sem gastar
 Hidden:               no
 Progress stat:        none
 Achieved icon:        steam/achievements/icons/unlocked/royal_treatment.png
@@ -244,9 +244,9 @@ Unachieved icon:      steam/achievements/icons/locked/royal_treatment.png
 ```
 API name:             dynasty
 Display name (EN):    Dynasty
-Description (EN):     Prestige 5 times.
+Description (EN):     Prestige 5 times
 Display name (PT-BR): Dinastia
-Description (PT-BR):  Faça prestígio 5 vezes.
+Description (PT-BR):  Faça prestígio 5 vezes
 Hidden:               no
 Progress stat:        prestige_count, min 0, max 5
 Achieved icon:        steam/achievements/icons/unlocked/dynasty.png
@@ -257,9 +257,9 @@ Unachieved icon:      steam/achievements/icons/locked/dynasty.png
 ```
 API name:             perennial
 Display name (EN):    Perennial
-Description (EN):     Prestige 10 times.
+Description (EN):     Prestige 10 times
 Display name (PT-BR): Perene
-Description (PT-BR):  Faça prestígio 10 vezes.
+Description (PT-BR):  Faça prestígio 10 vezes
 Hidden:               no
 Progress stat:        prestige_count, min 0, max 10
 Achieved icon:        steam/achievements/icons/unlocked/perennial.png
@@ -270,9 +270,9 @@ Unachieved icon:      steam/achievements/icons/locked/perennial.png
 ```
 API name:             bee_llionaire
 Display name (EN):    Bee-llionaire
-Description (EN):     Earn 1,000,000,000 honey in total.
+Description (EN):     Earn 1,000,000,000 honey in total
 Display name (PT-BR): Abelhionário
-Description (PT-BR):  Ganhe 1 bilhão de mel ao todo.
+Description (PT-BR):  Ganhe 1 bilhão de mel ao todo
 Hidden:               no
 Progress stat:        lifetime_honey, min 0, max 1000000000
 Achieved icon:        steam/achievements/icons/unlocked/bee_llionaire.png
@@ -283,9 +283,9 @@ Unachieved icon:      steam/achievements/icons/locked/bee_llionaire.png
 ```
 API name:             swarm
 Display name (EN):    BZZZZZZZZZZZZZ
-Description (EN):     Have 1,000,000 bees alive at once.
+Description (EN):     Have 1,000,000 bees alive at once
 Display name (PT-BR): BZZZZZZZZZZZZZ
-Description (PT-BR):  Tenha 1.000.000 de abelhas vivas ao mesmo tempo.
+Description (PT-BR):  Tenha 1.000.000 de abelhas vivas ao mesmo tempo
 Hidden:               no
 Progress stat:        max_bees_alive, min 0, max 1000000
 Achieved icon:        steam/achievements/icons/unlocked/swarm.png
@@ -296,9 +296,9 @@ Unachieved icon:      steam/achievements/icons/locked/swarm.png
 ```
 API name:             night_shift
 Display name (EN):    Night Shift
-Description (EN):     Max out Night Shift so the colony works through the whole night.
+Description (EN):     Max out Night Shift so the colony works through the whole night
 Display name (PT-BR): Turno da Noite
-Description (PT-BR):  Leve o Turno da Noite ao máximo: a colônia trabalha a noite inteira.
+Description (PT-BR):  Leve o Turno da Noite ao máximo: a colônia trabalha a noite inteira
 Hidden:               yes
 Progress stat:        none
 Achieved icon:        steam/achievements/icons/unlocked/night_shift.png
@@ -309,9 +309,9 @@ Unachieved icon:      steam/achievements/icons/locked/night_shift.png
 ```
 API name:             dont_poke_the_hive
 Display name (EN):    Don't Poke the Hive
-Description (EN):     Click the hive 20 times in a row.
+Description (EN):     Click the hive 20 times in a row
 Display name (PT-BR): Não Cutuque a Colmeia
-Description (PT-BR):  Clique na colmeia 20 vezes seguidas.
+Description (PT-BR):  Clique na colmeia 20 vezes seguidas
 Hidden:               yes
 Progress stat:        none
 Achieved icon:        steam/achievements/icons/unlocked/dont_poke_the_hive.png
@@ -322,9 +322,9 @@ Unachieved icon:      steam/achievements/icons/locked/dont_poke_the_hive.png
 ```
 API name:             sticky_situation
 Display name (EN):    Sticky Situation
-Description (EN):     Sit at full honey storage for 60 seconds without spending.
+Description (EN):     Sit at full honey storage for 60 seconds without spending
 Display name (PT-BR): Situação Pegajosa
-Description (PT-BR):  Fique com o armazém de mel cheio por 60 segundos sem gastar nada.
+Description (PT-BR):  Fique com o armazém de mel cheio por 60 segundos sem gastar nada
 Hidden:               yes
 Progress stat:        none
 Achieved icon:        steam/achievements/icons/unlocked/sticky_situation.png
