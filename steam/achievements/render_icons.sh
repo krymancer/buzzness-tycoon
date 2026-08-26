@@ -24,6 +24,15 @@ done
 cp sprites/bee.png sprites/beehive.png sprites/grass-cube.png "$WORK/"
 cp sprites/ui/cursor.png "$WORK/cursor.png"
 
+# Hand-drawn crown / royal jelly sprites (sprites/crown.png, sprites/royal_jelly.png,
+# 32x32 like the rest) replace the procedurally drawn fallbacks below when present.
+crown_asset() { # W  -> path of a scaled crown sprite, or "" to use the fallback
+  [ -f sprites/crown.png ] && sprite sprites/crown.png "$(($1 * 100 / 32))" || echo ""
+}
+jelly_asset() {
+  [ -f sprites/royal_jelly.png ] && sprite sprites/royal_jelly.png "$(($1 * 100 / 32))" || echo ""
+}
+
 # tint SRC COLOR OUT — multiply the sprite by a colour, keeping its alpha
 # (how the game tints the bee sprite per bee type).
 tint() {
@@ -44,8 +53,9 @@ sprite() {
   key="$(basename "$file" .png)_$scale"
   local out="$WORK/sp_$key.png"
   if [ ! -f "$out" ]; then
+    # Hard offset shadow (no blur) so it stays pixel-crisp.
     magick "$file" -filter point -resize "$scale%" \
-      \( +clone -background "$INK" -shadow 55x5+0+7 \) +swap -background none -layers merge +repage "$out"
+      \( +clone -fill "$INK" -colorize 100 -channel A -evaluate multiply 0.45 +channel -repage +6+6 \) +swap -background none -layers merge +repage "$out"
   fi
   echo "$out"
 }
@@ -65,6 +75,8 @@ label_png() {
 crown_png() {
   local w=$1 color=$2 gem=$3
   local out="$WORK/crown_$w.png"
+  local asset; asset="$(crown_asset "$w")"
+  if [ -n "$asset" ]; then echo "$asset"; return; fi
   local h=$((w * 8 / 10)) cx=$((w / 2))
   local cy=$((w * 8 / 20))
   local left=0 right=$w
@@ -79,7 +91,7 @@ crown_png() {
     -draw "circle $((left + gemR * 4 / 10)),$tipY $((left + gemR * 4 / 10 + gemR)),$tipY" \
     -draw "circle $cx,$midTipY $((cx + gemR * 12 / 10)),$midTipY" \
     -draw "circle $((right - gemR * 4 / 10)),$tipY $((right - gemR * 4 / 10 + gemR)),$tipY" \
-    \( +clone -background "$INK" -shadow 55x5+0+7 \) +swap -background none -layers merge +repage "$out"
+    "$out"
   echo "$out"
 }
 
@@ -87,31 +99,30 @@ crown_png() {
 drop_png() {
   local w=$1 color=$2
   local out="$WORK/drop_${w}_$(echo "$color" | tr -d '#').png"
+  local asset; asset="$(jelly_asset "$w")"
+  if [ -n "$asset" ]; then echo "$asset"; return; fi
   local r=$((w * 36 / 100)) cx=$((w / 2)) cy=$((w * 62 / 100))
   magick -size "${w}x${w}" xc:none -fill "$color" \
     -draw "polygon $cx,$((cy - r - r * 8 / 10)) $((cx - r * 72 / 100)),$((cy - r / 2)) $((cx + r * 72 / 100)),$((cy - r / 2))" \
     -draw "circle $cx,$cy $((cx + r)),$cy" \
     -fill 'rgba(255,250,220,0.75)' -draw "circle $((cx - r * 35 / 100)),$((cy - r * 35 / 100)) $((cx - r * 35 / 100 + r * 22 / 100)),$((cy - r * 35 / 100))" \
-    \( +clone -background "$INK" -shadow 55x5+0+7 \) +swap -background none -layers merge +repage "$out"
+    "$out"
   echo "$out"
 }
 
-# icon NAME TOP BOTTOM [composite ops...] — 256x256 radial background with a
-# vignette, then whatever layers follow, saved as the 256 master.
+# icon NAME COLOR [composite ops...] — flat solid background, then whatever
+# layers follow, saved as the 256 master.
 icon() {
-  local name=$1 top=$2 bot=$3; shift 3
-  magick -size 256x256 radial-gradient:"$top-$bot" \
-    \( -size 256x256 radial-gradient:'rgba(0,0,0,0)-rgba(40,20,0,0.55)' \) -compose over -composite \
-    "$@" \
-    "$OUT/256/$name.png"
+  local name=$1 color=$2; shift 2
+  magick -size 256x256 xc:"$color" "$@" "$OUT/256/$name.png"
 }
 
-# Backgrounds (top → edge) per family.
-BRONZE='#f2cdcd-#b5651d'; HONEY='#ffe79c-#e08a22'; GOLD='#fff6c2-#e5a800'; DIAMOND='#e8f7ff-#5aa9dc'
-MEADOW='#dff5cf-#4f9a4a'; ROYAL='#f9d6ee-#b03a8c'; SKY='#dbe9ff-#3f6fc4'; SEA='#c9f2ea-#2a8a7a'
-GRAPE='#e2d3ff-#6a3fb0'; EMBER='#ffd9a0-#8a3a00'; NIGHT='#3a3270-#0c0c1e'; ALARM='#ffc4d2-#8a1f3d'
+# Solid background per family.
+BRONZE='#c98a5a'; HONEY='#f6bd45'; GOLD='#f2c744'; DIAMOND='#8fd0f0'
+MEADOW='#8fce7c'; ROYAL='#e39ad0'; SKY='#89b4fa'; SEA='#7fd6c6'
+GRAPE='#b48ef0'; EMBER='#d8843a'; NIGHT='#1c1a3c'; ALARM='#e87a95'
 
-bg() { echo "${1%-*}" "${1#*-}"; }
+bg() { echo "$1"; }
 
 # ---- honey milestones ---------------------------------------------------------
 icon first_drop     $(bg "$BRONZE") \( "$(sprite "$WORK/beehive.png" 460)" \) -gravity center -geometry +0-30 -composite \( "$(label_png 1K 64)" \) -gravity south -geometry +0+10 -composite
@@ -183,7 +194,7 @@ icon land_baron $(bg "$SKY") \
 # ---- hidden easter eggs -------------------------------------------------------
 # Night Shift: bee under the moon and stars.
 icon night_shift $(bg "$NIGHT") \
-  -fill '#f5f0d8' -draw "circle 196,58 196,88" -fill '#3a3270' -draw "circle 210,50 210,76" \
+  -fill '#f5f0d8' -draw "circle 196,58 196,88" -fill "$NIGHT" -draw "circle 210,50 210,76" \
   -fill white -draw "circle 40,44 40,47" -draw "circle 90,30 90,32" -draw "circle 60,110 60,112" -draw "circle 150,100 150,102" -draw "circle 220,150 220,152" -draw "circle 30,170 30,172" \
   \( "$(sprite "$WORK/bee.png" 520)" \) -gravity center -geometry +0+24 -composite
 # Don't Poke the Hive: the cursor jabbing the hive.
