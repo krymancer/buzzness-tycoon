@@ -65,10 +65,13 @@ const Lib = struct {
     }
 };
 
+/// Shipped builds keep the library next to the executable (Steam launches
+/// with the install dir as cwd); dev runs from the repo root find it in
+/// steam/redist/ (the SDK's redistributable_bin, committed for CI).
 const LIB_NAMES: []const [:0]const u8 = switch (builtin.os.tag) {
-    .windows => &.{"steam_api64.dll"},
-    .macos => &.{ "./libsteam_api.dylib", "libsteam_api.dylib" },
-    else => &.{ "./libsteam_api.so", "libsteam_api.so" },
+    .windows => &.{ "steam_api64.dll", "steam\\redist\\win64\\steam_api64.dll" },
+    .macos => &.{ "./libsteam_api.dylib", "steam/redist/osx/libsteam_api.dylib" },
+    else => &.{ "./libsteam_api.so", "steam/redist/linux64/libsteam_api.so" },
 };
 
 var lib: ?Lib = null;

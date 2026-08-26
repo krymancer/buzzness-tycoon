@@ -37,8 +37,5 @@ steam/output/
 config.vdf
 .DS_Store
 
-# Steamworks dev-run bits (SDK redistributables are not ours to commit)
+# Steamworks dev-run marker (the redistributables live in steam/redist/)
 steam_appid.txt
-libsteam_api.so
-libsteam_api.dylib
-steam_api64.dll

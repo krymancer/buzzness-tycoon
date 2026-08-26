@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.3.0 — 2026-08-26
 
 ### Achievements (Steam) — issue #53
 - **Lifetime stats layer** in the save file (`stat` lines): lifetime honey,

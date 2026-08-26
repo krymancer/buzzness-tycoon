@@ -144,13 +144,13 @@ achievements:
     EOF
     env {{dev_env}} BT_SAVE_PATH="$save" BT_RESET_ACHIEVEMENTS=1 zig build run
 
-# Windowed run against the real Steam client: needs libsteam_api.so (from the
-# Steamworks SDK redistributable_bin/linux64) in the repo root and Steam running
+# Windowed run against the real Steam client: needs the Steamworks SDK's
+# redistributable_bin copied to steam/redist/ and Steam running
 steam-dev:
     #!/usr/bin/env bash
     set -euo pipefail
     echo 4980570 > steam_appid.txt
-    [ -f libsteam_api.so ] || echo "warning: libsteam_api.so not found in $(pwd); running with the local backend only"
+    [ -f steam/redist/linux64/libsteam_api.so ] || echo "warning: steam/redist/linux64/libsteam_api.so not found; running with the local backend only"
     env {{dev_env}} zig build run
 
 # Regenerate docs/achievements.md (Steamworks entry sheet) and the Steamworks

@@ -134,9 +134,8 @@ pub fn main(init: std.process.Init) !void {
         \\   definitions are invisible to the API — `SetAchievement` returns
         \\   false).
         \\2. Download the Steamworks SDK from the partner site and copy
-        \\   `redistributable_bin/linux64/libsteam_api.so` (and
-        \\   `win64/steam_api64.dll` for the Windows depot) into the repo root.
-        \\   Both are gitignored.
+        \\   `redistributable_bin/{linux64,win64,osx}` into `steam/redist/`
+        \\   (committed: the release workflow bundles them next to each binary).
         \\3. Run the Steam client logged into an account that owns the app
         \\   (developer accounts do), then `just steam-dev` — it writes
         \\   `steam_appid.txt` and launches windowed. Expect
@@ -145,8 +144,9 @@ pub fn main(init: std.process.Init) !void {
         \\   on the profile. `BT_RESET_ACHIEVEMENTS=1 just steam-dev` clears the
         \\   profile's achievements + stats through `ResetAllStats` to retest.
         \\
-        \\`steam/stage.sh` copies the redistributables into the depot when
-        \\present; the shipped build then loads them from its own folder.
+        \\Release builds (`build.yml`) and `steam/stage.sh` bundle
+        \\`steam/redist/*` next to the binaries; the shipped game loads the
+        \\library from its own folder and silently stays local-only if it's absent.
         \\
     );
 
