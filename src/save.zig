@@ -5,14 +5,18 @@ pub const VERSION: u32 = 1;
 pub const MAX_UPGRADES: usize = 64;
 pub const MAX_SHOP_ITEMS: usize = 16;
 pub const MAX_FLOWERS: usize = 100_000;
-pub const MAX_BEES_PER_TYPE: u32 = 100_000;
-pub const MAX_BEES: usize = 4 * @as(usize, MAX_BEES_PER_TYPE);
+/// Colony ceiling per bee type. The colony is bookkeeping past the
+/// simulation cap (bees.SIM_CAP), so this is bounded by the u32 counters,
+/// not by frame time.
+pub const MAX_BEES_PER_TYPE: u32 = 1_000_000_000;
+pub const MAX_BEES: u64 = 4 * @as(u64, MAX_BEES_PER_TYPE);
 pub const MAX_BEE_CELLS: usize = 131_072;
 
-/// Bees aggregated per grid cell (type + tile + count). Tile coordinates are
-/// invariant to the camera pan/zoom and window size at save time, and the
-/// line count is bounded by occupied cells — a colony of any size stays a
-/// few KB in the save.
+/// Simulated bees aggregated per grid cell (type + tile + count). Tile
+/// coordinates are invariant to the camera pan/zoom and window size at save
+/// time, and the line count is bounded by occupied cells — a colony of any
+/// size stays a few KB in the save. Dormant bees have no position; the
+/// `bees` count lines carry the full colony.
 pub const BeeCell = struct {
     bee_type: u8,
     x: i32,

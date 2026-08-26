@@ -414,7 +414,7 @@ fn drawNodeIcon(ctx: TreeContext, node: *const upgrade_tree.Node, cx: f32, cy: f
                 if (unlocked) accent else dim,
             );
         },
-        .gardener_chance, .gardener_compost, .gardener_sweep, .growth_cd_sub, .growth_boost_unlock, .flower_growth_mul, .rot_chance_sub => icons.drawSprout(cx, cy + 7 * s, 14 * s, if (unlocked) C.green else dim),
+        .gardener_chance, .gardener_compost, .gardener_sow, .growth_cd_sub, .growth_boost_unlock, .flower_growth_mul, .rot_chance_sub => icons.drawSprout(cx, cy + 7 * s, 14 * s, if (unlocked) C.green else dim),
         .grid_expand => {
             // Isometric tile diamond (both windings so culling can't hide it).
             const col = if (unlocked) C.lavender else dim;

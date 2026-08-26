@@ -79,6 +79,39 @@ at phase:
 scratch path="/tmp/bt_scratch_save.txt":
     {{dev_env}} BT_SAVE_PATH={{path}} zig build run
 
+# Windowed run on a staged swarm save: N bees (default 1M) on a 41x41
+# meadow, FPS readout on, honey to keep buying. Issue #59 reproduction.
+swarm bees="1000000":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    save=/tmp/bt_swarm_save.txt
+    cat > "$save" <<EOF
+    BUZZNESS_TYCOON 1
+    resources 500000000 1000000000 1 0 0 10 1
+    hive 32 20
+    grid 41 41
+    prestige 120000 0 1
+    labs 1 0 0 0
+    upgrade 19
+    upgrade 4
+    upgrade 5
+    upgrade 6
+    level 10 12
+    upgrade 32
+    level 32 4
+    shop 5 4
+    bees 0 $(( {{bees}} * 85 / 100 ))
+    bees 1 $(( {{bees}} * 5 / 100 ))
+    bees 2 $(( {{bees}} * 5 / 100 ))
+    bees 3 $(( {{bees}} * 5 / 100 ))
+    END
+    EOF
+    env {{dev_env}} BT_SAVE_PATH="$save" BT_SHOW_DEBUG=1 zig build run -Doptimize=ReleaseFast
+
+# Headless simulation benchmark (no window): bees, grid side, frames
+sim-bench bees="1000000" grid="41" frames="600":
+    zig build bench -Doptimize=ReleaseFast -- {{bees}} {{grid}} {{frames}}
+
 # Windowed run on a staged late-game save (prestige unlocked, jelly to spend, bulk buy maxed)
 late-game:
     #!/usr/bin/env bash

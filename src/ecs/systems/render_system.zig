@@ -6,6 +6,7 @@ const theme = @import("../../theme.zig");
 const clock = @import("../../clock.zig");
 const ui_scale = @import("../../ui_scale.zig");
 const input = @import("../../input.zig");
+const grid_mod = @import("../../grid.zig");
 
 const FlowerRenderData = struct {
     entity: u32,
@@ -59,12 +60,16 @@ const MAX_BEES: usize = 32768;
 const BeeRenderData = struct {
     x: f32,
     y: f32,
-    scale: f32,
     carryingPollen: bool,
     color: rl.Color,
 };
 var beeRenderList: [MAX_BEES]BeeRenderData = undefined;
 var beeRenderCount: usize = 0;
+
+// Flower draw list, sized for the largest meadow so nothing past the first
+// few hundred flowers silently goes undrawn on big grids.
+const MAX_FLOWERS: usize = grid_mod.MAX_WIDTH * grid_mod.MAX_WIDTH;
+var flowerList: [MAX_FLOWERS]FlowerRenderData = undefined;
 
 var cachedScreenWidth: f32 = 0;
 var cachedScreenHeight: f32 = 0;
@@ -82,9 +87,6 @@ const BeehiveCache = struct {
     scale: f32,
 };
 var cachedBeehive: ?BeehiveCache = null;
-
-// Shared bee texture — one per session.
-var cachedBeeTexture: ?rl.Texture = null;
 
 // Soft-disc textures for ground shadows and pollen glows (lazily created).
 // Shadows/glows used to be immediate-mode triangle fans (DrawEllipse is 108
@@ -111,11 +113,10 @@ fn discTexture(slot: *?rl.Texture, density: f32) ?rl.Texture {
 
 pub fn resetCaches() void {
     cachedBeehive = null;
-    cachedBeeTexture = null;
     beeRenderCount = 0;
 }
 
-pub fn draw(world: *World, gridOffset: rl.Vector2, gridScale: f32, worldTint: rl.Color, auraLevel: u16, auraReach: f32) !void {
+pub fn draw(world: *World, gridOffset: rl.Vector2, gridScale: f32, worldTint: rl.Color, auraLevel: u16, auraReach: f32, beeTexture: rl.Texture) !void {
     cachedScreenWidth = ui_scale.width();
     cachedScreenHeight = ui_scale.height();
 
@@ -149,14 +150,21 @@ pub fn draw(world: *World, gridOffset: rl.Vector2, gridScale: f32, worldTint: rl
         drawBeehiveAtGridPosition(bh.texture, bh.gridX, bh.gridY, bh.width, bh.height, pulse, gridOffset, gridScale, worldTint);
     }
 
-    var flowerList: [512]FlowerRenderData = undefined;
     var flowerCount: usize = 0;
+    // Frustum margin generous enough for a swaying SUPER flower's sprite.
+    const flowerMargin: f32 = 96.0 * gridScale;
 
     var flowerIter = world.iterateFlowers();
     while (flowerIter.next()) |entity| {
         if (world.getGridPosition(entity)) |gridPos| {
             if (world.getLifespan(entity)) |lifespan| {
                 if (lifespan.isDead()) continue;
+            }
+            const tilePos = utils.isoToXY(gridPos.x, gridPos.y, 32, 32, gridOffset.x, gridOffset.y, gridScale);
+            if (tilePos.x < -flowerMargin or tilePos.x > cachedScreenWidth + flowerMargin or
+                tilePos.y < -flowerMargin or tilePos.y > cachedScreenHeight + flowerMargin)
+            {
+                continue;
             }
             // A SUPER flower anchors at the block's top-left cell but is drawn
             // at the 2x2 block's centre, sorted with the block's front edge.
@@ -247,17 +255,11 @@ pub fn draw(world: *World, gridOffset: rl.Vector2, gridScale: f32, worldTint: rl
 
     buildBeeRenderList(world);
 
-    if (cachedBeeTexture == null) {
-        var beeIter = world.iterateBees();
-        if (beeIter.next()) |firstBee| {
-            if (world.getSprite(firstBee)) |sprite| {
-                cachedBeeTexture = sprite.texture;
-            }
-        }
-    }
-
-    if (cachedBeeTexture) |texture| {
+    {
+        const texture = beeTexture;
         const pollenColor = theme.CatppuccinMocha.Color.yellow;
+        // Every bee shares the sprite scale (base 1, tied to the zoom).
+        const beeScale = gridScale / 3.0;
 
         // Bees draw in three same-texture passes (shadows, glows, sprites) so
         // the whole swarm stays in a few render batches. Interleaving them
@@ -270,12 +272,12 @@ pub fn draw(world: *World, gridOffset: rl.Vector2, gridScale: f32, worldTint: rl
             for (0..beeRenderCount) |i| {
                 const bee = beeRenderList[i];
                 const phase = @as(f32, @floatFromInt(i)) * 0.7;
-                const bob = @sin(time * 2.0 + phase) * 2.2 * bee.scale;
-                const cx = bee.x + 16 * bee.scale;
-                const lift = std.math.clamp(-bob / (3.0 * bee.scale), -1.0, 1.0);
+                const bob = @sin(time * 2.0 + phase) * 2.2 * beeScale;
+                const cx = bee.x + 16 * beeScale;
+                const lift = std.math.clamp(-bob / (3.0 * beeScale), -1.0, 1.0);
                 const shadowScale = 1.0 - 0.25 * lift;
                 const alpha: u8 = @intFromFloat(60 * (1.0 - 0.35 * lift));
-                drawDisc(disc, cx, bee.y + 26 * bee.scale, 8.5 * bee.scale * shadowScale, 3.2 * bee.scale * shadowScale, rl.Color.init(0, 0, 0, alpha));
+                drawDisc(disc, cx, bee.y + 26 * beeScale, 8.5 * beeScale * shadowScale, 3.2 * beeScale * shadowScale, rl.Color.init(0, 0, 0, alpha));
             }
         }
 
@@ -285,10 +287,10 @@ pub fn draw(world: *World, gridOffset: rl.Vector2, gridScale: f32, worldTint: rl
                 const bee = beeRenderList[i];
                 if (!bee.carryingPollen) continue;
                 const phase = @as(f32, @floatFromInt(i)) * 0.7;
-                const bob = @sin(time * 2.0 + phase) * 2.2 * bee.scale;
-                const cx = bee.x + 16 * bee.scale;
-                const r = 16 * bee.scale;
-                drawDisc(disc, cx, bee.y + bob + 14 * bee.scale, r, r, rl.Color.init(255, 226, 120, 90));
+                const bob = @sin(time * 2.0 + phase) * 2.2 * beeScale;
+                const cx = bee.x + 16 * beeScale;
+                const r = 16 * beeScale;
+                drawDisc(disc, cx, bee.y + bob + 14 * beeScale, r, r, rl.Color.init(255, 226, 120, 90));
             }
         }
 
@@ -297,9 +299,9 @@ pub fn draw(world: *World, gridOffset: rl.Vector2, gridScale: f32, worldTint: rl
         for (0..beeRenderCount) |i| {
             const bee = beeRenderList[i];
             const phase = @as(f32, @floatFromInt(i)) * 0.7;
-            const bob = @sin(time * 2.0 + phase) * 2.2 * bee.scale;
+            const bob = @sin(time * 2.0 + phase) * 2.2 * beeScale;
             const buzz = 1.0 + 0.06 * @sin(time * 26.0 + phase);
-            const drawScale = bee.scale * buzz;
+            const drawScale = beeScale * buzz;
 
             const base = if (bee.carryingPollen) pollenColor else bee.color;
             const color = rl.colorTint(base, worldTint);
@@ -377,37 +379,30 @@ fn drawDisc(disc: rl.Texture, cx: f32, cy: f32, rx: f32, ry: f32, tint: rl.Color
     rl.drawTexturePro(disc, source, destination, rl.Vector2.init(0, 0), 0, tint);
 }
 
+/// Linear sweep of the dense bee store: frustum-cull, cap at MAX_BEES.
 fn buildBeeRenderList(world: *World) void {
     beeRenderCount = 0;
 
-    var beeIter = world.iterateBees();
-    while (beeIter.next()) |entity| {
+    const slice = world.bees.list.slice();
+    const positions = slice.items(.pos);
+    const ais = slice.items(.ai);
+
+    for (positions, ais) |position, ai| {
         if (beeRenderCount >= MAX_BEES) break;
 
-        if (world.getPosition(entity)) |position| {
-            if (position.x < -FRUSTUM_MARGIN or position.x > cachedScreenWidth + FRUSTUM_MARGIN or
-                position.y < -FRUSTUM_MARGIN or position.y > cachedScreenHeight + FRUSTUM_MARGIN)
-            {
-                continue;
-            }
-
-            if (world.getScaleSync(entity)) |scaleSync| {
-                if (world.getBeeAI(entity)) |beeAI| {
-                    if (world.getLifespan(entity)) |lifespan| {
-                        if (lifespan.isDead()) continue;
-                    }
-
-                    beeRenderList[beeRenderCount] = .{
-                        .x = position.x,
-                        .y = position.y,
-                        .scale = scaleSync.effectiveScale,
-                        .carryingPollen = beeAI.carryingPollen,
-                        .color = beeAI.beeType.getColor(),
-                    };
-                    beeRenderCount += 1;
-                }
-            }
+        if (position.x < -FRUSTUM_MARGIN or position.x > cachedScreenWidth + FRUSTUM_MARGIN or
+            position.y < -FRUSTUM_MARGIN or position.y > cachedScreenHeight + FRUSTUM_MARGIN)
+        {
+            continue;
         }
+
+        beeRenderList[beeRenderCount] = .{
+            .x = position.x,
+            .y = position.y,
+            .carryingPollen = ai.carryingPollen,
+            .color = ai.beeType.getColor(),
+        };
+        beeRenderCount += 1;
     }
 }
 

@@ -139,7 +139,8 @@ pub const BEES_HIVE_MIND: u32 = 100;
 pub const BEES_SWARM: u32 = 1_000_000;
 pub const BEES_WHOLESALE: u32 = 100;
 pub const ROTTEN_CIRCLE_OF_LIFE: u32 = 50;
-pub const GRID_RING_LAND_BARON: u16 = 10;
+/// "Max out Grid Ring": follows the node's max level (upgrade_tree).
+pub const GRID_RING_LAND_BARON: u16 = 20;
 pub const NIGHT_SHIFT_MAX_LEVEL: u16 = 4;
 pub const HIVE_CLICKS_DONT_POKE: u32 = 20;
 pub const FULL_STORAGE_SECONDS: f32 = 60;
@@ -389,9 +390,9 @@ test "tree and easter-egg rules" {
     var snap = Snapshot{};
     snap.allOneShotNodesOwned = true;
     try std.testing.expect(isSatisfied(.well_read, &snap));
-    snap.gridRingLevel = 9;
+    snap.gridRingLevel = GRID_RING_LAND_BARON - 1;
     try std.testing.expect(!isSatisfied(.land_baron, &snap));
-    snap.gridRingLevel = 10;
+    snap.gridRingLevel = GRID_RING_LAND_BARON;
     try std.testing.expect(isSatisfied(.land_baron, &snap));
     snap.nightShiftLevel = 4;
     try std.testing.expect(isSatisfied(.night_shift, &snap));

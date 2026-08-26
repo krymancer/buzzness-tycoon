@@ -190,7 +190,7 @@ fn statMeaning(stat: achievements.Stat) []const u8 {
         .lifetime_honey => "Honey earned by the colony, ever (survives prestige).",
         .prestige_count => "Times the player has prestiged.",
         .super_flowers_merged => "SUPER flowers merged, lifetime.",
-        .rotten_cleared => "Rotten flowers cleared by gardener bees (Composting / Cleanup Crew).",
+        .rotten_cleared => "Rotten flowers cleared by gardener bees (Composting).",
         .max_bees_alive => "High-water mark of live bees.",
     };
 }

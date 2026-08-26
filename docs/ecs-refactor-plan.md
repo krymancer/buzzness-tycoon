@@ -2,6 +2,12 @@
 
 > **✅ REFACTOR COMPLETED**  
 > This document describes the completed ECS migration. The game now runs on a full Entity Component System architecture with performance optimizations.
+>
+> **2026-08 update:** bees have since moved out of the component tables into a
+> dense struct-of-arrays store (`src/bees.zig`, `World.bees`) with a simulation
+> cap and a dormant colony surplus (issue #59). `Position`, `Velocity`,
+> `ScaleSync` and `PollenCollector` as *world components*, and the scale-sync
+> system, no longer exist; the sections below describing them are historical.
 
 ## Overview
 

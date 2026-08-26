@@ -2,7 +2,6 @@ const std = @import("std");
 const World = @import("ecs/world.zig").World;
 const Resources = @import("resources.zig").Resources;
 const Grid = @import("grid.zig").Grid;
-const Textures = @import("textures.zig").Textures;
 const spawners = @import("spawners.zig");
 const components = @import("ecs/components.zig");
 
@@ -24,9 +23,9 @@ pub const ActionHandler = struct {
     world: *World,
     resources: *Resources,
     grid: *const Grid,
-    textures: *const Textures,
 
-    /// Buy one bee of the given type; beeCountDelta is 0 when unaffordable.
+    /// Buy one bee of the given type; beeCountDelta is 0 when unaffordable
+    /// or when the type is at its colony ceiling.
     pub fn handleBuy(self: *@This(), action: BuyAction) !ActionResult {
         var result = ActionResult{};
         const beeType: components.BeeType = switch (action) {
@@ -35,9 +34,9 @@ pub const ActionHandler = struct {
             .buy_efficient_bee => .efficient,
             .buy_gardener_bee => .gardener,
         };
+        if (self.world.bees.count(beeType) >= @import("bees.zig").MAX_PER_TYPE) return result;
         if (self.resources.spendHoney(spawners.BEE_TYPE_COSTS.get(beeType))) {
-            _ = try spawners.spawnBeeWithType(self.world, self.grid, self.textures, beeType);
-            result.beeCountDelta = 1;
+            if (try spawners.spawnBeeWithType(self.world, self.grid, beeType)) result.beeCountDelta = 1;
         }
         return result;
     }
