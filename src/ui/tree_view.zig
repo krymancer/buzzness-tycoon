@@ -12,6 +12,7 @@ const Resources = @import("../resources.zig").Resources;
 const Textures = @import("../textures.zig").Textures;
 const locale = @import("../localization.zig");
 const ui_scale = @import("../ui_scale.zig");
+const clock = @import("../clock.zig");
 const labs = @import("../labs.zig");
 const spawners = @import("../spawners.zig");
 const bee_ai_system = @import("../ecs/systems/bee_ai_system.zig");
@@ -48,6 +49,27 @@ pub fn resetScroll() void {
     scrollX = 0;
     scrollY = 0;
     dragging = false;
+}
+
+/// Purchase glow per node id: the node swells with a green ring that fades.
+const FLASH_TIME: f32 = 0.5;
+var nodeFlash: [64]f32 = @splat(0);
+
+pub fn flashNode(id: upgrade_tree.NodeId) void {
+    if (id < nodeFlash.len) nodeFlash[id] = FLASH_TIME;
+}
+
+fn withAlpha(c: rl.Color, a: u8) rl.Color {
+    return rl.Color.init(c.r, c.g, c.b, a);
+}
+
+fn lerpColor(a: rl.Color, b: rl.Color, t: f32) rl.Color {
+    const lerp = struct {
+        fn f(x: u8, y: u8, k: f32) u8 {
+            return @intFromFloat(@as(f32, @floatFromInt(x)) + (@as(f32, @floatFromInt(y)) - @as(f32, @floatFromInt(x))) * k);
+        }
+    }.f;
+    return rl.Color.init(lerp(a.r, b.r, t), lerp(a.g, b.g, t), lerp(a.b, b.b, t), 255);
 }
 
 pub const TreeContext = struct {
@@ -115,6 +137,9 @@ fn fs(size: i32, s: f32) i32 {
 
 pub fn draw(ctx: TreeContext) TreeAction {
     const C = theme.CatppuccinMocha.Color;
+    const now: f32 = @floatCast(clock.time());
+    const dt = rl.getFrameTime();
+    for (&nodeFlash) |*f| f.* = @max(0, f.* - dt);
 
     rl.drawRectangle(0, 0, @intFromFloat(ctx.screenWidth), @intFromFloat(ctx.screenHeight), C.modalOverlay);
 
@@ -123,9 +148,11 @@ pub fn draw(ctx: TreeContext) TreeAction {
     const panelX: f32 = (ctx.screenWidth - panelW) / 2;
     const panelY: f32 = (ctx.screenHeight - panelH) / 2;
 
-    // Deeper panel bg so surface0 nodes read clearly on top
+    // Deeper panel bg so surface0 nodes read clearly on top; the border
+    // breathes between blue and mauve like the prestige panel's.
     rl.drawRectangleRounded(rl.Rectangle.init(panelX, panelY, panelW, panelH), 0.03, 10, C.mantle);
-    rl.drawRectangleRoundedLinesEx(rl.Rectangle.init(panelX, panelY, panelW, panelH), 0.03, 10, 2, C.surface2);
+    const breathe = 0.5 + 0.5 * @sin(now * 1.6);
+    rl.drawRectangleRoundedLinesEx(rl.Rectangle.init(panelX, panelY, panelW, panelH), 0.03, 10, 2, lerpColor(C.sapphire, C.mauve, breathe));
 
     const title = locale.tr("Upgrade Tree", "Árvore de Melhorias");
     const titleX = @as(i32, @intFromFloat(panelX + panelW / 2)) - @divFloor(text.measure(title, 32), 2);
@@ -134,8 +161,13 @@ pub fn draw(ctx: TreeContext) TreeAction {
     // Honey stash pill (helps gauge affordability)
     var hbuf: [32]u8 = undefined;
     const hstr = format.formatShort(ctx.resources.honey, &hbuf);
-    const honeyLabel = rl.textFormat(locale.tr("Honey: %s", "Mel: %s"), .{hstr.ptr});
-    text.draw(honeyLabel, @as(i32, @intFromFloat(panelX + 18)), @as(i32, @intFromFloat(panelY + 20)), 19, C.yellow);
+    const honeyLabel = rl.textFormat(locale.tr("%s honey", "%s de mel"), .{hstr.ptr});
+    const honeyW: f32 = @floatFromInt(text.measure(honeyLabel, 19));
+    const pill = rl.Rectangle.init(panelX + 16, panelY + 14, honeyW + 46, 36);
+    rl.drawRectangleRounded(pill, 0.5, 8, C.surface0);
+    rl.drawRectangleRoundedLinesEx(pill, 0.5, 8, 1, C.surface2);
+    icons.drawHoneyDrop(pill.x + 18, pill.y + 22, 5.5, C.yellow);
+    text.draw(honeyLabel, @intFromFloat(pill.x + 32), @intFromFloat(pill.y + 8), 19, C.yellow);
 
     // Content area between the title row and the legend/close row.
     const contentX = panelX + 20;
@@ -204,13 +236,27 @@ pub fn draw(ctx: TreeContext) TreeAction {
             const fromC = rl.Vector2.init(from.x + nodeW / 2, from.y + nodeH / 2);
 
             const thick: f32 = (if (ctx.state.isPurchased(node.id)) @as(f32, 3) else 2) * s;
-            const color = if (ctx.state.isPurchased(node.id))
+            const childOwned = ctx.state.isPurchased(node.id);
+            const parentOwned = ctx.state.isPurchased(pid);
+            const color = if (childOwned)
                 C.green
-            else if (ctx.state.isPurchased(pid))
+            else if (parentOwned)
                 C.sapphire
             else
                 C.surface1;
             rl.drawLineEx(fromC, toC, thick, color);
+
+            // Sap flowing toward a reachable-but-unbought node: two motes
+            // travel the line so open branches read as alive.
+            if (parentOwned and !childOwned and ctx.state.isUnlocked(node)) {
+                for (0..2) |k| {
+                    const frac = @mod(now * 0.35 + @as(f32, @floatFromInt(k)) * 0.5 + @as(f32, @floatFromInt(node.id)) * 0.13, 1.0);
+                    const px = fromC.x + (toC.x - fromC.x) * frac;
+                    const py = fromC.y + (toC.y - fromC.y) * frac;
+                    rl.drawCircleV(rl.Vector2.init(px, py), 4 * s, withAlpha(C.sky, 70));
+                    rl.drawCircleV(rl.Vector2.init(px, py), 2.2 * s, C.sky);
+                }
+            }
         }
     }
 
@@ -221,8 +267,8 @@ pub fn draw(ctx: TreeContext) TreeAction {
     var hoveredNode: ?*const upgrade_tree.Node = null;
 
     for (&upgrade_tree.NODES) |*node| {
-        const pos = nodePos(node, centerX, topY, s);
-        const rect = rl.Rectangle.init(pos.x, pos.y, nodeW, nodeH);
+        const basePos = nodePos(node, centerX, topY, s);
+        const hitRect = rl.Rectangle.init(basePos.x, basePos.y, nodeW, nodeH);
         const lvl = ctx.state.level(node.id);
         const purchased = lvl > 0;
         const maxed = node.isMaxed(lvl);
@@ -232,17 +278,38 @@ pub fn draw(ctx: TreeContext) TreeAction {
         const buyable = !maxed and unlocked;
         const style = styleFor(purchased, maxed, unlocked, afford);
 
+        // Actionable nodes lift slightly under the cursor.
+        const hovered = inContent and rl.checkCollisionPointRec(mouse, hitRect);
+        const lift: f32 = if (hovered and buyable) 2 * s else 0;
+        const pos = rl.Vector2.init(basePos.x, basePos.y - lift);
+        const rect = rl.Rectangle.init(pos.x, pos.y, nodeW, nodeH);
+        if (hovered) hoveredNode = node;
+        if (buyable) input.registerHotspot(hitRect);
+
+        // Affordable nodes carry a soft pulsing halo so "you can buy this"
+        // reads without hunting for blue borders.
+        if (buyable and afford) {
+            const pulse = 0.5 + 0.5 * @sin(now * 3.0 + @as(f32, @floatFromInt(node.id)) * 0.7);
+            const spread = (2 + 3 * pulse) * s;
+            const halo = rl.Rectangle.init(rect.x - spread, rect.y - spread, rect.width + 2 * spread, rect.height + 2 * spread);
+            rl.drawRectangleRounded(halo, 0.3, 6, withAlpha(if (purchased) C.teal else C.blue, @intFromFloat(18 + 30 * pulse)));
+        }
+
         rl.drawRectangleRounded(rect, 0.22, 6, style.fill);
         rl.drawRectangleRoundedLinesEx(rect, 0.22, 6, style.borderThick * s, style.border);
 
-        // Hover highlight on actionable nodes
-        const hovered = inContent and rl.checkCollisionPointRec(mouse, rect);
-        if (hovered) hoveredNode = node;
-        if (buyable) input.registerHotspot(rect);
         if (buyable and afford and hovered) {
-            var glow = C.blue;
-            glow.a = 40;
-            rl.drawRectangleRounded(rect, 0.22, 6, glow);
+            rl.drawRectangleRounded(rect, 0.22, 6, withAlpha(C.blue, 40));
+        }
+
+        // Purchase glow: a green ring bursts outward and fades.
+        const flash = if (node.id < nodeFlash.len) nodeFlash[node.id] else 0;
+        if (flash > 0) {
+            const t = flash / FLASH_TIME;
+            const spread = (14 * (1 - t) + 2) * s;
+            const ring = rl.Rectangle.init(rect.x - spread, rect.y - spread, rect.width + 2 * spread, rect.height + 2 * spread);
+            rl.drawRectangleRounded(rect, 0.22, 6, withAlpha(C.green, @intFromFloat(90 * t)));
+            rl.drawRectangleRoundedLinesEx(ring, 0.3, 6, 2 * s, withAlpha(C.green, @intFromFloat(220 * t)));
         }
 
         // Compact single-row body: effect icon | name (+Lv) | cost on the
@@ -461,9 +528,10 @@ fn nodeStatus(ctx: TreeContext, node: *const upgrade_tree.Node, lvl: u16, buf: [
             return std.fmt.bufPrintZ(buf, "{s}: x{s}  ·  {s}: x{s} {s}", .{ now, fmtMul(cur, &b1), nxt, fmtMul(bee_ai_system.nightHoneyMulForLevel(lvl + 1), &b2), suffix }) catch null;
         },
         .bulk_buy_tier => {
-            if (lvl == 0) return std.fmt.bufPrintZ(buf, "{s}", .{locale.tr("Next: adds the x50 option", "Próx.: adiciona a opção x50")}) catch null;
-            if (lvl == 1) return std.fmt.bufPrintZ(buf, "{s}", .{locale.tr("Next: adds the x100 option", "Próx.: adiciona a opção x100")}) catch null;
-            return null;
+            const hud = @import("action_hud.zig");
+            const nextIdx = hud.BASE_QTY_COUNT + @as(usize, lvl);
+            if (nextIdx >= hud.BUY_QTYS.len) return null;
+            return std.fmt.bufPrintZ(buf, "{s}: {s} x{d}", .{ nxt, locale.tr("adds the option", "adiciona a opção"), hud.BUY_QTYS[nextIdx] }) catch null;
         },
         else => return null,
     }
@@ -536,4 +604,3 @@ fn drawTooltip(desc: [:0]const u8, status: ?[:0]const u8, mouse: rl.Vector2, scr
         text.draw(st, @intFromFloat(x + pad), @intFromFloat(y + pad + lineH * @as(f32, @floatFromInt(lineCount))), size, C.teal);
     }
 }
-

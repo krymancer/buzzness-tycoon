@@ -53,9 +53,10 @@ pub const Action = union(enum) {
 
 /// Bee buy quantity, cycled by the cross's center button or LB/RB (persists
 /// for the session). Holding Shift while buying still bulk-buys x10+.
-/// The x50/x100 steps unlock via the Bulk Order tree node.
-pub const BUY_QTYS = [_]u32{ 1, 10, 25, 50, 100 };
-const BASE_QTY_COUNT: usize = 3;
+/// The x50/x100/x500/x1000 steps unlock via the Bulk Order tree node, one
+/// per level.
+pub const BUY_QTYS = [_]u32{ 1, 10, 25, 50, 100, 500, 1000 };
+pub const BASE_QTY_COUNT: usize = 3;
 var unlockedQtyCount: usize = BASE_QTY_COUNT;
 var buyQtyIndex: usize = 0;
 
@@ -155,10 +156,19 @@ fn drawBeeCross(ctx: Context, mouse: rl.Vector2, out: *Action) void {
     const ccy = center.y + SLOT / 2;
     // Number on top, prompt below, both centered and sized to match the
     // bee icons.
+    // The label shrinks until it fits the center slot, so x100/x1000 never
+    // spill over the bee slots on either side.
     const qtyLabel = rl.textFormat("x%d", .{buyQty()});
-    const qw = text.measure(qtyLabel, 42);
-    const numY = ccy - 36;
-    text.drawOutline(qtyLabel, @as(i32, @intFromFloat(ccx)) - @divFloor(qw, 2), @intFromFloat(numY), 42, if (hovered) C.peach else C.yellow, OUTLINE);
+    const maxLabelW: i32 = @intFromFloat(SLOT + 4);
+    var qtySize: i32 = 42;
+    var qw = text.measure(qtyLabel, qtySize);
+    while (qw > maxLabelW and qtySize > 22) {
+        qtySize -= 2;
+        qw = text.measure(qtyLabel, qtySize);
+    }
+    // Keep the number's optical center where the 42px version sat.
+    const numY = ccy - 15 - @as(f32, @floatFromInt(qtySize)) / 2;
+    text.drawOutline(qtyLabel, @as(i32, @intFromFloat(ccx)) - @divFloor(qw, 2), @intFromFloat(numY), qtySize, if (hovered) C.peach else C.yellow, OUTLINE);
     const iconY = ccy - 2;
     if (input.gamepadActive()) {
         prompt_icons.draw(.pad_lb, ccx - PROMPT - 1, iconY, PROMPT);
@@ -292,8 +302,33 @@ fn drawTreeButton(ctx: Context, mouse: rl.Vector2, out: *Action) void {
     }
 }
 
+const CENSUS_ICON: f32 = 30;
+const CENSUS_GAP: f32 = 8;
+const CENSUS_FONT: i32 = 16;
+/// Narrowest the status column gets; it widens to fit the bee counts.
+const PASSIVE_MIN_W: f32 = 250;
+
+fn censusLabel(ctx: Context, i: usize, buf: []u8) [:0]const u8 {
+    var nbuf: [32]u8 = undefined;
+    const nstr = format.formatShort(@floatFromInt(ctx.beeTypeCounts[i]), &nbuf);
+    return std.fmt.bufPrintZ(buf, "x{s}", .{nstr}) catch "x?";
+}
+
+/// Width the census row needs so every count fits; the whole status column
+/// follows it, since counts like x20.46K outgrow a fixed box.
+fn censusWidth(ctx: Context) f32 {
+    var total: f32 = 6;
+    for (0..4) |i| {
+        var lbuf: [40]u8 = undefined;
+        const label = censusLabel(ctx, i, &lbuf);
+        total += CENSUS_ICON - 1 + @as(f32, @floatFromInt(text.measure(label, CENSUS_FONT))) + CENSUS_GAP;
+    }
+    return @max(PASSIVE_MIN_W, total);
+}
+
 /// Bee census row: one icon + owned count per type; locked types show the
-/// dark silhouette (same treatment as the cross).
+/// dark silhouette (same treatment as the cross). Cells are laid out
+/// left-to-right by content width, then the whole set is centered in the row.
 fn drawBeeCensus(ctx: Context, x: f32, y: f32, w: f32, h: f32) void {
     const C = theme.CatppuccinMocha.Color;
     const rect = rl.Rectangle.init(x, y, w, h);
@@ -308,29 +343,34 @@ fn drawBeeCensus(ctx: Context, x: f32, y: f32, w: f32, h: f32) void {
         ctx.treeState.hasEffect(.bee_unlock_efficient),
         ctx.treeState.hasEffect(.bee_unlock_gardener),
     };
-    const cell = w / 4;
+    var labelBufs: [4][40]u8 = undefined;
+    var labels: [4][:0]const u8 = undefined;
+    var cellW: [4]f32 = undefined;
+    var total: f32 = 0;
+    for (0..4) |i| {
+        labels[i] = censusLabel(ctx, i, &labelBufs[i]);
+        cellW[i] = CENSUS_ICON - 1 + @as(f32, @floatFromInt(text.measure(labels[i], CENSUS_FONT))) + CENSUS_GAP;
+        total += cellW[i];
+    }
+    var cx = x + @max(2, (w - total) / 2);
     for (accents, unlocked, 0..) |accent, isUnlocked, i| {
-        const cx = x + cell * @as(f32, @floatFromInt(i));
-        const iconS: f32 = 30;
         const tint = if (isUnlocked) accent else rl.Color.init(30, 30, 46, 200);
         rl.drawTexturePro(
             ctx.textures.bee,
             rl.Rectangle.init(0, 0, 32, 32),
-            rl.Rectangle.init(cx + 2, y + (h - iconS) / 2, iconS, iconS),
+            rl.Rectangle.init(cx, y + (h - CENSUS_ICON) / 2, CENSUS_ICON, CENSUS_ICON),
             rl.Vector2.init(0, 0),
             0,
             tint,
         );
-        var nbuf: [32]u8 = undefined;
-        const nstr = format.formatShort(@floatFromInt(ctx.beeTypeCounts[i]), &nbuf);
-        const label = rl.textFormat("x%s", .{nstr.ptr});
-        text.draw(label, @intFromFloat(cx + iconS - 1), @intFromFloat(y + (h - 16) / 2), 16, if (isUnlocked) C.text else C.overlay0);
+        text.draw(labels[i], @intFromFloat(cx + CENSUS_ICON - 3), @intFromFloat(y + (h - 16) / 2), CENSUS_FONT, if (isUnlocked) C.text else C.overlay0);
+        cx += cellW[i];
     }
 }
 
 fn drawPassives(ctx: Context, mouse: rl.Vector2, out: *Action) void {
     const C = theme.CatppuccinMocha.Color;
-    const w: f32 = 250;
+    const w: f32 = censusWidth(ctx);
     const h: f32 = 34;
     const x: f32 = ctx.screenWidth - w - 12;
     var y: f32 = 12;
@@ -366,9 +406,14 @@ fn drawPassives(ctx: Context, mouse: rl.Vector2, out: *Action) void {
         rl.drawCircle(cx - 6, cy + 2, 3, C.mauve);
         rl.drawCircle(cx, cy - 3, 3.5, C.pink);
         rl.drawCircle(cx + 6, cy + 2, 3, C.mauve);
+        // Spendable jelly (what the shop reads) and the short-formatted
+        // multiplier, which runs into the millions after a few prestiges.
         var jbuf: [32]u8 = undefined;
-        const jstr = format.formatShort(@floatFromInt(ctx.prestige.royalJelly), &jbuf);
-        const label = rl.textFormat(locale.tr("Prestige  RJ %s · x%.2f", "Prestígio  GR %s · x%.2f"), .{ jstr.ptr, ctx.prestige.globalMul() });
+        var mbuf: [32]u8 = undefined;
+        const jstr = format.formatShort(@floatFromInt(ctx.prestige.availableJelly()), &jbuf);
+        const mul = ctx.prestige.globalMul();
+        const mstr = if (mul < 1000.0) (std.fmt.bufPrintZ(&mbuf, "{d:.2}", .{mul}) catch "?") else format.formatShort(mul, &mbuf);
+        const label = rl.textFormat(locale.tr("Prestige  RJ %s · x%s", "Prestígio  GR %s · x%s"), .{ jstr.ptr, mstr.ptr });
         text.draw(label, @intFromFloat(x + 32), @intFromFloat(y + 8), 16, if (hovered) C.pink else C.subtext1);
         if (ctx.inputEnabled and hovered and input.confirmPressed()) {
             input.consumeConfirm();

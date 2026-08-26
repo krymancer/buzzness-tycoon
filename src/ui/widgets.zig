@@ -47,6 +47,9 @@ pub const ButtonOpts = struct {
     enabled: bool = true,
     textColor: ?rl.Color = null,
     fontSize: i32 = 19,
+    /// Key face color override (e.g. red for a destructive confirm); hover
+    /// darkens it slightly instead of switching to peach.
+    face: ?rl.Color = null,
 };
 
 /// Yellow pixel-key action button. True when clicked.
@@ -61,7 +64,14 @@ pub fn buttonEx(rect: rl.Rectangle, label: [:0]const u8, opts: ButtonOpts) bool 
     const hovered = opts.enabled and rl.checkCollisionPointRec(input.pointerPos(), rect);
     const pressed = hovered and input.confirmDown();
 
-    const face = if (!opts.enabled) C.surface0 else if (hovered) C.peach else C.yellow;
+    const face = if (!opts.enabled)
+        C.surface0
+    else if (opts.face) |f|
+        (if (hovered) darken(f, 0.88) else f)
+    else if (hovered)
+        C.peach
+    else
+        C.yellow;
     const labelColor = if (!opts.enabled) C.subtext0 else opts.textColor orelse C.base;
 
     const off: f32 = if (pressed) 2 else 0;

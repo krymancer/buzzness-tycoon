@@ -67,7 +67,7 @@ pub fn nodeDesc(id: u16) [:0]const u8 {
         28 => tr("Gardeners actively hunt rotten flowers and fly there to clear them.", "Jardineiras caçam flores podres e voam até elas para limpá-las."),
         7 => tr("-1s Instant Grow cooldown per level (floor 2s).", "-1s de recarga do Crescer Instantâneo por nível (mínimo 2s)."),
         10 => tr("Adds a ring of meadow tiles around the grid.", "Adiciona um anel de células ao redor do campo."),
-        32 => tr("Unlocks bigger bulk-buy options for bees.", "Desbloqueia opções maiores de compra em massa de abelhas."),
+        32 => tr("Unlocks bigger bulk-buy options for bees, up to x1000.", "Desbloqueia opções maiores de compra em massa de abelhas, até x1000."),
         13 => tr("Raises the honey storage cap.", "Aumenta o limite de armazenamento de mel."),
         29 => tr("Flowers mature and regrow pollen 20% faster per level.", "Flores amadurecem e repõem pólen 20% mais rápido por nível."),
         30 => tr("Bees live 20% longer per level; living bees benefit too.", "Abelhas vivem 20% mais por nível; as vivas também ganham."),

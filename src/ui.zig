@@ -12,6 +12,7 @@ pub const action_hud = @import("ui/action_hud.zig");
 pub const plant_menu = @import("ui/plant_menu.zig");
 pub const options = @import("ui/options.zig");
 pub const tree_view = @import("ui/tree_view.zig");
+pub const prestige_view = @import("ui/prestige_view.zig");
 pub const prompt_icons = @import("ui/prompt_icons.zig");
 
 // Re-export commonly used types for convenience

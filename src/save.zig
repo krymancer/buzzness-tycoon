@@ -2,6 +2,7 @@ const std = @import("std");
 
 pub const VERSION: u32 = 1;
 pub const MAX_UPGRADES: usize = 64;
+pub const MAX_SHOP_ITEMS: usize = 16;
 pub const MAX_FLOWERS: usize = 100_000;
 pub const MAX_BEES_PER_TYPE: u32 = 100_000;
 pub const MAX_BEES: usize = 4 * @as(usize, MAX_BEES_PER_TYPE);
@@ -57,6 +58,10 @@ pub const Data = struct {
     royal_jelly: u32 = 0,
     this_run_honey: f32 = 0,
     prestige_unlocked: bool = false,
+    /// Royal Jelly spent in the prestige shop (absent in older saves).
+    jelly_spent: u32 = 0,
+    /// Prestige shop level per item, indexed by prestige.ShopItem.
+    shop_levels: [MAX_SHOP_ITEMS]u16 = [_]u16{0} ** MAX_SHOP_ITEMS,
     // Legacy labs line. aura_multiplier is derived from tree levels on load;
     // the three cooldown slots belonged to the removed Burst/Bloom labs and
     // are written as 0 to keep the line shape stable.
@@ -136,6 +141,10 @@ pub fn write(io: std.Io, save_path: []const u8, data: *const Data) !void {
     try writer.print("grid {d} {d}\n", .{ data.grid_width, data.grid_height });
     try writer.print("prestige {d} {d} {d}\n", .{ data.royal_jelly, data.this_run_honey, @intFromBool(data.prestige_unlocked) });
     try writer.print("labs {d} {d} {d} {d}\n", .{ data.aura_multiplier, data.burst_remaining, data.burst_cooldown, data.bloom_cooldown });
+    try writer.print("jelly_spent {d}\n", .{data.jelly_spent});
+    for (data.shop_levels, 0..) |lvl, id| {
+        if (lvl > 0) try writer.print("shop {d} {d}\n", .{ id, lvl });
+    }
 
     for (data.purchased, 0..) |purchased, id| {
         if (!purchased) continue;
@@ -248,6 +257,12 @@ pub fn read(allocator: std.mem.Allocator, io: std.Io, save_path: []const u8) !Da
             data.burst_remaining = try parse(f32, tokens.next());
             data.burst_cooldown = try parse(f32, tokens.next());
             data.bloom_cooldown = try parse(f32, tokens.next());
+        } else if (std.mem.eql(u8, key, "jelly_spent")) {
+            data.jelly_spent = try parse(u32, tokens.next());
+        } else if (std.mem.eql(u8, key, "shop")) {
+            const id = try parse(usize, tokens.next());
+            const lvl = try parse(u16, tokens.next());
+            if (id < data.shop_levels.len) data.shop_levels[id] = lvl;
         } else if (std.mem.eql(u8, key, "upgrade")) {
             const id = try parse(usize, tokens.next());
             if (id < data.purchased.len) data.purchased[id] = true;
@@ -330,10 +345,12 @@ test "save data survives an atomic round trip" {
         .royal_jelly = 42,
         .this_run_honey = 1_250_000,
         .prestige_unlocked = true,
+        .jelly_spent = 17,
         .grid_width = 23,
         .grid_height = 23,
     };
     defer original.deinit(std.testing.allocator);
+    original.shop_levels[2] = 3;
     original.purchased[19] = true;
     original.purchased[24] = true;
     original.levels[24] = 7;
@@ -366,6 +383,9 @@ test "save data survives an atomic round trip" {
     try std.testing.expectEqual(@as(f32, 9_000_000), restored.honey);
     try std.testing.expectEqual(@as(f32, 128), restored.beehive_factor);
     try std.testing.expectEqual(@as(u32, 42), restored.royal_jelly);
+    try std.testing.expectEqual(@as(u32, 17), restored.jelly_spent);
+    try std.testing.expectEqual(@as(u16, 3), restored.shop_levels[2]);
+    try std.testing.expectEqual(@as(u16, 0), restored.shop_levels[0]);
     try std.testing.expect(restored.purchased[19]);
     try std.testing.expectEqual(@as(u16, 0), restored.levels[19]);
     try std.testing.expect(restored.purchased[24]);
@@ -407,6 +427,9 @@ test "flower lines without the is_super field still parse (old saves)" {
     // A legacy master volume seeds both channels.
     try std.testing.expectEqual(@as(f32, 0.4), restored.music_volume);
     try std.testing.expectEqual(@as(f32, 0.4), restored.fx_volume);
+    // No shop lines: nothing spent, nothing owned.
+    try std.testing.expectEqual(@as(u32, 0), restored.jelly_spent);
+    try std.testing.expectEqual(@as(u16, 0), restored.shop_levels[0]);
     try std.testing.expectEqual(@as(usize, 1), restored.flowers.items.len);
     try std.testing.expect(!restored.flowers.items[0].is_super);
     // Pre-position saves carry no per-cell bee lines; loaders fall back to counts.

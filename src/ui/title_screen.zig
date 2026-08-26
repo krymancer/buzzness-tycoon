@@ -103,8 +103,10 @@ pub fn draw(screenWidth: f32, screenHeight: f32, hasSave: bool) TitleScreenActio
     // New Game (only when there is something to overwrite)
     if (hasSave) {
         const label = if (armed) locale.tr("Are you sure?", "Tem certeza?") else locale.tr("New Game", "Novo Jogo");
+        // Armed: red key with dark text — pink-on-yellow was unreadable.
         const clicked = widgets.buttonEx(rl.Rectangle.init(buttonX, by, buttonWidth, buttonHeight), label, .{
-            .textColor = if (armed) theme.CatppuccinMocha.Color.red else null,
+            .face = if (armed) theme.CatppuccinMocha.Color.red else null,
+            .textColor = if (armed) theme.CatppuccinMocha.Color.crust else null,
         });
         if (clicked) {
             if (armed) {
