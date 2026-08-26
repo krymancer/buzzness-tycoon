@@ -114,7 +114,8 @@ drop_png() {
 # layers follow, saved as the 256 master.
 icon() {
   local name=$1 color=$2; shift 2
-  magick -size 256x256 xc:"$color" "$@" "$OUT/256/$name.png"
+  # -strip drops the date chunks so unchanged icons re-render byte-identical.
+  magick -size 256x256 xc:"$color" "$@" -strip "$OUT/256/$name.png"
 }
 
 # Solid background per family.
@@ -207,8 +208,8 @@ icon sticky_situation $(bg "$HONEY") \( "$(sprite "$WORK/beehive.png" 480)" \) -
 for f in "$OUT"/256/*.png; do
   name="$(basename "$f")"
   magick "$f" -colorspace Gray -brightness-contrast -22x-28 -fill '#1e1e2e' -colorize 30 "$WORK/locked_$name"
-  magick "$f" -filter Box -resize 64x64 "$OUT/unlocked/$name"
-  magick "$WORK/locked_$name" -filter Box -resize 64x64 "$OUT/locked/$name"
+  magick "$f" -filter Box -resize 64x64 -strip "$OUT/unlocked/$name"
+  magick "$WORK/locked_$name" -filter Box -resize 64x64 -strip "$OUT/locked/$name"
 done
 
 # Contact sheet in Steamworks display order (same as src/achievements.zig).
@@ -218,9 +219,9 @@ for n in "${ORDER[@]}"; do
   [ -f "$OUT/256/$n.png" ] || { echo "missing icon for $n" >&2; exit 1; }
   tiles+=( -label "$n" "$OUT/256/$n.png" )
 done
-magick montage "${tiles[@]}" -font "$FONT" -pointsize 16 -tile 7x -geometry 128x128+12+10 -background '#1e1e2e' -fill '#cdd6f4' "$OUT/contact_sheet.png"
+magick montage "${tiles[@]}" -font "$FONT" -pointsize 16 -tile 7x -geometry 128x128+12+10 -background '#1e1e2e' -fill '#cdd6f4' -strip "$OUT/contact_sheet.png"
 ltiles=()
 for n in "${ORDER[@]}"; do ltiles+=( -label "$n" "$WORK/locked_$n.png" ); done
-magick montage "${ltiles[@]}" -font "$FONT" -pointsize 16 -tile 7x -geometry 128x128+12+10 -background '#1e1e2e' -fill '#cdd6f4' "$OUT/contact_sheet_locked.png"
+magick montage "${ltiles[@]}" -font "$FONT" -pointsize 16 -tile 7x -geometry 128x128+12+10 -background '#1e1e2e' -fill '#cdd6f4' -strip "$OUT/contact_sheet_locked.png"
 
 echo "Rendered $(ls "$OUT"/unlocked | wc -l) achievements -> $OUT/{256,unlocked,locked}/ + contact sheets"
