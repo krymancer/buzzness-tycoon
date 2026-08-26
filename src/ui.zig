@@ -14,6 +14,7 @@ pub const options = @import("ui/options.zig");
 pub const tree_view = @import("ui/tree_view.zig");
 pub const prestige_view = @import("ui/prestige_view.zig");
 pub const prompt_icons = @import("ui/prompt_icons.zig");
+pub const achievement_toast = @import("ui/achievement_toast.zig");
 
 // Re-export commonly used types for convenience
 pub const Hud = hud.Hud;

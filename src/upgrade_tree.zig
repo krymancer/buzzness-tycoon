@@ -236,7 +236,30 @@ pub const State = struct {
     pub fn beeUnlocked(self: *const @This(), kind: EffectKind) bool {
         return self.hasEffect(kind);
     }
+
+    /// True once every non-repeatable node is owned ("Well Read").
+    pub fn allOneShotsOwned(self: *const @This()) bool {
+        for (&NODES) |*n| {
+            if (n.repeat == null and !self.isPurchased(n.id)) return false;
+        }
+        return true;
+    }
 };
+
+test "all one-shot nodes owned ignores repeatable levels" {
+    var s = State.init(std.testing.allocator);
+    defer s.deinit();
+    try std.testing.expect(!s.allOneShotsOwned());
+    for (&NODES) |*n| {
+        if (n.repeat == null) try s.setLevel(n.id, 1);
+    }
+    try std.testing.expect(s.allOneShotsOwned());
+    // Repeatables never factor in.
+    try s.setLevel(STORAGE_ID, 0);
+    try std.testing.expect(s.allOneShotsOwned());
+    try s.setLevel(21, 0);
+    try std.testing.expect(!s.allOneShotsOwned());
+}
 
 test "repeatable node cost grows geometrically and one-shot nodes max at level 1" {
     const boost = findNode(24).?;

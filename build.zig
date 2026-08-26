@@ -113,4 +113,20 @@ pub fn build(b: *std.Build) void {
     const test_step = b.step("test", "Run unit tests");
     test_step.dependOn(&run_lib_unit_tests.step);
     test_step.dependOn(&run_exe_unit_tests.step);
+
+    // Steamworks entry sheet (docs/achievements.md) generated from
+    // src/achievements.zig so the partner-site data can't drift.
+    const sheet_tool = b.addExecutable(.{
+        .name = "achievement-sheet",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/achievement_sheet_tool.zig"),
+            .target = b.graph.host,
+            .optimize = .Debug,
+        }),
+    });
+    const run_sheet = b.addRunArtifact(sheet_tool);
+    run_sheet.setCwd(b.path("."));
+    run_sheet.has_side_effects = true;
+    const sheet_step = b.step("achievements-sheet", "Regenerate docs/achievements.md from src/achievements.zig");
+    sheet_step.dependOn(&run_sheet.step);
 }

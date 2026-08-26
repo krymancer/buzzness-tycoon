@@ -17,6 +17,10 @@ pub const Resources = struct {
     growthBoostMaxCooldown: f32, // Max cooldown (can be upgraded)
     growthBoostLevel: u32,
 
+    /// Successful spends so far this session; lets the game notice a
+    /// purchase even when bees refill the storage in the same frame.
+    spendCount: u32,
+
     // Storage upgrade costs: 50, 100, 200, 400, 800...
     const BASE_STORAGE_COST: f32 = 50.0;
     const BASE_CAPACITY: f32 = 500.0;
@@ -39,6 +43,7 @@ pub const Resources = struct {
             .growthBoostCooldown = 0,
             .growthBoostMaxCooldown = BASE_GROWTH_COOLDOWN,
             .growthBoostLevel = 1,
+            .spendCount = 0,
         };
     }
 
@@ -64,6 +69,7 @@ pub const Resources = struct {
     pub fn spendHoney(self: *@This(), amount: f32) bool {
         if (self.honey >= amount) {
             self.honey -= amount;
+            if (amount > 0) self.spendCount +%= 1;
             return true;
         }
         return false;

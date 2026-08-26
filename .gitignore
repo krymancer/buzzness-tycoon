@@ -36,3 +36,9 @@ steam/output/
 # Steam session token (never commit)
 config.vdf
 .DS_Store
+
+# Steamworks dev-run bits (SDK redistributables are not ours to commit)
+steam_appid.txt
+libsteam_api.so
+libsteam_api.dylib
+steam_api64.dll

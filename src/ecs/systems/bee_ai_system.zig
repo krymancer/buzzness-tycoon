@@ -239,6 +239,7 @@ pub fn update(ctx: UpdateCtx) !void {
                 // Cleanup Crew: clear the rot on arrival so the cell can
                 // regrow (removeFlower also drops the target count).
                 try lifespan_system.removeFlower(ctx.world, targetEntity);
+                rottenClearedPending += 1;
                 beeAI.targetLocked = false;
                 beeAI.targetEntity = null;
                 beeAI.scatterTimer = @as(f32, @floatFromInt(rl.getRandomValue(4, 10))) / 10.0;
@@ -419,6 +420,16 @@ pub const GARDENER_CHANCE_PER_LEVEL: i32 = 10;
 /// Composting node: gardeners clear rotten flowers on cells they cross.
 pub var gardenerCompost: bool = false;
 
+/// Rotten flowers cleared by gardeners (Composting + Cleanup Crew) since the
+/// game last drained it (achievements / lifetime stats).
+pub var rottenClearedPending: u32 = 0;
+
+pub fn takeRottenCleared() u32 {
+    const n = rottenClearedPending;
+    rottenClearedPending = 0;
+    return n;
+}
+
 /// Cleanup Crew node: gardeners actively seek out rotten flowers and fly
 /// there to clear them (instead of only clearing rot they happen to cross).
 pub var gardenerSweep: bool = false;
@@ -491,7 +502,10 @@ fn handleComposting(world: *World, beeAI: anytype, position: anytype, gridOffset
 
     const flowerEntity = world.getFlowerAtGrid(gridX, gridY) orelse return;
     const growth = world.getFlowerGrowth(flowerEntity) orelse return;
-    if (growth.isRotten) try lifespan_system.removeFlower(world, flowerEntity);
+    if (growth.isRotten) {
+        try lifespan_system.removeFlower(world, flowerEntity);
+        rottenClearedPending += 1;
+    }
 }
 
 fn handlePollination(world: *World, beeAI: anytype, position: anytype, gridOffset: rl.Vector2, gridScale: f32, gridWidth: usize, gridHeight: usize, texturesRef: Textures) !void {
