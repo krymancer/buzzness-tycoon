@@ -45,10 +45,15 @@ pub const GameState = enum {
     playing,
 };
 
+comptime {
+    std.debug.assert(prestige_mod.SHOP_ITEM_COUNT <= save.MAX_SHOP_ITEMS);
+}
+
 pub const Game = struct {
     const INITIAL_GRID_WIDTH = 17;
     const INITIAL_GRID_HEIGHT = 17;
     const FLOWER_SPAWN_CHANCE = 30;
+    const PRESTIGE_FLASH_TIME: f32 = 1.1;
     /// How far outside the meadow (in tiles) saved bee cells may sit; bees
     /// that wandered further are folded back to this rim on save/load.
     const BEE_CELL_MARGIN: i32 = 8;
@@ -91,6 +96,8 @@ pub const Game = struct {
     labs: labs.LabState,
     prestige: prestige_mod.PrestigeState,
     showPrestigeDialog: bool,
+    /// Seconds left on the full-screen ascend flash after a prestige.
+    prestigeFlash: f32,
 
     // Tile popup state
     clickStartPos: rl.Vector2,
@@ -237,7 +244,9 @@ pub const Game = struct {
             },
             .labs = .{},
             .prestige = .{},
-            .showPrestigeDialog = false,
+            // Dev: BT_OPEN_PRESTIGE starts with the prestige panel open.
+            .showPrestigeDialog = env.get("BT_OPEN_PRESTIGE") != null,
+            .prestigeFlash = 0,
 
             .cameraOffset = rl.Vector2.init(0, 0),
             .isDragging = false,
@@ -943,7 +952,11 @@ pub const Game = struct {
             switch (treeAction) {
                 .none => {},
                 .close => self.showTree = false,
-                .purchase => |nid| try self.purchaseUpgrade(nid),
+                .purchase => |nid| {
+                    const before = self.upgradeTree.level(nid);
+                    try self.purchaseUpgrade(nid);
+                    if (self.upgradeTree.level(nid) > before) ui.tree_view.flashNode(nid);
+                },
             }
         }
 
@@ -960,6 +973,15 @@ pub const Game = struct {
         // Screen-space popups (purchase "-cost" feedback) above all UI.
         self.floatingTexts.drawScreen();
 
+        // Ascend flash: a pink wash that snaps in on prestige and fades out
+        // over the fresh meadow (quadratic so it lingers briefly, then clears).
+        if (self.prestigeFlash > 0) {
+            self.prestigeFlash = @max(0, self.prestigeFlash - clock.frameTime());
+            const t = self.prestigeFlash / PRESTIGE_FLASH_TIME;
+            const pink = theme.CatppuccinMocha.Color.pink;
+            rl.drawRectangle(0, 0, @intFromFloat(self.width), @intFromFloat(self.height), rl.Color.init(pink.r, pink.g, pink.b, @intFromFloat(235 * t * t)));
+        }
+
         // Draw pause menu
         if (self.showPauseMenu) {
             if (self.showOptions) {
@@ -975,6 +997,15 @@ pub const Game = struct {
                         self.shouldExit = true;
                     },
                     .options => self.showOptions = true,
+                    // The run stays loaded in memory, so Continue on the
+                    // title resumes it; New Game wipes it as usual.
+                    .title_screen => {
+                        self.saveProgress() catch |err| std.debug.print("Could not save progress: {}\n", .{err});
+                        self.hasSavedGame = true;
+                        self.showPauseMenu = false;
+                        self.isPaused = false;
+                        self.state = .title_screen;
+                    },
                     .none => {},
                 }
             }
@@ -1075,57 +1106,78 @@ pub const Game = struct {
     }
 
     fn drawAndHandlePrestigeDialog(self: *@This()) !void {
-        rl.drawRectangle(0, 0, @intFromFloat(self.width), @intFromFloat(self.height), theme.CatppuccinMocha.Color.modalOverlay);
-
-        const popupW: f32 = 520;
-        const popupH: f32 = 260;
-        const popupX: f32 = (self.width - popupW) / 2;
-        const popupY: f32 = (self.height - popupH) / 2;
-
-        rl.drawRectangleRounded(rl.Rectangle.init(popupX, popupY, popupW, popupH), 0.05, 10, theme.CatppuccinMocha.Color.surface0);
-        rl.drawRectangleRoundedLines(rl.Rectangle.init(popupX, popupY, popupW, popupH), 0.05, 10, theme.CatppuccinMocha.Color.mauve);
-
-        const title = locale.tr("Prestige", "Prestígio");
-        const titleX = @as(i32, @intFromFloat(popupX + popupW / 2)) - @divFloor(text.measure(title, 28), 2);
-        text.draw(title, titleX, @as(i32, @intFromFloat(popupY + 16)), 28, theme.CatppuccinMocha.Color.mauve);
-
-        const gain = self.prestige.gainFromReset();
-        const newTotal = self.prestige.royalJelly + gain;
-        const newMul = 1.0 + 0.1 * @as(f32, @floatFromInt(newTotal));
-
-        var runBuf: [32]u8 = undefined;
-        const runStr = format.formatShort(self.prestige.thisRunHoney, &runBuf);
-        const line1 = rl.textFormat(locale.tr("This run: %s honey", "Nesta partida: %s mel"), .{runStr.ptr});
-        text.draw(line1, @as(i32, @intFromFloat(popupX + 24)), @as(i32, @intFromFloat(popupY + 60)), 16, theme.CatppuccinMocha.Color.text);
-
-        var gainBuf: [32]u8 = undefined;
-        const gainStr = format.formatShort(@floatFromInt(gain), &gainBuf);
-        const line2 = rl.textFormat(locale.tr("Royal Jelly gained: +%s", "Geleia Real recebida: +%s"), .{gainStr.ptr});
-        text.draw(line2, @as(i32, @intFromFloat(popupX + 24)), @as(i32, @intFromFloat(popupY + 88)), 16, theme.CatppuccinMocha.Color.pink);
-
-        const line3 = rl.textFormat(locale.tr("New multiplier: x%.2f  (was x%.2f)", "Novo multiplicador: x%.2f  (antes x%.2f)"), .{ newMul, self.prestige.globalMul() });
-        text.draw(line3, @as(i32, @intFromFloat(popupX + 24)), @as(i32, @intFromFloat(popupY + 116)), 16, theme.CatppuccinMocha.Color.yellow);
-
-        const warn = locale.tr("Resets honey, tree, labs, grid, bees.", "Reinicia mel, árvore, labs, grade e abelhas.");
-        text.draw(warn, @as(i32, @intFromFloat(popupX + 24)), @as(i32, @intFromFloat(popupY + 150)), 16, theme.CatppuccinMocha.Color.red);
-
-        const btnW: f32 = 160;
-        const btnH: f32 = 40;
-        const btnY = popupY + popupH - btnH - 16;
-
-        if (widgets.button(rl.Rectangle.init(popupX + 24, btnY, btnW, btnH), locale.tr("Cancel", "Cancelar"))) {
-            self.showPrestigeDialog = false;
-        }
-        const confirmRect = rl.Rectangle.init(popupX + popupW - btnW - 24, btnY, btnW, btnH);
-        if (widgets.buttonEx(confirmRect, locale.tr("Confirm", "Confirmar"), .{ .enabled = gain > 0 })) {
-            try self.doPrestige(gain);
-            self.showPrestigeDialog = false;
+        const ascendUnlocked = self.upgradeTree.hasEffect(.prestige_unlock);
+        const action = ui.prestige_view.draw(.{
+            .screenWidth = self.width,
+            .screenHeight = self.height,
+            .prestige = &self.prestige,
+            .textures = &self.textures,
+            .ascendUnlocked = ascendUnlocked,
+        });
+        switch (action) {
+            .none => {},
+            .close => self.showPrestigeDialog = false,
+            .confirm => |gain| {
+                if (!ascendUnlocked) return;
+                try self.doPrestige(gain);
+                self.showPrestigeDialog = false;
+            },
+            .buy => |item| try self.buyShopItem(item),
         }
     }
 
     fn doPrestige(self: *@This(), gain: u32) !void {
         self.prestige.resetRun(gain);
         try self.resetRun();
+        self.prestigeFlash = PRESTIGE_FLASH_TIME;
+        self.audio.playPrestige();
+        // Prestige is rare and irreversible: persist right away rather than
+        // waiting for the autosave.
+        self.saveProgress() catch |err| std.debug.print("Could not save after prestige: {}\n", .{err});
+    }
+
+    /// Spend Royal Jelly on a shop perk and apply whatever part of it can
+    /// land in the current run immediately (the rest applies on every reset
+    /// via applyShopStart).
+    fn buyShopItem(self: *@This(), item: prestige_mod.ShopItem) !void {
+        if (!self.prestige.buyShop(item)) return;
+        ui.prestige_view.flashRow(item);
+        self.audio.playShopBuy();
+        switch (item) {
+            .royal_meadow => try self.expandGrid(),
+            .busy_bees => try self.spawnExtraBees(prestige_mod.BEES_PER_BUSY_LEVEL),
+            .royal_retinue => try self.unlockRetinue(),
+            .queens_blessing, .jelly_refinery => {},
+        }
+        self.saveProgress() catch |err| std.debug.print("Could not save shop purchase: {}\n", .{err});
+    }
+
+    /// Royal Shop perks that shape the start of every run.
+    fn applyShopStart(self: *@This()) !void {
+        for (0..self.prestige.shopLevel(.royal_meadow)) |_| try self.expandGrid();
+        try self.spawnExtraBees(prestige_mod.BEES_PER_BUSY_LEVEL * @as(u32, self.prestige.shopLevel(.busy_bees)));
+        if (self.prestige.shopLevel(.royal_retinue) > 0) try self.unlockRetinue();
+    }
+
+    fn spawnExtraBees(self: *@This(), count: u32) !void {
+        for (0..count) |_| {
+            _ = try spawners.spawnBee(&self.world, &self.grid, &self.textures);
+        }
+        self.cachedBeeCount = self.world.entityToBeeAI.count();
+        self.recountBeeTypes();
+    }
+
+    /// Grant the three bee-unlock nodes; they carry no effect beyond the
+    /// tree flag, so setting the level is the whole purchase.
+    fn unlockRetinue(self: *@This()) !void {
+        for (&upgrade_tree.NODES) |*node| {
+            switch (node.effect) {
+                .bee_unlock_swift, .bee_unlock_efficient, .bee_unlock_gardener => {
+                    if (!self.upgradeTree.isPurchased(node.id)) try self.upgradeTree.setLevel(node.id, 1);
+                },
+                else => {},
+            }
+        }
     }
 
     /// Wipe everything, including prestige, and overwrite the save on disk.
@@ -1182,6 +1234,7 @@ pub const Game = struct {
         spawners.beeLifespanMul = 1.0;
         lifespan_system.rotChancePercent = lifespan_system.ROT_CHANCE_PERCENT;
         ui.action_hud.setBulkTier(0);
+        try self.applyShopStart();
 
         self.cachedBeeCount = self.world.entityToBeeAI.count();
         self.cachedFlowerCount = self.world.entityToFlowerGrowth.count();
@@ -1323,9 +1376,11 @@ pub const Game = struct {
             .royal_jelly = self.prestige.royalJelly,
             .this_run_honey = self.prestige.thisRunHoney,
             .prestige_unlocked = self.prestige.hasUnlockedPrestige,
+            .jelly_spent = self.prestige.jellySpent,
             .aura_multiplier = self.labs.auraMul,
         };
         defer data.deinit(self.allocator);
+        for (self.prestige.shopLevels, 0..) |lvl, i| data.shop_levels[i] = lvl;
 
         var upgrade_it = self.upgradeTree.levels.iterator();
         while (upgrade_it.next()) |entry| {
@@ -1568,6 +1623,9 @@ pub const Game = struct {
         self.prestige.royalJelly = data.royal_jelly;
         self.prestige.thisRunHoney = finiteAtLeast(data.this_run_honey, 0, 0);
         self.prestige.hasUnlockedPrestige = data.prestige_unlocked or self.upgradeTree.hasEffect(.prestige_unlock);
+        self.prestige.jellySpent = data.jelly_spent;
+        for (&self.prestige.shopLevels, 0..) |*lvl, i| lvl.* = data.shop_levels[i];
+        self.prestige.sanitize();
         spawners.beeCostMul = self.prestige.costMul();
         spawners.superFlowersUnlocked = self.upgradeTree.hasEffect(.super_flower_unlock);
         bee_ai_system.gardenerPlantChance = bee_ai_system.gardenerChanceForLevel(self.upgradeTree.level(upgrade_tree.GREEN_THUMB_ID));

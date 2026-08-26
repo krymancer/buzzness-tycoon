@@ -40,6 +40,34 @@ pub fn drawSprout(cx: f32, baseY: f32, h: f32, color: rl.Color) void {
     }
 }
 
+/// Royal crown: a band with three spikes and a gem on each tip, centered on
+/// (cx, cy) with width `w` (height is about 0.8 * w). Prestige motif.
+pub fn drawCrown(cx: f32, cy: f32, w: f32, color: rl.Color, gem: rl.Color) void {
+    const h = w * 0.8;
+    const left = cx - w / 2;
+    const right = cx + w / 2;
+    const bandTop = cy + h * 0.15;
+    const bottom = cy + h / 2;
+    const tipY = cy - h / 2;
+    const midTipY = cy - h * 0.6;
+    // Band.
+    rl.drawRectangleRec(rl.Rectangle.init(left, bandTop, w, bottom - bandTop), color);
+    // Three spikes (both windings so culling can't hide one).
+    const spikes = [3][3]rl.Vector2{
+        .{ rl.Vector2.init(left, bandTop + 1), rl.Vector2.init(left, tipY), rl.Vector2.init(cx - w * 0.16, bandTop + 1) },
+        .{ rl.Vector2.init(cx - w * 0.28, bandTop + 1), rl.Vector2.init(cx, midTipY), rl.Vector2.init(cx + w * 0.28, bandTop + 1) },
+        .{ rl.Vector2.init(cx + w * 0.16, bandTop + 1), rl.Vector2.init(right, tipY), rl.Vector2.init(right, bandTop + 1) },
+    };
+    for (spikes) |p| {
+        rl.drawTriangle(p[0], p[1], p[2], color);
+        rl.drawTriangle(p[2], p[1], p[0], color);
+    }
+    const gemR = @max(1.5, w * 0.09);
+    rl.drawCircleV(rl.Vector2.init(left + gemR * 0.4, tipY), gemR, gem);
+    rl.drawCircleV(rl.Vector2.init(cx, midTipY), gemR * 1.2, gem);
+    rl.drawCircleV(rl.Vector2.init(right - gemR * 0.4, tipY), gemR, gem);
+}
+
 /// Same drop ringed with a dark outline, to match text.drawOutline glyphs.
 pub fn drawHoneyDropOutlined(cx: f32, cy: f32, r: f32, color: rl.Color, outline: rl.Color) void {
     drawHoneyDrop(cx, cy, r + 2, outline);

@@ -9,6 +9,7 @@ pub const PauseMenuAction = enum {
     continue_game,
     exit_game,
     options,
+    title_screen,
 };
 
 /// Draw pause menu overlay. Returns action taken by user.
@@ -18,7 +19,7 @@ pub fn draw(screenWidth: f32, screenHeight: f32) PauseMenuAction {
 
     // Popup dimensions
     const popupWidth: f32 = 360;
-    const popupHeight: f32 = 290;
+    const popupHeight: f32 = 346;
     const popupX: f32 = (screenWidth - popupWidth) / 2;
     const popupY: f32 = (screenHeight - popupHeight) / 2;
 
@@ -51,7 +52,6 @@ pub fn draw(screenWidth: f32, screenHeight: f32) PauseMenuAction {
     const buttonStartY = popupY + 102;
     const buttonSpacing: f32 = 56;
 
-    // Continue button
     if (widgets.button(rl.Rectangle.init(buttonX, buttonStartY, buttonWidth, buttonHeight), locale.tr("Continue", "Continuar"))) {
         return .continue_game;
     }
@@ -60,8 +60,11 @@ pub fn draw(screenWidth: f32, screenHeight: f32) PauseMenuAction {
         return .options;
     }
 
-    // Exit button
-    if (widgets.button(rl.Rectangle.init(buttonX, buttonStartY + buttonSpacing * 2, buttonWidth, buttonHeight), locale.tr("Exit Game", "Sair do jogo"))) {
+    if (widgets.button(rl.Rectangle.init(buttonX, buttonStartY + buttonSpacing * 2, buttonWidth, buttonHeight), locale.tr("Return to Title", "Voltar ao título"))) {
+        return .title_screen;
+    }
+
+    if (widgets.button(rl.Rectangle.init(buttonX, buttonStartY + buttonSpacing * 3, buttonWidth, buttonHeight), locale.tr("Exit Game", "Sair do jogo"))) {
         return .exit_game;
     }
 

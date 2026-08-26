@@ -99,8 +99,9 @@ pub const NODES = [_]Node{
     // Grid (col 1). Repeatable: +1 ring per level.
     .{ .id = 10, .name = "Grid Ring", .cost = 150, .prereqs = r_worker, .effect = .grid_expand, .value = 1, .col = 1, .row = 1, .repeat = .{ .cost_growth = 3.0, .max_level = 10 } },
     // (ids 11/12 were Grid +2/+3 ring — folded into 10's levels on load.)
-    // Level 1 adds x50 to the bee buy-quantity cycle; level 2 adds x100.
-    .{ .id = 32, .name = "Bulk Order", .cost = 3000, .prereqs = &[_]NodeId{10}, .effect = .bulk_buy_tier, .col = 1, .row = 2, .repeat = .{ .cost_growth = 4.0, .max_level = 2 } },
+    // Each level adds one step to the bee buy-quantity cycle: x50, x100,
+    // x500, x1000 (see action_hud.BUY_QTYS).
+    .{ .id = 32, .name = "Bulk Order", .cost = 3000, .prereqs = &[_]NodeId{10}, .effect = .bulk_buy_tier, .col = 1, .row = 2, .repeat = .{ .cost_growth = 4.0, .max_level = 4 } },
 
     // Storage (col 2). Repeatable: adds value * STORAGE_CAPACITY_GROWTH^level
     // capacity per level. cost_growth must never exceed the capacity growth:
@@ -276,6 +277,13 @@ test "night shift is buyable from the start and maxes at level 4" {
     try std.testing.expectApproxEqRel(@as(f32, 2000 * 1.8), night.costAtLevel(1), 1e-5);
     try std.testing.expect(!night.isMaxed(3));
     try std.testing.expect(night.isMaxed(4));
+}
+
+test "bulk order has one level per unlockable buy step" {
+    const action_hud = @import("ui/action_hud.zig");
+    const bulk = findNode(BULK_ORDER_ID).?;
+    // Three steps (x1/x10/x25) are always available; the rest come from levels.
+    try std.testing.expectEqual(action_hud.BUY_QTYS.len - 3, @as(usize, bulk.repeat.?.max_level));
 }
 
 test "state tracks levels and gates buying" {
