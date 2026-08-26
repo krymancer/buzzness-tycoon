@@ -115,8 +115,9 @@ The update phase runs ECS systems in this order:
    - 30% chance to spawn flower in empty cells
    - Ensures sustainable flower population
 
-5. **Scale Sync System**
-   - Synchronizes entity scales with grid zoom level
+(Bees are not entities: they live in the dense `bees.Store` on the World —
+see `src/bees.zig` and the "Colony scale" section of `docs/bee-system.md`.
+Their sprite scale is derived from the grid zoom at draw time.)
 
 6. **Honey Conversion**
    - Checks all bees for completed pollen deposits

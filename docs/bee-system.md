@@ -8,53 +8,74 @@
 > - Components: `BeeAI`, `Position`, `PollenCollector`, `Lifespan` in `src/ecs/components.zig`
 > - System: `bee_ai_system.zig` for current bee behavior
 
-## Current ECS Bee Behavior
+## Current Bee Behavior
 
 ### Overview
-Bees are entities with `BeeAI`, `Position`, `PollenCollector`, `Lifespan`, `Sprite`, and `ScaleSync` components. All behavior is handled by `bee_ai_system.zig`.
+Bees live in a dense struct-of-arrays store, `World.bees` (`src/bees.zig`),
+not in the entity/component tables: nothing refers to a bee by id, every
+bee carries the same fields (`Position`, `BeeAI`, `PollenCollector`,
+`Lifespan`) and the simulation touches all of them every frame, so a linear
+sweep with no hash lookups is the right shape. All behavior is in
+`bee_ai_system.zig`.
+
+### Colony scale (issue #59)
+- **Simulation cap** — at most `bees.SIM_CAP` (50,000) bees are simulated
+  individually. The store tracks the true colony size per type
+  (`population`); bees past the cap are *dormant*: counted, saved, shown in
+  the HUD and achievements, never iterated.
+- **Proportional representation** — the simulated mix follows the colony
+  (`bees.apportion`, largest-remainder rounding, at least one representative
+  of every owned type). Purchases past the cap and deaths mark the store
+  dirty; the bee system rebalances at the start of the next frame, retiring
+  idle bees first so no pollen in flight is lost.
+- **Why honey stays exact** — income is bounded by flower pollen (each
+  flower with pollen takes at most `MAX_BEES_PER_FLOWER` = 3 claims per
+  refill), not by bee count. The cap is above the claim slots of the largest
+  meadow, so a saturated colony earns exactly what the per-bee sim would.
+  Scaling a representative's delivery by `population / simulated` (the
+  "virtual bee" scheme) would instead multiply late-game income by that
+  factor. The one place weighting *is* used: a representative gardener's
+  planting roll is `1 - (1-p)^weight`, the chance that any of the gardeners
+  it stands for would have planted (`effectivePlantChance`).
+- **Meadow tether** — untargeted bees random-walk, but more than
+  `WANDER_MARGIN_TILES` (2) past the meadow's edge they turn back toward the
+  hive, so an idle swarm hovers over the field instead of tiling the window.
+- **Flower search** — the per-frame flower cache is sized for the largest
+  meadow and indexed by grid cell; a searching bee scans the 13x13 cells
+  around its own tile and falls back to a bounded random sample of the cache,
+  so search cost is independent of meadow size.
+- **Bench** — `just sim-bench [bees] [grid] [frames]` runs the update side
+  headlessly (`src/bench.zig`). 2026-08-26, ReleaseFast on a desktop Linux
+  box: 1M bees on 41x41 = 0.31 ms/frame; on 81x81 (Grid Ring 20 + Royal
+  Meadow 12) = 0.42 ms; on the 127x127 save guard = 0.67 ms. Honey/s is
+  identical for 50k and 1M bees and within noise of 5k bees (all three
+  saturate the meadow's flowers).
+- **Rendering** — `render_system` sweeps the store, frustum-culls and draws
+  at most 32,768 bees in three batched passes, all at the shared sprite
+  scale `gridScale / 3`.
+- **Save** — `bees <type> <count>` lines carry the whole colony; `bee` cell
+  lines only the simulated bees' tiles. Loading restores the cells, sets the
+  population from the counts (falling back to the cell sums for saves from
+  before the split) and rebalances.
 
 ### Key Features
-- **Per-frame flower caching** - Available flowers cached once per frame for O(1) lookups
-- **Scatter behavior** - Bees scatter for 2-4 seconds after collecting pollen
-- **Density limiting** - Maximum 2 bees per flower target
+- **Per-frame flower caching** - Available flowers cached every 4th frame, spatially indexed
+- **Stagger groups** - Each bee takes its full decision step every 4th frame (with a 4x delta) and interpolates in between
+- **Scatter behavior** - Bees dawdle 0.6-1.4 s after collecting pollen
+- **Density limiting** - Maximum 3 bees per flower target
 - **Beehive targeting** - Bees return to deposit pollen at the central beehive
-- **Life extension** - +50% lifespan when carrying pollen at death
-- **Pollination** - 10% chance to spawn flowers when flying over empty cells
+- **Life extension** - +50% lifespan when carrying pollen at death (bees are immortal by `config.bees_immortal`; aging is skipped entirely then)
+- **Pollination** - Gardeners plant on empty cells they cross (Green Thumb raises the chance); with Seed Scouts, idle gardeners seek out gaps and plant them for sure (rot → gaps → pollen)
 - **Search cooldown** - Prevents excessive flower searching when none available
 
 ### Pollen Collection and Deposit Flow
 
-1. **Flower Targeting**: Bees seek flowers with pollen (state 4) using cached flower list
+1. **Flower Targeting**: Bees seek the nearest flower with pollen (state 4) using the cell-indexed cache
 2. **Pollen Collection**: When close to flower (5px), collect pollen and enter scatter mode
-3. **Scatter**: Bees wander randomly for 2-4 seconds after collection to disperse
+3. **Scatter**: Bees wander briefly after collection to disperse
 4. **Beehive Targeting**: Bees carrying pollen target the cached beehive entity
 5. **Deposit**: When within 30 pixels of beehive, pollen is deposited
-6. **Honey Conversion**: Deposited pollen is converted to honey (multiplied by beehive factor)
-
-### Beehive System
-
-**Location:**
-- Beehive is spawned at grid center (8, 8) on 17x17 grid
-- Marked with `Beehive` component for easy identification
-- Has `GridPosition` and `Sprite` components
-- Can be upgraded to increase honey conversion factor
-
-**Pollen Deposit Mechanics:**
-- Bees with `carryingPollen = true` automatically target beehive
-- Beehive entity and position are cached on first lookup (never changes)
-- Movement uses exponential ease-out interpolation (leapFactor = 2.0)
-- Deposit occurs within 30-pixel radius
-- After deposit, bee resets and can target flowers again
-
-### Performance Optimizations
-
-The bee AI system includes several optimizations for handling 1000+ bees:
-
-1. **Per-frame flower cache** - `availableFlowers[]` array rebuilt once per frame
-2. **Flower target count HashMap** - O(1) density checks
-3. **Cached beehive entity and position** - Eliminates repeated lookups
-4. **Search cooldown** - Reduces unnecessary searches
-5. **Direct iterators** - `world.iterateBees()` avoids allocations
+6. **Honey Conversion**: Deposited pollen is converted to honey (multiplied by beehive factor, prestige and night factors)
 
 ### Configuration Values (Current)
 

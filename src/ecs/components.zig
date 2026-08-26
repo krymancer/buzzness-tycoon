@@ -48,19 +48,6 @@ pub const Sprite = struct {
     }
 };
 
-pub const Velocity = struct {
-    x: f32,
-    y: f32,
-
-    pub fn init(x: f32, y: f32) @This() {
-        return .{ .x = x, .y = y };
-    }
-
-    pub fn toVector2(self: @This()) rl.Vector2 {
-        return rl.Vector2.init(self.x, self.y);
-    }
-};
-
 pub const BeeAI = struct {
     targetEntity: ?u32,
     targetLocked: bool,
@@ -76,6 +63,9 @@ pub const BeeAI = struct {
     scatterTimer: f32,
     searchCooldown: f32,
     beeType: BeeType,
+    // Seed Scouts: the locked target is an empty tile to plant (targetEntity
+    // is null; targetGridX/Y hold the cell).
+    sowTarget: bool = false,
     // Cached target grid coords — lets the stagger-skip path compute world pos
     // without a HashMap lookup. Invalid when targetLocked == false.
     targetGridX: f32,
@@ -206,18 +196,6 @@ pub const PollenCollector = struct {
 
     pub fn collect(self: *@This(), amount: f32) void {
         self.pollenCollected += amount;
-    }
-};
-
-pub const ScaleSync = struct {
-    effectiveScale: f32,
-
-    pub fn init(scale: f32) @This() {
-        return .{ .effectiveScale = scale };
-    }
-
-    pub fn updateFromGrid(self: *@This(), baseScale: f32, gridScale: f32) void {
-        self.effectiveScale = baseScale * (gridScale / 3.0);
     }
 };
 

@@ -11,8 +11,10 @@ pub const EffectKind = enum {
     bee_unlock_efficient,
     bee_unlock_gardener,
     gardener_chance,
+    /// Composting: gardeners clear rot they cross and hunt down the rest.
     gardener_compost,
-    gardener_sweep,
+    /// Seed Scouts: idle gardeners seek out empty tiles and plant them.
+    gardener_sow,
     bulk_buy_tier,
     flower_growth_mul,
     bee_lifespan_mul,
@@ -89,7 +91,7 @@ pub const NODES = [_]Node{
     // Gardeners clear rotten flowers they fly over (then may replant there).
     .{ .id = 27, .name = "Composting", .cost = 6000, .prereqs = &[_]NodeId{26}, .effect = .gardener_compost, .col = -1, .row = 5 },
     // Gardeners actively seek out rotten flowers and fly there to clear them.
-    .{ .id = 28, .name = "Cleanup Crew", .cost = 15000, .prereqs = &[_]NodeId{27}, .effect = .gardener_sweep, .col = -1, .row = 6 },
+    .{ .id = 28, .name = "Seed Scouts", .cost = 15000, .prereqs = &[_]NodeId{27}, .effect = .gardener_sow, .col = -1, .row = 6 },
 
     // Growth (col 0, below Instant Grow which gates it). Repeatable: each
     // level shaves `value` seconds off the Instant Grow cooldown (floor 2s).
@@ -97,7 +99,7 @@ pub const NODES = [_]Node{
     // (ids 8/9 were Grow CD -3s/-6s — folded into 7's levels on load.)
 
     // Grid (col 1). Repeatable: +1 ring per level.
-    .{ .id = 10, .name = "Grid Ring", .cost = 150, .prereqs = r_worker, .effect = .grid_expand, .value = 1, .col = 1, .row = 1, .repeat = .{ .cost_growth = 3.0, .max_level = 10 } },
+    .{ .id = 10, .name = "Grid Ring", .cost = 150, .prereqs = r_worker, .effect = .grid_expand, .value = 1, .col = 1, .row = 1, .repeat = .{ .cost_growth = 3.0, .max_level = 20 } },
     // (ids 11/12 were Grid +2/+3 ring — folded into 10's levels on load.)
     // Each level adds one step to the bee buy-quantity cycle: x50, x100,
     // x500, x1000 (see action_hud.BUY_QTYS).
@@ -305,8 +307,11 @@ test "night shift is buyable from the start and maxes at level 4" {
 test "bulk order has one level per unlockable buy step" {
     const action_hud = @import("ui/action_hud.zig");
     const bulk = findNode(BULK_ORDER_ID).?;
-    // Three steps (x1/x10/x25) are always available; the rest come from levels.
-    try std.testing.expectEqual(action_hud.BUY_QTYS.len - 3, @as(usize, bulk.repeat.?.max_level));
+    // Three steps (x1/x10/x25) are always available; the tree adds one per
+    // level up to x1000, the Royal Shop's Wholesale Contract the rest.
+    try std.testing.expectEqual(action_hud.TREE_QTY_COUNT - action_hud.BASE_QTY_COUNT, @as(usize, bulk.repeat.?.max_level));
+    const prestige = @import("prestige.zig");
+    try std.testing.expectEqual(action_hud.BUY_QTYS.len - action_hud.TREE_QTY_COUNT, @as(usize, prestige.WHOLESALE_MAX_LEVEL));
 }
 
 test "state tracks levels and gates buying" {

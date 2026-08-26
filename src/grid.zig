@@ -5,6 +5,10 @@ const assets = @import("assets.zig");
 const ui_scale = @import("ui_scale.zig");
 const input = @import("input.zig");
 
+/// Largest meadow side the game accepts (save guard and the size of the
+/// per-cell scratch tables in the bee and render systems).
+pub const MAX_WIDTH: usize = 127;
+
 pub const Grid = struct {
     width: usize,
     height: usize,

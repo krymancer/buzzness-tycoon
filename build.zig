@@ -118,6 +118,26 @@ pub fn build(b: *std.Build) void {
     test_step.dependOn(&run_lib_unit_tests.step);
     test_step.dependOn(&run_exe_unit_tests.step);
 
+    // Headless simulation benchmark (see src/bench.zig):
+    //   zig build bench -Doptimize=ReleaseFast -- [bees] [grid] [frames]
+    const bench = b.addExecutable(.{
+        .name = "bench",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/bench.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    bench.root_module.linkLibrary(raylib_artifact);
+    bench.root_module.addImport("raylib", raylib);
+    bench.root_module.addImport("sprites", sprites_module);
+    bench.root_module.addImport("build_options", build_options_module);
+    bench.root_module.addIncludePath(b.path("."));
+    const run_bench = b.addRunArtifact(bench);
+    if (b.args) |args| run_bench.addArgs(args);
+    const bench_step = b.step("bench", "Run the headless bee simulation benchmark");
+    bench_step.dependOn(&run_bench.step);
+
     // Steamworks entry sheet (docs/achievements.md) generated from
     // src/achievements.zig so the partner-site data can't drift.
     const sheet_tool = b.addExecutable(.{

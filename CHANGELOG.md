@@ -1,5 +1,42 @@
 # Changelog
 
+## 0.3.1 — 2026-08-26
+
+### Performance: million-bee colonies — issue #59
+- **Dense bee store** (`src/bees.zig`): bees are no longer ECS entities.
+  Positions, AI state, pollen and lifespans live in one struct-of-arrays
+  list swept linearly every frame — no per-bee hash lookups anywhere
+  (simulation, rendering, saving, per-frame type census).
+- **Simulation cap with a dormant surplus**: at most 50,000 bees are
+  simulated; the rest of the colony is counted, saved and shown but not
+  iterated. The simulated mix stays proportional to the colony (at least one
+  of every owned type) and is rebalanced whenever purchases or deaths change
+  it. Honey is unchanged — income is bounded by flower pollen, and the cap
+  exceeds the claim slots of the largest meadow. Headless bench
+  (`just sim-bench`): 1M bees on a 41x41 meadow, 0.31 ms per update frame
+  (was ~262 ms per frame in the 2026-08-25 measurement).
+- **Bees stay on the meadow**: idle bees that wander more than two tiles
+  past the edge turn back toward the hive instead of blanketing the window.
+- **Flower search scales with the meadow**: the target cache is sized for
+  the largest grid (was capped at 512 flowers) and indexed by cell, so a
+  bee scans the tiles around it rather than the whole cache; flowers past
+  the first 512 are also drawn now, and off-screen flowers are culled.
+- **Caps raised**: colony ceiling 1,000,000,000 per type (was 100,000 per
+  type / 100,000 total on load); Grid Ring max level 10 → 20 and Royal
+  Meadow 8 → 12 (largest meadow 81x81). "Land Baron" (max out Grid Ring)
+  now requires level 20.
+- **Wholesale Contract** (Royal Shop, 300 RJ, x2 per level, 4 levels): one
+  more bulk-buy quantity step per level beyond Bulk Order's x1000 — x5000,
+  x10K, x50K, x100K bees per click. A prestige perk, so it survives runs.
+- **Seed Scouts** (bees branch, replaces Cleanup Crew at 15000): idle
+  gardeners seek out empty tiles and fly there to plant — rot first, gaps
+  second, pollen last. **Composting** now also does what Cleanup Crew did
+  (gardeners hunt rotten flowers). Saves that owned Cleanup Crew own Seed
+  Scouts.
+- Dev: `zig build bench -- [bees] [grid] [frames]` / `just sim-bench`
+  (headless update-side benchmark), `just swarm [bees]` (windowed run on a
+  staged 1M-bee save), `sim N` line in the debug readout.
+
 ## 0.3.0 — 2026-08-26
 
 ### Achievements (Steam) — issue #53

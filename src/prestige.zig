@@ -19,6 +19,10 @@ pub const ShopItem = enum(u8) {
     busy_bees,
     /// Every run starts with Swift, Efficient and Gardener bees unlocked.
     royal_retinue,
+    /// One more bulk-buy quantity step per level, on top of the Bulk Order
+    /// tree node (x5000 ... x100000 with both maxed). Appended last: shop
+    /// levels are saved by enum index.
+    wholesale_contract,
 };
 
 pub const SHOP_ITEM_COUNT = @typeInfo(ShopItem).@"enum".fields.len;
@@ -41,6 +45,8 @@ pub const ShopSpec = struct {
 pub const BLESSING_PER_LEVEL: f32 = 1.1;
 pub const REFINERY_PER_LEVEL: f32 = 0.1;
 pub const BEES_PER_BUSY_LEVEL: u32 = 8;
+/// Wholesale Contract levels: one per quantity step past the tree's x1000.
+pub const WHOLESALE_MAX_LEVEL: u16 = 4;
 
 /// Priced against a first prestige of ~500 RJ (the tree's Prestige node
 /// sits deep enough that the first run banks a few billion honey): one or
@@ -50,9 +56,10 @@ pub fn shopSpec(item: ShopItem) ShopSpec {
     return switch (item) {
         .queens_blessing => .{ .baseCost = 50, .costGrowth = 1.5, .maxLevel = 40 },
         .jelly_refinery => .{ .baseCost = 150, .costGrowth = 2.0, .maxLevel = 10 },
-        .royal_meadow => .{ .baseCost = 200, .costGrowth = 2.5, .maxLevel = 8 },
+        .royal_meadow => .{ .baseCost = 200, .costGrowth = 2.5, .maxLevel = 12 },
         .busy_bees => .{ .baseCost = 100, .costGrowth = 2.0, .maxLevel = 5 },
         .royal_retinue => .{ .baseCost = 400, .costGrowth = 1.0, .maxLevel = 1 },
+        .wholesale_contract => .{ .baseCost = 300, .costGrowth = 2.0, .maxLevel = WHOLESALE_MAX_LEVEL },
     };
 }
 

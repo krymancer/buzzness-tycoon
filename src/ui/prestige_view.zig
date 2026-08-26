@@ -11,6 +11,7 @@ const theme = @import("../theme.zig");
 const format = @import("../format.zig");
 const locale = @import("../localization.zig");
 const icons = @import("icons.zig");
+const action_hud = @import("action_hud.zig");
 const input = @import("../input.zig");
 const widgets = @import("widgets.zig");
 const clock = @import("../clock.zig");
@@ -36,7 +37,7 @@ pub const Context = struct {
     ascendUnlocked: bool,
 };
 
-const ITEMS = [_]prestige_mod.ShopItem{ .queens_blessing, .jelly_refinery, .royal_meadow, .busy_bees, .royal_retinue };
+const ITEMS = [_]prestige_mod.ShopItem{ .queens_blessing, .jelly_refinery, .royal_meadow, .busy_bees, .royal_retinue, .wholesale_contract };
 
 const ROW_H: f32 = 72;
 const FLASH_TIME: f32 = 0.45;
@@ -298,6 +299,11 @@ fn itemCopy(item: prestige_mod.ShopItem) ItemCopy {
             .desc = locale.tr("Swift, Efficient and Gardener bees unlocked from the start.", "Abelhas Veloz, Eficiente e Jardineira liberadas desde o início."),
             .accent = C.teal,
         },
+        .wholesale_contract => .{
+            .name = locale.tr("Wholesale Contract", "Contrato de Atacado"),
+            .desc = locale.tr("One more bulk-buy step per level, beyond Bulk Order: up to x100K bees per click.", "Um passo a mais de compra em massa por nível, além do Pedido em Massa: até x100K abelhas por clique."),
+            .accent = C.sapphire,
+        },
     };
 }
 
@@ -333,6 +339,15 @@ fn itemStatus(p: *const prestige_mod.PrestigeState, item: prestige_mod.ShopItem,
             return std.fmt.bufPrintZ(buf, "{s}: +{d} {s}  ·  {s}: +{d} {s}", .{ now, cur, bees, nxt, cur + prestige_mod.BEES_PER_BUSY_LEVEL, bees }) catch null;
         },
         .royal_retinue => return null,
+        .wholesale_contract => {
+            var b1: [16]u8 = undefined;
+            var b2: [16]u8 = undefined;
+            const upto = locale.tr("up to", "até");
+            const cur = action_hud.qtyLabel(action_hud.topQtyWithShopLevel(lvl), &b1);
+            if (maxed) return std.fmt.bufPrintZ(buf, "{s}: {s} {s}", .{ now, upto, cur }) catch null;
+            const next = action_hud.qtyLabel(action_hud.topQtyWithShopLevel(lvl + 1), &b2);
+            return std.fmt.bufPrintZ(buf, "{s}: {s} {s}  ·  {s}: {s} {s}", .{ now, upto, cur, nxt, upto, next }) catch null;
+        },
     }
 }
 
@@ -431,6 +446,12 @@ fn drawItemIcon(ctx: Context, item: prestige_mod.ShopItem, cx: f32, cy: f32, col
             drawBee(ctx, cx - 8, cy - 5, 20, if (dim) col else C.blue);
             drawBee(ctx, cx + 8, cy - 5, 20, if (dim) col else C.green);
             drawBee(ctx, cx, cy + 7, 20, if (dim) col else C.pink);
+        },
+        .wholesale_contract => {
+            // A crate of bees: a stacked pair with a small third on top.
+            drawBee(ctx, cx - 7, cy + 4, 22, col);
+            drawBee(ctx, cx + 7, cy + 4, 22, col);
+            drawBee(ctx, cx, cy - 7, 18, col);
         },
     }
 }

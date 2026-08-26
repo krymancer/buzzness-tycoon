@@ -54,17 +54,63 @@ pub const Action = union(enum) {
 /// Bee buy quantity, cycled by the cross's center button or LB/RB (persists
 /// for the session). Holding Shift while buying still bulk-buys x10+.
 /// The x50/x100/x500/x1000 steps unlock via the Bulk Order tree node, one
-/// per level.
-pub const BUY_QTYS = [_]u32{ 1, 10, 25, 50, 100, 500, 1000 };
+/// per level; the Royal Shop's Wholesale Contract adds one more step per
+/// level on top of that (x5000 ... x100000 with both maxed), and being a
+/// prestige perk it survives every run.
+pub const BUY_QTYS = [_]u32{ 1, 10, 25, 50, 100, 500, 1000, 5000, 10000, 50000, 100000 };
 pub const BASE_QTY_COUNT: usize = 3;
+/// Steps reachable from the tree alone (base + Bulk Order levels).
+pub const TREE_QTY_COUNT: usize = 7;
+var treeTier: u16 = 0;
+var shopTier: u16 = 0;
 var unlockedQtyCount: usize = BASE_QTY_COUNT;
 var buyQtyIndex: usize = 0;
 
 /// Sync the unlocked quantity steps with the Bulk Order node level
 /// (purchase, load, and run reset all funnel through here).
 pub fn setBulkTier(level: u16) void {
-    unlockedQtyCount = @min(BUY_QTYS.len, BASE_QTY_COUNT + level);
+    treeTier = level;
+    refreshUnlocked();
+}
+
+/// Sync with the Wholesale Contract shop level (purchase, load, run start).
+pub fn setShopTier(level: u16) void {
+    shopTier = level;
+    refreshUnlocked();
+}
+
+fn refreshUnlocked() void {
+    unlockedQtyCount = unlockedCountFor(treeTier, shopTier);
     if (buyQtyIndex >= unlockedQtyCount) buyQtyIndex = 0;
+}
+
+fn unlockedCountFor(tree: u16, shop: u16) usize {
+    return @min(BUY_QTYS.len, BASE_QTY_COUNT + @as(usize, tree) + @as(usize, shop));
+}
+
+/// Largest quantity step available at the current tree level with `shop`
+/// Wholesale Contract levels (the shop's "Now / Next" line).
+pub fn topQtyWithShopLevel(shop: u16) u32 {
+    return BUY_QTYS[unlockedCountFor(treeTier, shop) - 1];
+}
+
+/// Quantity label: "x1000", "x10K", "x100K" — keeps the biggest steps
+/// readable on the cross's center button.
+pub fn qtyLabel(qty: u32, buf: []u8) [:0]const u8 {
+    if (qty >= 10_000) return std.fmt.bufPrintZ(buf, "x{d}K", .{qty / 1000}) catch "x?";
+    return std.fmt.bufPrintZ(buf, "x{d}", .{qty}) catch "x?";
+}
+
+test "quantity steps: tree and shop levels stack, capped at the table" {
+    try std.testing.expectEqual(@as(usize, 3), unlockedCountFor(0, 0));
+    try std.testing.expectEqual(@as(usize, 7), unlockedCountFor(4, 0));
+    try std.testing.expectEqual(@as(usize, 7), unlockedCountFor(0, 4));
+    try std.testing.expectEqual(BUY_QTYS.len, unlockedCountFor(4, 4));
+    try std.testing.expectEqual(BUY_QTYS.len, unlockedCountFor(9, 9));
+    var buf: [16]u8 = undefined;
+    try std.testing.expectEqualStrings("x1000", qtyLabel(1000, &buf));
+    try std.testing.expectEqualStrings("x5000", qtyLabel(5000, &buf));
+    try std.testing.expectEqualStrings("x100K", qtyLabel(100000, &buf));
 }
 
 pub fn buyQty() u32 {
@@ -158,17 +204,18 @@ fn drawBeeCross(ctx: Context, mouse: rl.Vector2, out: *Action) void {
     // bee icons.
     // The label shrinks until it fits the center slot, so x100/x1000 never
     // spill over the bee slots on either side.
-    const qtyLabel = rl.textFormat("x%d", .{buyQty()});
+    var qbuf: [16]u8 = undefined;
+    const qtyText = qtyLabel(buyQty(), &qbuf);
     const maxLabelW: i32 = @intFromFloat(SLOT + 4);
     var qtySize: i32 = 42;
-    var qw = text.measure(qtyLabel, qtySize);
+    var qw = text.measure(qtyText, qtySize);
     while (qw > maxLabelW and qtySize > 22) {
         qtySize -= 2;
-        qw = text.measure(qtyLabel, qtySize);
+        qw = text.measure(qtyText, qtySize);
     }
     // Keep the number's optical center where the 42px version sat.
     const numY = ccy - 15 - @as(f32, @floatFromInt(qtySize)) / 2;
-    text.drawOutline(qtyLabel, @as(i32, @intFromFloat(ccx)) - @divFloor(qw, 2), @intFromFloat(numY), qtySize, if (hovered) C.peach else C.yellow, OUTLINE);
+    text.drawOutline(qtyText, @as(i32, @intFromFloat(ccx)) - @divFloor(qw, 2), @intFromFloat(numY), qtySize, if (hovered) C.peach else C.yellow, OUTLINE);
     const iconY = ccy - 2;
     if (input.gamepadActive()) {
         prompt_icons.draw(.pad_lb, ccx - PROMPT - 1, iconY, PROMPT);

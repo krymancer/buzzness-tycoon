@@ -11,7 +11,6 @@ const components = @import("ecs/components.zig");
 const Textures = @import("textures.zig").Textures;
 const Flowers = @import("textures.zig").Flowers;
 const Grid = @import("grid.zig").Grid;
-const scale_sync_system = @import("ecs/systems/scale_sync_system.zig");
 
 /// Flower costs for planting
 // All types play identically (pollen, growth, lifespan); the choice only
@@ -73,31 +72,34 @@ pub fn beeLifespanMulForLevel(level: u16) f32 {
     return std.math.pow(f32, BEE_LIFESPAN_PER_LEVEL, @floatFromInt(level));
 }
 
-/// Spawn a new bee at a random position within the grid bounds
-pub fn spawnBee(world: *World, grid: *const Grid, textures: *const Textures) !u32 {
-    return spawnBeeWithType(world, grid, textures, .worker);
+/// Fresh bee lifespan in seconds (base 60-140, stretched by Bee Vitality).
+pub fn newBeeLifespan() f32 {
+    return @as(f32, @floatFromInt(rl.getRandomValue(60, 140))) * beeLifespanMul;
 }
 
-/// Spawn a new bee of a specific type at a random position within the grid bounds
-pub fn spawnBeeWithType(world: *World, grid: *const Grid, textures: *const Textures, beeType: components.BeeType) !u32 {
-    const randomPos = grid.getRandomPositionInBounds();
+/// Add a worker to the colony (see spawnBeeWithType).
+pub fn spawnBee(world: *World, grid: *const Grid) !bool {
+    return spawnBeeWithType(world, grid, .worker);
+}
 
-    const beeEntity = try world.createEntity();
-    try world.addPosition(beeEntity, components.Position.init(randomPos.x, randomPos.y));
-    try world.addSprite(beeEntity, components.Sprite.init(textures.bee, 32, 32, 1));
-    try world.addBeeAI(beeEntity, components.BeeAI.initWithType(beeType));
-    try world.addLifespan(beeEntity, components.Lifespan.init(@as(f32, @floatFromInt(rl.getRandomValue(60, 140))) * beeLifespanMul));
-    try world.addPollenCollector(beeEntity, components.PollenCollector.init());
-    try world.addScaleSync(beeEntity, components.ScaleSync.init(1));
+/// Add a bee of `beeType` to the colony. While the simulation cap has room
+/// it appears at a random spot on the meadow; past it the bee is counted
+/// and the simulated mix re-proportions next frame (bees.zig). Returns
+/// false when the type is at its ceiling.
+pub fn spawnBeeWithType(world: *World, grid: *const Grid, beeType: components.BeeType) !bool {
+    syncMeadow(world, grid);
+    return world.bees.add(beeType);
+}
 
-    if (world.getScaleSync(beeEntity)) |scaleSync| {
-        scaleSync.updateFromGrid(1, grid.scale);
-    }
-
-    // Mark scale sync system dirty to ensure new entity gets updated
-    scale_sync_system.markDirty();
-
-    return beeEntity;
+/// Keep the bee store's idea of the meadow in step with the camera so
+/// spawns land on the field.
+pub fn syncMeadow(world: *World, grid: *const Grid) void {
+    world.bees.meadow = .{
+        .offset = grid.offset,
+        .scale = grid.scale,
+        .width = grid.width,
+        .height = grid.height,
+    };
 }
 
 /// Spawn a new flower at the specified grid position

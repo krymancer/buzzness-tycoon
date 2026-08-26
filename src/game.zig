@@ -2,6 +2,7 @@ const rl = @import("raylib");
 const std = @import("std");
 
 const Grid = @import("grid.zig").Grid;
+const grid_mod = @import("grid.zig");
 const Textures = @import("textures.zig").Textures;
 const Flowers = @import("textures.zig").Flowers;
 const assets = @import("assets.zig");
@@ -39,7 +40,7 @@ const components = @import("ecs/components.zig");
 const lifespan_system = @import("ecs/systems/lifespan_system.zig");
 const flower_growth_system = @import("ecs/systems/flower_growth_system.zig");
 const bee_ai_system = @import("ecs/systems/bee_ai_system.zig");
-const scale_sync_system = @import("ecs/systems/scale_sync_system.zig");
+const bees_mod = @import("bees.zig");
 const flower_spawning_system = @import("ecs/systems/flower_spawning_system.zig");
 const render_system = @import("ecs/systems/render_system.zig");
 
@@ -223,7 +224,7 @@ pub const Game = struct {
 
         // Spawn initial bees
         for (0..8) |_| {
-            _ = try spawners.spawnBee(&world, &grid, &textures);
+            _ = try spawners.spawnBee(&world, &grid);
         }
 
         const savePath = try save.path(allocator, env);
@@ -903,9 +904,8 @@ pub const Game = struct {
             .frameHoneyGain = &frameHoneyGain,
         });
         try flower_spawning_system.update(&self.world, deltaTime, self.grid.offset, self.grid.scale, self.gridWidth, self.gridHeight, self.textures);
-        scale_sync_system.update(&self.world, self.grid.scale);
 
-        self.cachedBeeCount = self.world.entityToBeeAI.count();
+        self.cachedBeeCount = @intCast(self.world.bees.total());
         self.cachedFlowerCount = self.world.entityToFlowerGrowth.count();
         self.recountBeeTypes();
 
@@ -957,7 +957,7 @@ pub const Game = struct {
 
         self.grid.draw(self.sky.worldTint());
 
-        try render_system.draw(&self.world, self.grid.offset, self.grid.scale, self.sky.worldTint(), self.upgradeTree.level(upgrade_tree.AURA_ID), self.labs.auraReach);
+        try render_system.draw(&self.world, self.grid.offset, self.grid.scale, self.sky.worldTint(), self.upgradeTree.level(upgrade_tree.AURA_ID), self.labs.auraReach, self.textures.bee);
 
         self.floatingTexts.draw(self.grid.offset, self.grid.scale);
 
@@ -1047,6 +1047,7 @@ pub const Game = struct {
             text.draw(rl.textFormat("%.2f ms", .{rl.getFrameTime() * 1000.0}), fpsX, 30, 20, rl.Color.white);
             text.draw(rl.textFormat("bees %d", .{@as(c_int, @intCast(@min(self.cachedBeeCount, std.math.maxInt(c_int))))}), fpsX, 52, 20, rl.Color.white);
             text.draw(rl.textFormat("flowers %d", .{@as(c_int, @intCast(@min(self.cachedFlowerCount, std.math.maxInt(c_int))))}), fpsX, 74, 20, rl.Color.white);
+            text.draw(rl.textFormat("sim %d", .{@as(c_int, @intCast(@min(self.world.bees.list.len, std.math.maxInt(c_int))))}), fpsX, 96, 20, rl.Color.white);
         }
 
         if (self.plantMenu.open) try self.drawAndHandlePlantMenu();
@@ -1116,32 +1117,18 @@ pub const Game = struct {
     /// Bee positions are screen-space; whenever the world shifts under them
     /// (pan, resize, grid growth) they must be carried by the same delta.
     fn translateBees(self: *@This(), delta: rl.Vector2) void {
-        var beeIter = self.world.iterateBees();
-        while (beeIter.next()) |entity| {
-            if (self.world.getPosition(entity)) |pos| {
-                pos.x += delta.x;
-                pos.y += delta.y;
-            }
-        }
+        self.world.bees.translate(delta);
     }
 
     /// Stretch every living bee's lifespan (Bee Vitality purchase / load).
     fn multiplyBeeLifespans(self: *@This(), factor: f32) void {
-        var it = self.world.iterateBees();
-        while (it.next()) |entity| {
-            if (self.world.getLifespan(entity)) |ls| ls.timeSpan *= factor;
-        }
+        self.world.bees.multiplyLifespans(factor);
     }
 
-    /// Refresh the per-type owned-bee counts shown on the shop cards.
+    /// Refresh the per-type owned-bee counts shown on the shop cards (the
+    /// whole colony, dormant bees included).
     fn recountBeeTypes(self: *@This()) void {
-        self.cachedBeeTypeCounts = .{ 0, 0, 0, 0 };
-        var it = self.world.iterateBees();
-        while (it.next()) |entity| {
-            const ai = self.world.getBeeAI(entity) orelse continue;
-            const index: usize = @intFromEnum(ai.beeType);
-            if (index < self.cachedBeeTypeCounts.len) self.cachedBeeTypeCounts[index] += 1;
-        }
+        for (self.world.bees.population, 0..) |n, i| self.cachedBeeTypeCounts[i] = n;
     }
 
     /// If honey was spent since `honeyBefore` (a purchase just succeeded),
@@ -1158,7 +1145,6 @@ pub const Game = struct {
             .world = &self.world,
             .resources = &self.resources,
             .grid = &self.grid,
-            .textures = &self.textures,
         };
     }
 
@@ -1236,6 +1222,7 @@ pub const Game = struct {
             .royal_meadow => try self.expandGrid(),
             .busy_bees => try self.spawnExtraBees(prestige_mod.BEES_PER_BUSY_LEVEL),
             .royal_retinue => try self.unlockRetinue(),
+            .wholesale_contract => ui.action_hud.setShopTier(self.prestige.shopLevel(.wholesale_contract)),
             .queens_blessing, .jelly_refinery => {},
         }
         self.saveProgress() catch |err| std.debug.print("Could not save shop purchase: {}\n", .{err});
@@ -1246,13 +1233,14 @@ pub const Game = struct {
         for (0..self.prestige.shopLevel(.royal_meadow)) |_| try self.expandGrid();
         try self.spawnExtraBees(prestige_mod.BEES_PER_BUSY_LEVEL * @as(u32, self.prestige.shopLevel(.busy_bees)));
         if (self.prestige.shopLevel(.royal_retinue) > 0) try self.unlockRetinue();
+        ui.action_hud.setShopTier(self.prestige.shopLevel(.wholesale_contract));
     }
 
     fn spawnExtraBees(self: *@This(), count: u32) !void {
         for (0..count) |_| {
-            _ = try spawners.spawnBee(&self.world, &self.grid, &self.textures);
+            _ = try spawners.spawnBee(&self.world, &self.grid);
         }
-        self.cachedBeeCount = self.world.entityToBeeAI.count();
+        self.cachedBeeCount = @intCast(self.world.bees.total());
         self.recountBeeTypes();
     }
 
@@ -1305,7 +1293,7 @@ pub const Game = struct {
             }
         }
         for (0..8) |_| {
-            _ = try spawners.spawnBee(&self.world, &self.grid, &self.textures);
+            _ = try spawners.spawnBee(&self.world, &self.grid);
         }
 
         self.resources = Resources.init();
@@ -1320,6 +1308,7 @@ pub const Game = struct {
         bee_ai_system.gardenerPlantChance = bee_ai_system.GARDENER_BASE_CHANCE;
         bee_ai_system.gardenerCompost = false;
         bee_ai_system.gardenerSweep = false;
+        bee_ai_system.gardenerSow = false;
         bee_ai_system.nightPenaltyScale = 1.0;
         flower_growth_system.growthMul = 1.0;
         spawners.beeLifespanMul = 1.0;
@@ -1327,7 +1316,7 @@ pub const Game = struct {
         ui.action_hud.setBulkTier(0);
         try self.applyShopStart();
 
-        self.cachedBeeCount = self.world.entityToBeeAI.count();
+        self.cachedBeeCount = @intCast(self.world.bees.total());
         self.cachedFlowerCount = self.world.entityToFlowerGrowth.count();
         self.recountBeeTypes();
         self.floatingTexts.items.clearRetainingCapacity();
@@ -1423,14 +1412,7 @@ pub const Game = struct {
         self.world.rebuildFlowerRegistry();
 
         // Shift cached target coords on locked bees so they don't chase stale tiles.
-        var beeAiIt = self.world.entityToBeeAI.iterator();
-        while (beeAiIt.next()) |entry| {
-            const ai = &self.world.beeAIs.items[entry.value_ptr.*];
-            if (ai.targetLocked) {
-                ai.targetGridX += 1.0;
-                ai.targetGridY += 1.0;
-            }
-        }
+        self.world.bees.shiftTargets(1.0, 1.0);
 
         // Cached beehive grid coords shifted — invalidate so caches refresh.
         bee_ai_system.resetCaches();
@@ -1482,8 +1464,11 @@ pub const Game = struct {
             .growth_cd_sub => self.resources.growthBoostMaxCooldown = @max(2.0, self.resources.growthBoostMaxCooldown - node.value),
             .bee_unlock_worker, .bee_unlock_swift, .bee_unlock_efficient, .bee_unlock_gardener => {},
             .gardener_chance => bee_ai_system.gardenerPlantChance = bee_ai_system.gardenerChanceForLevel(self.upgradeTree.level(nodeId) + 1),
-            .gardener_compost => bee_ai_system.gardenerCompost = true,
-            .gardener_sweep => bee_ai_system.gardenerSweep = true,
+            .gardener_compost => {
+                bee_ai_system.gardenerCompost = true;
+                bee_ai_system.gardenerSweep = true;
+            },
+            .gardener_sow => bee_ai_system.gardenerSow = true,
             .night_penalty_sub => bee_ai_system.nightPenaltyScale = bee_ai_system.nightPenaltyScaleForLevel(self.upgradeTree.level(nodeId) + 1),
             .bulk_buy_tier => ui.action_hud.setBulkTier(self.upgradeTree.level(nodeId) + 1),
             .flower_growth_mul => flower_growth_system.growthMul = flower_growth_system.growthMulForLevel(self.upgradeTree.level(nodeId) + 1),
@@ -1552,21 +1537,20 @@ pub const Game = struct {
             }
         }
 
-        // Aggregate bees per grid cell so the save stays bounded by occupied
-        // tiles, not colony size. Grid coords are pan/zoom/window invariant.
+        // The count lines carry the whole colony (dormant bees included);
+        // the simulated bees are aggregated per grid cell so the save stays
+        // bounded by occupied tiles. Grid coords are pan/zoom/window invariant.
+        for (self.world.bees.population, 0..) |n, i| data.bee_counts[i] = n;
+
         const CellKey = struct { bee_type: u8, x: i32, y: i32 };
         var cells = std.AutoHashMap(CellKey, u32).init(self.allocator);
         defer cells.deinit();
 
         const margin: f32 = @floatFromInt(BEE_CELL_MARGIN);
         const maxCoord: f32 = @as(f32, @floatFromInt(self.gridWidth)) + margin;
-        var bee_it = self.world.iterateBees();
-        while (bee_it.next()) |entity| {
-            const ai = self.world.getBeeAI(entity) orelse continue;
-            const pos = self.world.getPosition(entity) orelse continue;
+        const beeSlice = self.world.bees.list.slice();
+        for (beeSlice.items(.pos), beeSlice.items(.ai)) |pos, ai| {
             const index: usize = @intFromEnum(ai.beeType);
-            if (index >= data.bee_counts.len or data.bee_counts[index] >= save.MAX_BEES_PER_TYPE) continue;
-            data.bee_counts[index] += 1;
             const gridPos = utils.worldToGrid(pos.toVector2(), self.grid.offset, self.grid.scale);
             // Strays that wandered far off the meadow fold back to its rim.
             const key = CellKey{
@@ -1621,16 +1605,14 @@ pub const Game = struct {
         defer data.deinit(self.allocator);
 
         if (data.grid_width < INITIAL_GRID_WIDTH or data.grid_height < INITIAL_GRID_HEIGHT or
-            data.grid_width != data.grid_height or data.grid_width > 127 or data.grid_width % 2 == 0)
+            data.grid_width != data.grid_height or data.grid_width > grid_mod.MAX_WIDTH or data.grid_width % 2 == 0)
         {
             return error.InvalidSave;
         }
 
-        var total_bees: u32 = 0;
-        for (data.bee_counts) |count| {
-            total_bees = std.math.add(u32, total_bees, count) catch return error.SaveTooLarge;
-            if (total_bees > save.MAX_BEES_PER_TYPE) return error.SaveTooLarge;
-        }
+        var total_bees: u64 = 0;
+        for (data.bee_counts) |count| total_bees += count;
+        if (total_bees > save.MAX_BEES) return error.SaveTooLarge;
 
         locale.set(switch (data.language) {
             1 => .portuguese_br,
@@ -1699,52 +1681,44 @@ pub const Game = struct {
             }
         }
 
-        if (data.bee_cells.items.len > 0) {
-            // Restore the colony's spatial distribution: each cell's bees are
-            // scattered within their saved tile instead of respawning the
-            // whole colony in a random pile.
-            var restored: usize = 0;
-            outer: for (data.bee_cells.items) |cell| {
-                const bee_type: components.BeeType = switch (cell.bee_type) {
-                    0 => .worker,
-                    1 => .swift,
-                    2 => .efficient,
-                    3 => .gardener,
-                    else => continue,
-                };
-                const maxCoord = @as(i32, @intCast(self.gridWidth)) + BEE_CELL_MARGIN;
-                const cellX: f32 = @floatFromInt(std.math.clamp(cell.x, -BEE_CELL_MARGIN, maxCoord));
-                const cellY: f32 = @floatFromInt(std.math.clamp(cell.y, -BEE_CELL_MARGIN, maxCoord));
-                for (0..cell.count) |_| {
-                    if (restored >= save.MAX_BEES) break :outer;
-                    restored += 1;
-                    const entity = try spawners.spawnBeeWithType(&self.world, &self.grid, &self.textures, bee_type);
-                    if (self.world.getPosition(entity)) |pos| {
-                        const gx = cellX + @as(f32, @floatFromInt(rl.getRandomValue(0, 99))) / 100.0;
-                        const gy = cellY + @as(f32, @floatFromInt(rl.getRandomValue(0, 99))) / 100.0;
-                        const screenPos = utils.isoToXY(gx, gy, self.grid.tileWidth, self.grid.tileHeight, self.grid.offset.x, self.grid.offset.y, self.grid.scale);
-                        pos.x = screenPos.x;
-                        pos.y = screenPos.y;
-                    }
-                    self.staggerBeeSearch(entity);
-                }
-            }
-        } else {
-            // Old saves only stored counts; positions are re-rolled.
-            for (data.bee_counts, 0..) |count, index| {
-                const bee_type: components.BeeType = switch (index) {
-                    0 => .worker,
-                    1 => .swift,
-                    2 => .efficient,
-                    3 => .gardener,
-                    else => unreachable,
-                };
-                for (0..count) |_| {
-                    const entity = try spawners.spawnBeeWithType(&self.world, &self.grid, &self.textures, bee_type);
-                    self.staggerBeeSearch(entity);
-                }
+        // Colony size per type comes from the count lines (which include
+        // dormant bees); saves from before the cohort split only summed
+        // their cell lines, so those are the fallback.
+        var cellSums: [bees_mod.TYPE_COUNT]u64 = @splat(0);
+        for (data.bee_cells.items) |cell| {
+            if (cell.bee_type < bees_mod.TYPE_COUNT) cellSums[cell.bee_type] += cell.count;
+        }
+
+        // Simulated bees keep their saved spatial distribution: each cell's
+        // bees are scattered within their tile instead of respawning the
+        // whole swarm in a random pile. (Old saves have no cells; their
+        // bees are placed by the rebalance below.)
+        spawners.syncMeadow(&self.world, &self.grid);
+        outer: for (data.bee_cells.items) |cell| {
+            const bee_type: components.BeeType = switch (cell.bee_type) {
+                0 => .worker,
+                1 => .swift,
+                2 => .efficient,
+                3 => .gardener,
+                else => continue,
+            };
+            const maxCoord = @as(i32, @intCast(self.gridWidth)) + BEE_CELL_MARGIN;
+            const cellX: f32 = @floatFromInt(std.math.clamp(cell.x, -BEE_CELL_MARGIN, maxCoord));
+            const cellY: f32 = @floatFromInt(std.math.clamp(cell.y, -BEE_CELL_MARGIN, maxCoord));
+            for (0..cell.count) |_| {
+                if (self.world.bees.list.len >= bees_mod.SIM_CAP) break :outer;
+                const gx = cellX + @as(f32, @floatFromInt(rl.getRandomValue(0, 99))) / 100.0;
+                const gy = cellY + @as(f32, @floatFromInt(rl.getRandomValue(0, 99))) / 100.0;
+                const screenPos = utils.isoToXY(gx, gy, self.grid.tileWidth, self.grid.tileHeight, self.grid.offset.x, self.grid.offset.y, self.grid.scale);
+                _ = try self.world.bees.spawnSimulated(bee_type, screenPos);
             }
         }
+        for (0..bees_mod.TYPE_COUNT) |t| {
+            const n: u64 = @max(@as(u64, data.bee_counts[t]), cellSums[t]);
+            self.world.bees.setPopulation(@enumFromInt(t), @intCast(@min(n, bees_mod.MAX_PER_TYPE)));
+        }
+        try self.world.rebalanceBees();
+        self.staggerBeeSearches();
 
         self.resources.honey = finiteAtLeast(data.honey, 0, 100);
         self.resources.honeyCapacity = finiteAtLeast(data.honey_capacity, 1, 500);
@@ -1796,12 +1770,14 @@ pub const Game = struct {
         spawners.superFlowersUnlocked = self.upgradeTree.hasEffect(.super_flower_unlock);
         bee_ai_system.gardenerPlantChance = bee_ai_system.gardenerChanceForLevel(self.upgradeTree.level(upgrade_tree.GREEN_THUMB_ID));
         bee_ai_system.gardenerCompost = self.upgradeTree.hasEffect(.gardener_compost);
-        bee_ai_system.gardenerSweep = self.upgradeTree.hasEffect(.gardener_sweep);
+        bee_ai_system.gardenerSweep = self.upgradeTree.hasEffect(.gardener_compost);
+        bee_ai_system.gardenerSow = self.upgradeTree.hasEffect(.gardener_sow);
         bee_ai_system.nightPenaltyScale = bee_ai_system.nightPenaltyScaleForLevel(self.upgradeTree.level(upgrade_tree.NIGHT_SHIFT_ID));
         flower_growth_system.growthMul = flower_growth_system.growthMulForLevel(self.upgradeTree.level(upgrade_tree.FERTILE_SOIL_ID));
         spawners.beeLifespanMul = spawners.beeLifespanMulForLevel(self.upgradeTree.level(upgrade_tree.BEE_VITALITY_ID));
         lifespan_system.rotChancePercent = lifespan_system.rotChanceForLevel(self.upgradeTree.level(upgrade_tree.HARDY_BLOOMS_ID));
         ui.action_hud.setBulkTier(self.upgradeTree.level(upgrade_tree.BULK_ORDER_ID));
+        ui.action_hud.setShopTier(self.prestige.shopLevel(.wholesale_contract));
         // The bees above were respawned with base lifespans before the tree
         // was applied; stretch them to the boosted span now.
         if (spawners.beeLifespanMul != 1.0) self.multiplyBeeLifespans(spawners.beeLifespanMul);
@@ -1812,7 +1788,7 @@ pub const Game = struct {
         else
             0;
 
-        self.cachedBeeCount = self.world.entityToBeeAI.count();
+        self.cachedBeeCount = @intCast(self.world.bees.total());
         self.cachedFlowerCount = self.world.entityToFlowerGrowth.count();
         self.recountBeeTypes();
         self.cachedHoneyFactor = self.getBeehiveHoneyFactor();
@@ -1820,11 +1796,11 @@ pub const Game = struct {
         self.autosaveTimer = 0;
     }
 
-    /// Randomize a restored bee's first flower search. Loaded bees all start
-    /// with no target; at large populations, the whole colony scanning the
-    /// flower cache on the same frames is a visible post-load hitch.
-    fn staggerBeeSearch(self: *@This(), entity: u32) void {
-        if (self.world.getBeeAI(entity)) |ai| {
+    /// Randomize the restored bees' first flower search. Loaded bees all
+    /// start with no target; at large populations, the whole swarm scanning
+    /// the flower cache on the same frames is a visible post-load hitch.
+    fn staggerBeeSearches(self: *@This()) void {
+        for (self.world.bees.list.items(.ai)) |*ai| {
             ai.searchCooldown = @as(f32, @floatFromInt(rl.getRandomValue(0, 100))) / 100.0;
         }
     }

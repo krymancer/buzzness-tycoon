@@ -19,7 +19,7 @@ achievements get progress bars.
 | `lifetime_honey` | FLOAT | Honey earned by the colony, ever (survives prestige). |
 | `prestige_count` | INT | Times the player has prestiged. |
 | `super_flowers_merged` | INT | SUPER flowers merged, lifetime. |
-| `rotten_cleared` | INT | Rotten flowers cleared by gardener bees (Composting / Cleanup Crew). |
+| `rotten_cleared` | INT | Rotten flowers cleared by gardener bees (Composting). |
 | `max_bees_alive` | INT | High-water mark of live bees. |
 
 Steamworks settings for every stat: *Increment only* = yes, *Max change* = unset, *Default* = 0.
