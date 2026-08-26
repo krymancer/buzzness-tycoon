@@ -32,6 +32,14 @@ crown_asset() { # W  -> path of a scaled crown sprite, or "" to use the fallback
 jelly_asset() {
   [ -f sprites/royal_jelly.png ] && sprite sprites/royal_jelly.png "$(($1 * 100 / 32))" || echo ""
 }
+# Honey milestones show a honey jar when sprites/honey_jar.png exists (the
+# "Yummy Food" pack, paid tier for commercial use — not redistributable, so
+# it's gitignored); the beehive is the fallback.
+if [ -f sprites/honey_jar.png ]; then
+  JAR=sprites/honey_jar.png; JAR_SCALE=440
+else
+  JAR="$WORK/beehive.png"; JAR_SCALE=460
+fi
 
 # tint SRC COLOR OUT — multiply the sprite by a colour, keeping its alpha
 # (how the game tints the bee sprite per bee type).
@@ -125,10 +133,10 @@ GRAPE='#b48ef0'; EMBER='#d8843a'; NIGHT='#1c1a3c'; ALARM='#e87a95'
 bg() { echo "$1"; }
 
 # ---- honey milestones ---------------------------------------------------------
-icon first_drop     $(bg "$BRONZE") \( "$(sprite "$WORK/beehive.png" 460)" \) -gravity center -geometry +0-30 -composite \( "$(label_png 1K 64)" \) -gravity south -geometry +0+10 -composite
-icon local_business $(bg "$HONEY")  \( "$(sprite "$WORK/beehive.png" 460)" \) -gravity center -geometry +0-30 -composite \( "$(label_png 100K 58)" \) -gravity south -geometry +0+12 -composite
-icon liquid_gold    $(bg "$GOLD")   \( "$(sprite "$WORK/beehive.png" 460)" \) -gravity center -geometry +0-30 -composite \( "$(label_png 1M 64)" \) -gravity south -geometry +0+10 -composite
-icon bee_llionaire  $(bg "$DIAMOND") \( "$(sprite "$WORK/beehive.png" 460)" \) -gravity center -geometry +0-30 -composite \( "$(label_png 1B 64)" \) -gravity south -geometry +0+10 -composite
+icon first_drop     $(bg "$BRONZE") \( "$(sprite "$JAR" "$JAR_SCALE")" \) -gravity center -geometry +0-30 -composite \( "$(label_png 1K 64)" \) -gravity south -geometry +0+10 -composite
+icon local_business $(bg "$HONEY")  \( "$(sprite "$JAR" "$JAR_SCALE")" \) -gravity center -geometry +0-30 -composite \( "$(label_png 100K 58)" \) -gravity south -geometry +0+12 -composite
+icon liquid_gold    $(bg "$GOLD")   \( "$(sprite "$JAR" "$JAR_SCALE")" \) -gravity center -geometry +0-30 -composite \( "$(label_png 1M 64)" \) -gravity south -geometry +0+10 -composite
+icon bee_llionaire  $(bg "$DIAMOND") \( "$(sprite "$JAR" "$JAR_SCALE")" \) -gravity center -geometry +0-30 -composite \( "$(label_png 1B 64)" \) -gravity south -geometry +0+10 -composite
 
 # ---- super flowers ------------------------------------------------------------
 # Super Bloom: one SUPER (double-size) rose with sparkles.

@@ -42,3 +42,6 @@ steam_appid.txt
 libsteam_api.so
 libsteam_api.dylib
 steam_api64.dll
+
+# Third-party paid asset (Yummy Food pack): used by the achievement icons, not redistributable
+sprites/honey_jar.png
