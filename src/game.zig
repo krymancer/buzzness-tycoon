@@ -31,6 +31,7 @@ const input = @import("input.zig");
 const widgets = @import("ui/widgets.zig");
 const achievements = @import("achievements.zig");
 const steam = @import("steam.zig");
+const build_options = @import("build_options");
 
 const World = @import("ecs/world.zig").World;
 const components = @import("ecs/components.zig");
@@ -1037,12 +1038,15 @@ pub const Game = struct {
             }
         }
 
-        // Dev FPS/frametime readout, hidden by default. BT_SHOW_DEBUG enables
-        // it. (frameTime is still computed below for metrics.)
-        if (self.env.get("BT_SHOW_DEBUG") != null) {
-            const fpsX = @as(i32, @intFromFloat(self.width - 130));
+        // Dev FPS/frametime/entity readout, hidden by default. BT_SHOW_DEBUG
+        // or a -Dshow_debug build enables it. (frameTime is still computed
+        // below for metrics.)
+        if (self.env.get("BT_SHOW_DEBUG") != null or build_options.show_debug) {
+            const fpsX = @as(i32, @intFromFloat(self.width - 190));
             rl.drawFPS(fpsX, 10);
             text.draw(rl.textFormat("%.2f ms", .{rl.getFrameTime() * 1000.0}), fpsX, 30, 20, rl.Color.white);
+            text.draw(rl.textFormat("bees %d", .{@as(c_int, @intCast(@min(self.cachedBeeCount, std.math.maxInt(c_int))))}), fpsX, 52, 20, rl.Color.white);
+            text.draw(rl.textFormat("flowers %d", .{@as(c_int, @intCast(@min(self.cachedFlowerCount, std.math.maxInt(c_int))))}), fpsX, 74, 20, rl.Color.white);
         }
 
         if (self.plantMenu.open) try self.drawAndHandlePlantMenu();

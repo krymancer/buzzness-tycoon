@@ -27,8 +27,12 @@ pub fn build(b: *std.Build) void {
         const trimmed = std.mem.trim(u8, out, " \n\r\t");
         break :blk if (code == 0 and trimmed.len > 0) trimmed else "dev";
     };
+    // -Dshow_debug=true bakes the FPS/frametime/entity readout on (for perf
+    // builds handed to testers on Windows, where BT_SHOW_DEBUG is awkward).
+    const show_debug = b.option(bool, "show_debug", "Always show the FPS/frametime readout") orelse false;
     const build_options = b.addOptions();
     build_options.addOption([]const u8, "version", version);
+    build_options.addOption(bool, "show_debug", show_debug);
     const build_options_module = build_options.createModule();
 
     const exe = b.addExecutable(.{
