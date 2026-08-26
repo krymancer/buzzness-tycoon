@@ -70,6 +70,30 @@ pub fn main(init: std.process.Init) !void {
 
     try w.writeAll(
         \\
+        \\### Copy/paste blocks (one per Steamworks achievement form)
+        \\
+        \\Language dropdown on the form: *English* first, then *Add language → Portuguese - Brazil*.
+        \\
+    );
+    for (&achievements.DEFS, 1..) |*d, n| {
+        try w.print("**{d}. `{s}`**{s}\n```\n", .{ n, d.api, if (d.hidden) " (hidden)" else "" });
+        try w.print("API name:             {s}\n", .{d.api});
+        try w.print("Display name (EN):    {s}\n", .{d.name_en});
+        try w.print("Description (EN):     {s}\n", .{d.desc_en});
+        try w.print("Display name (PT-BR): {s}\n", .{d.name_pt});
+        try w.print("Description (PT-BR):  {s}\n", .{d.desc_pt});
+        try w.print("Hidden:               {s}\n", .{if (d.hidden) "yes" else "no"});
+        if (d.progress) |p| {
+            try w.print("Progress stat:        {s}, min 0, max {d}\n", .{ p.stat.api(), @as(u64, @intFromFloat(p.target)) });
+        } else {
+            try w.writeAll("Progress stat:        none\n");
+        }
+        try w.print("Achieved icon:        steam/achievements/icons/unlocked/{s}.png\n", .{d.api});
+        try w.print("Unachieved icon:      steam/achievements/icons/locked/{s}.png\n", .{d.api});
+        try w.writeAll("```\n\n");
+    }
+    try w.writeAll(
+        \\
         \\Icons: `steam/achievements/icons/unlocked/<api>.png` and
         \\`steam/achievements/icons/locked/<api>.png` (64×64, PNG); 256×256
         \\masters sit in `icons/256/`. `contact_sheet.png` shows the whole set.
