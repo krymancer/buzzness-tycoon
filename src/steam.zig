@@ -2,8 +2,8 @@
 //!
 //! The SDK is never linked: on startup we try to dlopen the redistributable
 //! `libsteam_api.so` / `steam_api64.dll` / `libsteam_api.dylib` sitting next
-//! to the executable (the depot ships it; dev builds drop it in the repo
-//! root). If the library is missing, Steam isn't running, or the app isn't
+//! to the executable (the depot ships it; dev runs from the repo root find it
+//! in steam/redist/). If the library is missing, Steam isn't running, or the app isn't
 //! owned, every call here is a silent no-op and the game plays exactly as
 //! before — achievements still unlock locally (save file + toast).
 //!
