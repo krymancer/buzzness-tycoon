@@ -1198,7 +1198,7 @@ pub const Game = struct {
         }
     }
 
-    fn doPrestige(self: *@This(), gain: u32) !void {
+    fn doPrestige(self: *@This(), gain: u64) !void {
         self.prestige.resetRun(gain);
         // Royal jelly alone can't recover the run count (sqrt-based), so
         // prestiges are counted here.
@@ -1350,7 +1350,7 @@ pub const Game = struct {
             .beeTypeCounts = beeTypes,
             .superFlowersAlive = superAlive,
             .superTypesAlive = superTypes,
-            .availableJelly = self.prestige.availableJelly(),
+            .availableJelly = @intCast(@min(self.prestige.availableJelly(), std.math.maxInt(u32))),
             .largestPurchase = self.largestPurchase,
             .allOneShotNodesOwned = self.upgradeTree.allOneShotsOwned(),
             .gridRingLevel = self.upgradeTree.level(10),

@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.3.2 — 2026-08-26
+
+### Fixes
+- **Ascend showed "Royal Jelly gained +0"** (and stayed disabled) once a
+  run passed roughly 4.6e22 honey: the gain was clamped to `maxInt(u32)`
+  as an f32, which rounds up to 2^32 and is out of range — in release
+  builds that conversion read as 0. Royal Jelly is now a 64-bit counter
+  (lifetime and spent), the gain is computed in f64, and saves with the
+  larger numbers load in place.
+
 ## 0.3.1 — 2026-08-26
 
 ### Performance: million-bee colonies — issue #59
