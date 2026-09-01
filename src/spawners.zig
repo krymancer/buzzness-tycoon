@@ -72,9 +72,17 @@ pub fn beeLifespanMulForLevel(level: u16) f32 {
     return std.math.pow(f32, BEE_LIFESPAN_PER_LEVEL, @floatFromInt(level));
 }
 
-/// Fresh bee lifespan in seconds (base 60-140, stretched by Bee Vitality).
+/// Fresh bee lifespan range in seconds. Bees are mortal (#69): the base is
+/// long enough that a colony is not a re-buy treadmill (a 10-honey worker
+/// outlives the seconds it takes to afford another by two orders of
+/// magnitude), and a bee that dies carrying pollen spends it on +50% more
+/// life instead (bees.Store.age), so busy bees last well past this.
+pub const BEE_LIFESPAN_MIN_S: i32 = 480;
+pub const BEE_LIFESPAN_MAX_S: i32 = 960;
+
+/// Fresh bee lifespan in seconds, stretched by Bee Vitality.
 pub fn newBeeLifespan() f32 {
-    return @as(f32, @floatFromInt(rl.getRandomValue(60, 140))) * beeLifespanMul;
+    return @as(f32, @floatFromInt(rl.getRandomValue(BEE_LIFESPAN_MIN_S, BEE_LIFESPAN_MAX_S))) * beeLifespanMul;
 }
 
 /// Add a worker to the colony (see spawnBeeWithType).
