@@ -31,9 +31,9 @@ pub const Context = struct {
     screenHeight: f32,
     prestige: *const prestige_mod.PrestigeState,
     textures: *const Textures,
-    /// The Prestige tree node is owned in the current run. The panel (and
-    /// shop) opens once prestige was ever unlocked; ascending again needs
-    /// the node re-bought each run.
+    /// The Prestige tree node is owned in the current run. The panel opens
+    /// once prestige was ever unlocked; ascending again and buying from the
+    /// Royal Shop both need the node re-bought each run.
     ascendUnlocked: bool,
 };
 
@@ -249,10 +249,15 @@ fn drawSparkles(x: f32, y: f32, w: f32, h: f32, now: f32, alpha: u8) void {
 fn drawShopCard(ctx: Context, x: f32, y: f32, w: f32, h: f32, out: *Action) void {
     const C = theme.CatppuccinMocha.Color;
     cardFrame(x, y, w, h, locale.tr("Royal Shop", "Loja Real"), C.mauve);
-    // Latin-1 font atlas: no em dash.
-    const hint = locale.tr("Permanent · survives every prestige", "Permanente · sobrevive a todo prestígio");
+    // Latin-1 font atlas: no em dash. Until the run owns the Prestige node
+    // the shop is browse-only and the corner hint says why.
+    const hint = if (ctx.ascendUnlocked)
+        locale.tr("Permanent · survives every prestige", "Permanente · sobrevive a todo prestígio")
+    else
+        locale.tr("Buy Prestige in the upgrade tree to shop this run.", "Compre Prestígio na árvore para comprar nesta partida.");
+    const hintCol = if (ctx.ascendUnlocked) C.overlay1 else C.peach;
     const hw = text.measure(hint, 14);
-    text.draw(hint, @as(i32, @intFromFloat(x + w - 16)) - hw, @intFromFloat(y + 16), 14, C.overlay1);
+    text.draw(hint, @as(i32, @intFromFloat(x + w - 16)) - hw, @intFromFloat(y + 16), 14, hintCol);
 
     const mouse = input.pointerPos();
     var ry = y + 48;
@@ -358,7 +363,7 @@ fn drawShopRow(ctx: Context, item: prestige_mod.ShopItem, x: f32, y: f32, w: f32
     const lvl = p.shopLevel(item);
     const spec = prestige_mod.shopSpec(item);
     const maxed = spec.isMaxed(lvl);
-    const afford = p.canBuyShop(item);
+    const afford = p.canBuyShop(item) and ctx.ascendUnlocked;
     const rect = rl.Rectangle.init(x, y, w, h);
     const hovered = rl.checkCollisionPointRec(mouse, rect);
 

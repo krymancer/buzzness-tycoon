@@ -68,7 +68,12 @@ pub const Resources = struct {
 
     pub fn spendHoney(self: *@This(), amount: f32) bool {
         if (self.honey >= amount) {
-            self.honey -= amount;
+            // A run past the f32 economy holds inf honey (#64), and an
+            // inf-priced upgrade would leave inf - inf = NaN behind, which
+            // fails every later comparison. An infinite stockpile stays
+            // infinite instead.
+            const left = self.honey - amount;
+            self.honey = if (std.math.isNan(left)) self.honey else left;
             if (amount > 0) self.spendCount +%= 1;
             return true;
         }

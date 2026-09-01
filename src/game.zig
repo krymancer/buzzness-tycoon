@@ -1025,6 +1025,7 @@ pub const Game = struct {
                 .resources = &self.resources,
                 .textures = &self.textures,
                 .prestigeCostMul = self.prestige.costMul(),
+                .ascensions = self.stats.prestigeCount,
             };
             const treeAction = ui.tree_view.draw(treeCtx);
             switch (treeAction) {
@@ -1194,7 +1195,10 @@ pub const Game = struct {
                 try self.doPrestige(gain);
                 self.showPrestigeDialog = false;
             },
-            .buy => |item| try self.buyShopItem(item),
+            // Same gate as Ascend: the Royal Shop only sells to a run that
+            // owns the Prestige node, so a huge first run can't bank jelly
+            // and buy out the shop the moment run two starts.
+            .buy => |item| if (ascendUnlocked) try self.buyShopItem(item),
         }
     }
 
@@ -1449,7 +1453,7 @@ pub const Game = struct {
 
     fn purchaseUpgrade(self: *@This(), nodeId: upgrade_tree.NodeId) !void {
         const node = upgrade_tree.findNode(nodeId) orelse return;
-        if (!self.upgradeTree.canBuy(node)) return;
+        if (!self.upgradeTree.canBuy(node, self.stats.prestigeCount)) return;
         if (!self.resources.spendHoney(self.upgradeTree.nextCost(node, self.prestige.costMul()))) return;
 
         switch (node.effect) {
@@ -1720,8 +1724,11 @@ pub const Game = struct {
         try self.world.rebalanceBees();
         self.staggerBeeSearches();
 
-        self.resources.honey = finiteAtLeast(data.honey, 0, 100);
-        self.resources.honeyCapacity = finiteAtLeast(data.honey_capacity, 1, 500);
+        // A run past the f32 economy saves honey and capacity as "inf"
+        // (#64). That's a legitimate, if absurd, late state rather than
+        // corruption, so it loads back as inf; only NaN falls back.
+        self.resources.honeyCapacity = numberAtLeast(data.honey_capacity, 1, 500);
+        self.resources.honey = @min(numberAtLeast(data.honey, 0, 100), self.resources.honeyCapacity);
         self.resources.storageLevel = @max(1, data.storage_level);
         self.resources.honeyPerSec = finiteAtLeast(data.honey_per_sec, 0, 0);
         self.resources.honeyThisSecond = 0;
@@ -1741,11 +1748,10 @@ pub const Game = struct {
                 if (m.legacy == id) is_legacy = true;
             }
             if (is_legacy) continue;
-            // Old saves only have the "upgrade" flag -> level 1; clamp to max.
-            var lvl: u16 = @max(1, data.levels[id]);
-            if (node.repeat) |r| {
-                if (r.max_level != 0) lvl = @min(lvl, r.max_level);
-            } else lvl = 1;
+            // Old saves only have the "upgrade" flag -> level 1. Repeatables
+            // keep whatever level they earned, even above today's cap: a
+            // pre-cap run reads as maxed until its ascensions catch up.
+            const lvl: u16 = if (node.repeat != null) @max(1, data.levels[id]) else 1;
             try self.upgradeTree.setLevel(@intCast(id), lvl);
         }
         // Old saves: "Grid +2 ring" etc. become extra levels on the single node.
@@ -1766,7 +1772,13 @@ pub const Game = struct {
         }
 
         self.prestige.royalJelly = data.royal_jelly;
-        self.prestige.thisRunHoney = finiteAtLeast(data.this_run_honey, 0, 0);
+        // An f32-era save that overflowed wrote "inf" for the run total,
+        // which read as gain 0 and locked ascending. Credit such a run with
+        // the f32 ceiling it provably passed so the player can finally ascend.
+        self.prestige.thisRunHoney = if (std.math.isFinite(data.this_run_honey))
+            @max(0, data.this_run_honey)
+        else
+            std.math.floatMax(f32);
         self.prestige.hasUnlockedPrestige = data.prestige_unlocked or self.upgradeTree.hasEffect(.prestige_unlock);
         self.prestige.jellySpent = data.jelly_spent;
         for (&self.prestige.shopLevels, 0..) |*lvl, i| lvl.* = data.shop_levels[i];
@@ -1817,6 +1829,13 @@ pub const Game = struct {
 
     fn finiteAtLeast(value: f32, minimum: f32, fallback: f32) f32 {
         if (!std.math.isFinite(value)) return fallback;
+        return @max(minimum, value);
+    }
+
+    /// finiteAtLeast that keeps an infinite value: honey past the f32
+    /// economy is a real game state (#64), only NaN means a broken file.
+    fn numberAtLeast(value: f32, minimum: f32, fallback: f32) f32 {
+        if (std.math.isNan(value)) return fallback;
         return @max(minimum, value);
     }
 

@@ -61,7 +61,9 @@ pub const Data = struct {
     grid_width: usize = 17,
     grid_height: usize = 17,
     royal_jelly: u64 = 0,
-    this_run_honey: f32 = 0,
+    /// f64 like PrestigeState.thisRunHoney; older saves wrote f32 values
+    /// (including "inf" once a run overflowed — the loader salvages those).
+    this_run_honey: f64 = 0,
     prestige_unlocked: bool = false,
     /// Royal Jelly spent in the prestige shop (absent in older saves).
     jelly_spent: u64 = 0,
@@ -271,7 +273,7 @@ pub fn read(allocator: std.mem.Allocator, io: std.Io, save_path: []const u8) !Da
         } else if (std.mem.eql(u8, key, "prestige")) {
             saw_prestige = true;
             data.royal_jelly = try parse(u64, tokens.next());
-            data.this_run_honey = try parse(f32, tokens.next());
+            data.this_run_honey = try parse(f64, tokens.next());
             data.prestige_unlocked = (try parse(u8, tokens.next())) != 0;
         } else if (std.mem.eql(u8, key, "labs")) {
             saw_labs = true;
@@ -484,6 +486,38 @@ test "flower lines without the is_super field still parse (old saves)" {
     // No stat/achievement lines: fresh profile.
     try std.testing.expectEqual(@as(f64, 0), restored.stats.lifetimeHoney);
     try std.testing.expectEqual(@as(usize, 0), (achievements.Tracker{ .unlocked = restored.achievements }).unlockedCount());
+}
+
+test "a save that overflowed to inf still parses so the loader can salvage it (#64)" {
+    var temp = std.testing.tmpDir(.{});
+    defer temp.cleanup();
+
+    var path_buffer: [128]u8 = undefined;
+    const save_path = try std.fmt.bufPrint(&path_buffer, ".zig-cache/tmp/{s}/save_inf.txt", .{temp.sub_path});
+
+    // Shaped like the 173Ud report: honey, capacity and the run total all
+    // printed as "inf" by the f32-era writer. Rejecting the file would cost
+    // the player the whole profile; it must load so game.zig can clamp it.
+    const broken_save =
+        "BUZZNESS_TYCOON 1\n" ++
+        "resources inf inf 1 12345 0 2 1\n" ++
+        "hive 176000000000000000000 20\n" ++
+        "grid 33 33\n" ++
+        "prestige 5000 inf 1\n" ++
+        "labs 1 0 0 0\n" ++
+        "jelly_spent 1000\n" ++
+        "upgrade 24\n" ++
+        "level 24 193\n" ++
+        "END\n";
+    try std.Io.Dir.cwd().writeFile(std.testing.io, .{ .sub_path = save_path, .data = broken_save });
+
+    var restored = try read(std.testing.allocator, std.testing.io, save_path);
+    defer restored.deinit(std.testing.allocator);
+
+    try std.testing.expect(std.math.isInf(restored.honey));
+    try std.testing.expect(std.math.isInf(restored.honey_capacity));
+    try std.testing.expect(std.math.isInf(restored.this_run_honey));
+    try std.testing.expectEqual(@as(u16, 193), restored.levels[24]);
 }
 
 test "unknown stat and achievement names are ignored" {
