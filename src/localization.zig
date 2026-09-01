@@ -78,6 +78,7 @@ pub fn nodeDesc(id: u16) [:0]const u8 {
         20 => tr("Unlocks Instant Grow: click a growing flower to bloom it instantly.", "Libera o Crescer Instantâneo: clique numa flor crescendo para desabrochá-la na hora."),
         21 => tr("2x2 blocks of the same flower merge into an 8x SUPER flower.", "Blocos 2x2 da mesma flor se fundem numa SUPERflor de 8x."),
         33 => tr("Bees make half honey and fly slower at night; each level removes a quarter of the penalty.", "Abelhas produzem metade do mel e voam mais devagar à noite; cada nível remove um quarto da penalidade."),
+        34 => tr("All bees fly 15% faster per level.", "Todas as abelhas voam 15% mais rápido por nível."),
         else => "",
     };
 }
@@ -111,6 +112,7 @@ pub fn nodeName(id: u16, english: []const u8) []const u8 {
         31 => "Flores Resistentes",
         32 => "Compra em Massa",
         33 => "Turno da Noite",
+        34 => "Vento de Cauda",
         else => english,
     };
 }

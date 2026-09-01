@@ -27,6 +27,8 @@ pub const EffectKind = enum {
     growth_boost_unlock,
     super_flower_unlock,
     night_penalty_sub,
+    /// Tailwind: every bee flies faster (x1.15 per level).
+    bee_speed_mul,
 };
 
 /// Marks a node as re-buyable. Each purchase raises its level and re-applies
@@ -143,6 +145,10 @@ pub const NODES = [_]Node{
     // Bees produce half honey and fly slower at night (see bee_ai_system);
     // each level removes a quarter of the penalty, all of it at level 4.
     .{ .id = 33, .name = "Night Shift", .cost = 2000, .prereqs = r_worker, .effect = .night_penalty_sub, .col = 2, .row = 5, .repeat = .{ .cost_growth = 1.8, .max_level = 4 } },
+    // Tailwind: all bees fly x1.15 faster per level (multiplies Swift's x2
+    // and the night debuff). A direct throughput lever, so the cap grows
+    // with ascension like the honey line (#67).
+    .{ .id = 34, .name = "Tailwind", .cost = 1500, .prereqs = r_worker, .effect = .bee_speed_mul, .value = 1.15, .col = 2, .row = 6, .repeat = .{ .cost_growth = 1.7, .max_level = 20, .per_ascension = 5 } },
 
     // Labs branch (col 0, rows 4-6) — gated behind cross-branch t3 nodes
     // Aura: flowers inside the rings around the hive yield more pollen.
@@ -175,6 +181,7 @@ pub const GREEN_THUMB_ID: NodeId = 26;
 pub const FERTILE_SOIL_ID: NodeId = 29;
 pub const BEE_VITALITY_ID: NodeId = 30;
 pub const HARDY_BLOOMS_ID: NodeId = 31;
+pub const TAILWIND_ID: NodeId = 34;
 pub const BULK_ORDER_ID: NodeId = 32;
 pub const NIGHT_SHIFT_ID: NodeId = 33;
 
@@ -396,6 +403,17 @@ test "hardy blooms is buyable at start and its last level is where rot hits 0% (
     // Semantic cap: ascending adds nothing.
     try std.testing.expect(hardy.isMaxed(cap, 0));
     try std.testing.expect(hardy.isMaxed(cap, 50));
+}
+
+test "tailwind is buyable at start and its cap grows with ascension (#67)" {
+    var s = State.init(std.testing.allocator);
+    defer s.deinit();
+    const wind = findNode(TAILWIND_ID).?;
+    try std.testing.expect(s.canBuy(wind, 0));
+    try std.testing.expectApproxEqRel(@as(f32, 1500 * 1.7), wind.costAtLevel(1), 1e-5);
+    const cap = wind.repeat.?.max_level;
+    try std.testing.expect(wind.isMaxed(cap, 0));
+    try std.testing.expect(!wind.isMaxed(cap, 1));
 }
 
 test "night shift is buyable from the start and maxes at level 4" {
