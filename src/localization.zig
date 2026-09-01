@@ -71,7 +71,7 @@ pub fn nodeDesc(id: u16) [:0]const u8 {
         13 => tr("Raises the honey storage cap.", "Aumenta o limite de armazenamento de mel."),
         29 => tr("Flowers mature and regrow pollen 20% faster per level.", "Flores amadurecem e repõem pólen 20% mais rápido por nível."),
         30 => tr("Bees live 20% longer per level; living bees benefit too.", "Abelhas vivem 20% mais por nível; as vivas também ganham."),
-        31 => tr("Dying flowers rot 15% less often per level.", "Flores morrendo apodrecem 15% menos por nível."),
+        31 => tr("Dying flowers rot 10% less often per level; never at max.", "Flores morrendo apodrecem 10% menos por nível; nunca no máximo."),
         16 => tr("Flowers near the hive yield +25% pollen per level.", "Flores perto da colmeia rendem +25% de pólen por nível."),
         25 => tr("Widens the aura by one tile ring per level.", "Amplia a aura em um anel de células por nível."),
         19 => tr("Unlocks Prestige: reset the run for Royal Jelly and a permanent multiplier.", "Libera o Prestígio: reinicie a partida por Geleia Real e um multiplicador permanente."),
