@@ -12,14 +12,17 @@ const Textures = @import("textures.zig").Textures;
 const Flowers = @import("textures.zig").Flowers;
 const Grid = @import("grid.zig").Grid;
 
-/// Flower costs for planting
-// All types play identically (pollen, growth, lifespan); the choice only
-// matters for matching 2x2 SUPER blocks, so they cost the same.
+/// Flower costs for planting (see components.FlowerType.stats).
 pub const FLOWER_COSTS = struct {
-    pub const rose: f32 = 10.0;
-    pub const tulip: f32 = 10.0;
-    pub const dandelion: f32 = 10.0;
+    pub const rose: f32 = components.FlowerType.rose.stats().plantCost;
+    pub const tulip: f32 = components.FlowerType.tulip.stats().plantCost;
+    pub const dandelion: f32 = components.FlowerType.dandelion.stats().plantCost;
 };
+
+/// Fresh flower lifespan in seconds: 60-120 base, scaled per type (#71).
+pub fn newFlowerLifespan(flowerType: components.FlowerType) f32 {
+    return @as(f32, @floatFromInt(rl.getRandomValue(60, 120))) * flowerType.stats().lifespanMul;
+}
 
 /// Bee cost for purchasing (per type)
 pub const BEE_COST: f32 = 10.0;
@@ -126,7 +129,7 @@ pub fn spawnFlower(
     try world.addGridPosition(flowerEntity, components.GridPosition.init(gridXf, gridYf));
     try world.addSprite(flowerEntity, components.Sprite.init(flowerTexture, 32, 32, 2));
     try world.addFlowerGrowth(flowerEntity, components.FlowerGrowth.init(flowersToFlowerType(flowerType)));
-    try world.addLifespan(flowerEntity, components.Lifespan.init(@floatFromInt(rl.getRandomValue(60, 120))));
+    try world.addLifespan(flowerEntity, components.Lifespan.init(newFlowerLifespan(flowersToFlowerType(flowerType))));
 
     // Register flower in spatial lookup
     world.registerFlowerAtGrid(gridX, gridY, flowerEntity);
@@ -387,4 +390,18 @@ pub fn tryMergeSuperFlower(world: *World, gridX: i32, gridY: i32) !bool {
         return true;
     }
     return false;
+}
+
+test "flower types differ: cheap-quick-brief dandelion, rich-slow-lasting tulip (#71)" {
+    const d = components.FlowerType.dandelion.stats();
+    const r = components.FlowerType.rose.stats();
+    const t = components.FlowerType.tulip.stats();
+    try std.testing.expect(d.plantCost < r.plantCost and r.plantCost < t.plantCost);
+    try std.testing.expect(d.pollenMul < r.pollenMul and r.pollenMul < t.pollenMul);
+    try std.testing.expect(d.growthMul > r.growthMul and r.growthMul > t.growthMul);
+    try std.testing.expect(d.lifespanMul < r.lifespanMul and r.lifespanMul < t.lifespanMul);
+    // The stats actually reach the flower and the plant menu.
+    try std.testing.expectEqual(t.pollenMul, components.FlowerGrowth.init(.tulip).pollenMultiplier);
+    try std.testing.expectEqual(t.plantCost, FLOWER_COSTS.tulip);
+    try std.testing.expectEqual(r.pollenMul, components.FlowerGrowth.init(.rose).pollenMultiplier);
 }

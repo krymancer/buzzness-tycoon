@@ -94,7 +94,34 @@ pub const BeeAI = struct {
     }
 };
 
-pub const FlowerType = enum { rose, tulip, dandelion };
+pub const FlowerType = enum {
+    rose,
+    tulip,
+    dandelion,
+
+    /// What sets the types apart (#71). Dandelion is the cheap, quick,
+    /// short-lived filler; tulip the slow, rich, lasting investment; rose
+    /// the baseline. SUPER merging still needs four of a kind, so the
+    /// choice is "commit to a type", not just "pick the best".
+    pub const Stats = struct {
+        /// Planting price in honey.
+        plantCost: f32,
+        /// Pollen per collection (FlowerGrowth.pollenMultiplier).
+        pollenMul: f32,
+        /// Maturing / pollen-regrow speed (scales FlowerGrowth.growthRate).
+        growthMul: f32,
+        /// Lifespan (scales the 60-120 s base).
+        lifespanMul: f32,
+    };
+
+    pub fn stats(self: @This()) Stats {
+        return switch (self) {
+            .dandelion => .{ .plantCost = 5, .pollenMul = 0.7, .growthMul = 1.3, .lifespanMul = 0.7 },
+            .rose => .{ .plantCost = 10, .pollenMul = 1.0, .growthMul = 1.0, .lifespanMul = 1.0 },
+            .tulip => .{ .plantCost = 25, .pollenMul = 1.6, .growthMul = 0.75, .lifespanMul = 1.4 },
+        };
+    }
+};
 
 pub const BeeType = enum {
     worker, // Default, baseline stats
@@ -154,16 +181,17 @@ pub const FlowerGrowth = struct {
 
     pub fn init(flowerType: FlowerType) @This() {
         const rl_module = @import("raylib");
+        const stats = flowerType.stats();
         return .{
             .state = 0,
             .timeAlive = 0,
-            .growthRate = @floatFromInt(rl_module.getRandomValue(1, 10)),
+            .growthRate = @as(f32, @floatFromInt(rl_module.getRandomValue(1, 10))) * stats.growthMul,
             // Bloom a bit faster and refill pollen ~2-3x sooner so a bee swarm
             // stays fed and honey actually accumulates toward the late tree.
             .growthThreshold = 35,
             .hasPollen = false,
             .pollenCooldown = @floatFromInt(rl_module.getRandomValue(5, 16)),
-            .pollenMultiplier = 1.0,
+            .pollenMultiplier = stats.pollenMul,
             .flowerType = flowerType,
         };
     }
