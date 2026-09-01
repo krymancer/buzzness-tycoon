@@ -251,6 +251,7 @@ pub fn update(ctx: UpdateCtx) !void {
                     collector.pollenCollected = 0;
 
                     beeAI.carryingPollen = false;
+                    beeAI.tripLoads = 0;
                     beeAI.targetLocked = false;
                     beeAI.targetEntity = null;
                 }
@@ -290,6 +291,9 @@ pub fn update(ctx: UpdateCtx) !void {
                     ctx.world.incrementFlowerTarget(hit.entity);
                 } else {
                     beeAI.searchCooldown = SEARCH_COOLDOWN;
+                    // Saddlebags: nothing left to top the bag up with, so
+                    // deliver what's in it rather than wander with it.
+                    if (collectors[beeIndex].pollenCollected > 0) beeAI.carryingPollen = true;
                 }
             }
 
@@ -333,7 +337,10 @@ pub fn update(ctx: UpdateCtx) !void {
             }
             if (targetFlower.?.state == 4 and targetFlower.?.hasPollen) {
                 targetFlower.?.hasPollen = false;
-                beeAI.carryingPollen = true;
+                // Saddlebags: keep foraging until the bag is full, then
+                // head home with the whole load in one trip.
+                beeAI.tripLoads +|= 1;
+                beeAI.carryingPollen = beeAI.tripLoads >= bagCapacity;
 
                 const collectionMultiplier = beeAI.beeType.getCollectionMultiplier();
                 // Lab: Aura boosts flowers inside its rings around the hive.
@@ -804,6 +811,14 @@ pub var nightPenaltyScale: f32 = 1.0;
 pub fn nightPenaltyScaleForLevel(level: u16) f32 {
     const lvl: f32 = @floatFromInt(@min(level, NIGHT_SHIFT_MAX_LEVEL));
     return 1.0 - lvl / @as(f32, @floatFromInt(NIGHT_SHIFT_MAX_LEVEL));
+}
+
+/// Saddlebags node: flowers a bee visits per trip before flying home
+/// (game.zig sets it from the tree level on purchase, reset and load).
+pub var bagCapacity: u8 = 1;
+
+pub fn bagCapacityForLevel(level: u16) u8 {
+    return @intCast(@min(1 + @as(u32, level), std.math.maxInt(u8)));
 }
 
 /// Tailwind node: every bee's flight speed multiplier (game.zig sets it

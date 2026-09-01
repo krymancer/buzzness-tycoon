@@ -277,6 +277,7 @@ pub const Store = struct {
                 life.timeSpan += life.timeSpan * 0.5;
                 life.timeAlive = 0;
                 ai.carryingPollen = false;
+                ai.tripLoads = 0;
                 ai.targetLocked = false;
                 ai.targetEntity = null;
                 self.list.items(.collector)[i].pollenCollected = 0;

@@ -29,6 +29,8 @@ pub const EffectKind = enum {
     night_penalty_sub,
     /// Tailwind: every bee flies faster (x1.15 per level).
     bee_speed_mul,
+    /// Saddlebags: bees visit one more flower per trip per level.
+    bee_carry_add,
 };
 
 /// Marks a node as re-buyable. Each purchase raises its level and re-applies
@@ -121,6 +123,10 @@ pub const NODES = [_]Node{
     // (ids 11/12 were Grid +2/+3 ring — folded into 10's levels on load.)
     // Each level adds one step to the bee buy-quantity cycle: x50, x100,
     // x500, x1000 (see action_hud.BUY_QTYS).
+    // Saddlebags: +1 flower per trip per level before the bee flies home.
+    // Past a handful the round trip outgrows the gain, so the cap is short
+    // and grows slowly with ascension (#68).
+    .{ .id = 35, .name = "Saddlebags", .cost = 10000, .prereqs = r_worker, .effect = .bee_carry_add, .value = 1, .col = 1, .row = 3, .repeat = .{ .cost_growth = 2.0, .max_level = 4, .per_ascension = 1 } },
     .{ .id = 32, .name = "Bulk Order", .cost = 3000, .prereqs = &[_]NodeId{10}, .effect = .bulk_buy_tier, .col = 1, .row = 2, .repeat = .{ .cost_growth = 4.0, .max_level = 4 } },
 
     // Storage (col 2). Repeatable: adds value * STORAGE_CAPACITY_GROWTH^level
@@ -182,6 +188,7 @@ pub const FERTILE_SOIL_ID: NodeId = 29;
 pub const BEE_VITALITY_ID: NodeId = 30;
 pub const HARDY_BLOOMS_ID: NodeId = 31;
 pub const TAILWIND_ID: NodeId = 34;
+pub const SADDLEBAGS_ID: NodeId = 35;
 pub const BULK_ORDER_ID: NodeId = 32;
 pub const NIGHT_SHIFT_ID: NodeId = 33;
 
@@ -414,6 +421,15 @@ test "tailwind is buyable at start and its cap grows with ascension (#67)" {
     const cap = wind.repeat.?.max_level;
     try std.testing.expect(wind.isMaxed(cap, 0));
     try std.testing.expect(!wind.isMaxed(cap, 1));
+}
+
+test "saddlebags is buyable at start with a short ascension-grown cap (#68)" {
+    var s = State.init(std.testing.allocator);
+    defer s.deinit();
+    const bags = findNode(SADDLEBAGS_ID).?;
+    try std.testing.expect(s.canBuy(bags, 0));
+    try std.testing.expect(bags.isMaxed(4, 0));
+    try std.testing.expect(!bags.isMaxed(4, 1));
 }
 
 test "night shift is buyable from the start and maxes at level 4" {
