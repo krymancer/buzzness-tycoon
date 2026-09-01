@@ -7,6 +7,7 @@ const clock = @import("../../clock.zig");
 const ui_scale = @import("../../ui_scale.zig");
 const input = @import("../../input.zig");
 const grid_mod = @import("../../grid.zig");
+const bees_mod = @import("../../bees.zig");
 
 const FlowerRenderData = struct {
     entity: u32,
@@ -306,6 +307,18 @@ pub fn draw(world: *World, gridOffset: rl.Vector2, gridScale: f32, worldTint: rl
             const base = if (bee.carryingPollen) pollenColor else bee.color;
             const color = rl.colorTint(base, worldTint);
             rl.drawTextureEx(texture, rl.Vector2.init(bee.x, bee.y + bob), 0, drawScale, color);
+        }
+
+        // Pass 4 — death puffs: a pale ring expands and fades where a bee
+        // just died, so a shrinking colony reads as bees dying, not a bug.
+        for (world.bees.puffs) |puff| {
+            if (puff.age >= bees_mod.PUFF_LIFETIME) continue;
+            const t = puff.age / bees_mod.PUFF_LIFETIME;
+            const r = (4.0 + 12.0 * t) * beeScale;
+            const alpha: u8 = @intFromFloat(200.0 * (1.0 - t));
+            const cx = puff.x + 16 * beeScale;
+            const cy = puff.y + 14 * beeScale;
+            drawEllipseRing(cx, cy, r, r * 0.6, @max(1.0, 2.0 * beeScale), rl.Color.init(205, 214, 244, alpha));
         }
     }
 }

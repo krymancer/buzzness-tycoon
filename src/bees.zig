@@ -45,6 +45,13 @@ pub const Bee = struct {
     life: components.Lifespan,
 };
 
+/// Where a bee just died, for the renderer's fading puff. Screen-space like
+/// bee positions and carried along by `translate`. A fixed ring: when many
+/// bees die in one frame only the last few puffs survive, which is plenty.
+pub const DeathPuff = struct { x: f32, y: f32, age: f32 };
+pub const PUFF_LIFETIME: f32 = 0.6;
+pub const MAX_PUFFS: usize = 64;
+
 /// Screen-space extents of the meadow, for placing new representatives.
 /// Mirrors `Grid`'s pan/zoom state; refreshed by spawners and by the bee
 /// system every frame so late-spawned bees land on the field.
@@ -118,6 +125,9 @@ pub const Store = struct {
     /// (purchases past the cap, deaths); cleared by `rebalance`.
     needsRebalance: bool = false,
     meadow: Meadow = .{},
+    /// Recent deaths (all slots start expired). See DeathPuff.
+    puffs: [MAX_PUFFS]DeathPuff = @splat(.{ .x = 0, .y = 0, .age = PUFF_LIFETIME }),
+    puffNext: usize = 0,
 
     pub fn init(allocator: std.mem.Allocator) Store {
         return .{ .allocator = allocator };
@@ -253,6 +263,7 @@ pub const Store = struct {
     /// shrinks the colony by one and, while dormant bees remain, is refilled
     /// by the next rebalance.
     pub fn age(self: *Store, world: *World, deltaTime: f32) void {
+        for (&self.puffs) |*puff| puff.age += deltaTime;
         var i = self.list.len;
         while (i > 0) {
             i -= 1;
@@ -272,10 +283,22 @@ pub const Store = struct {
                 continue;
             }
             const t = @intFromEnum(ai.beeType);
+            const pos = self.list.items(.pos)[i];
+            self.puffs[self.puffNext] = .{ .x = pos.x, .y = pos.y, .age = 0 };
+            self.puffNext = (self.puffNext + 1) % MAX_PUFFS;
             self.removeSimulated(world, i);
             self.population[t] -= 1;
             self.needsRebalance = true;
         }
+    }
+
+    /// Puffs still fading (for tests / the renderer).
+    pub fn activePuffs(self: *const Store) usize {
+        var n: usize = 0;
+        for (self.puffs) |puff| {
+            if (puff.age < PUFF_LIFETIME) n += 1;
+        }
+        return n;
     }
 
     /// Bee positions are screen-space; carry them along with the meadow
@@ -284,6 +307,10 @@ pub const Store = struct {
         for (self.list.items(.pos)) |*pos| {
             pos.x += delta.x;
             pos.y += delta.y;
+        }
+        for (&self.puffs) |*puff| {
+            puff.x += delta.x;
+            puff.y += delta.y;
         }
         self.meadow.offset.x += delta.x;
         self.meadow.offset.y += delta.y;
@@ -410,4 +437,18 @@ test "aging refunds a pollen carrier and retires the rest" {
     try std.testing.expectEqual(@as(u32, 1), store.count(.worker));
     try std.testing.expect(!store.list.items(.ai)[0].carryingPollen);
     try std.testing.expectEqual(@as(f32, 1.5), store.list.items(.life)[0].timeSpan);
+}
+
+test "a death leaves a puff that fades out (#69)" {
+    var world = testWorld();
+    defer world.deinit();
+    const store = &world.bees;
+    _ = try store.add(.worker);
+    try std.testing.expectEqual(@as(usize, 0), store.activePuffs());
+    store.list.items(.life)[0].timeSpan = 1;
+    store.age(&world, 2);
+    try std.testing.expectEqual(@as(usize, 0), store.list.len);
+    try std.testing.expectEqual(@as(usize, 1), store.activePuffs());
+    store.age(&world, PUFF_LIFETIME);
+    try std.testing.expectEqual(@as(usize, 0), store.activePuffs());
 }

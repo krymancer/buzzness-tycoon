@@ -136,7 +136,9 @@ pub const NODES = [_]Node{
     // (x1.2/level), dying flowers rot less (-10%/level, gone at 6: a
     // semantic cap like Night Shift, so ascending adds nothing).
     .{ .id = 29, .name = "Fertile Soil", .cost = 300, .prereqs = r_worker, .effect = .flower_growth_mul, .value = 1.2, .col = 2, .row = 2, .repeat = .{ .cost_growth = 1.6, .max_level = 25, .per_ascension = 5 } },
-    .{ .id = 30, .name = "Bee Vitality", .cost = 800, .prereqs = r_worker, .effect = .bee_lifespan_mul, .value = 1.2, .col = 2, .row = 3, .repeat = .{ .cost_growth = 1.7, .max_level = 25, .per_ascension = 5 } },
+    // Bee Vitality: x1.2 lifespan per level; 10 levels is x6.2, a bee that
+    // lives most of an hour, so the cap is a real ceiling the player feels.
+    .{ .id = 30, .name = "Bee Vitality", .cost = 800, .prereqs = r_worker, .effect = .bee_lifespan_mul, .value = 1.2, .col = 2, .row = 3, .repeat = .{ .cost_growth = 1.7, .max_level = 10, .per_ascension = 2 } },
     .{ .id = 31, .name = "Hardy Blooms", .cost = 2500, .prereqs = r_worker, .effect = .rot_chance_sub, .value = 10, .col = 2, .row = 4, .repeat = .{ .cost_growth = 1.8, .max_level = lifespan_system.HARDY_BLOOMS_MAX_LEVEL } },
     // Bees produce half honey and fly slower at night (see bee_ai_system);
     // each level removes a quarter of the penalty, all of it at level 4.
