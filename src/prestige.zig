@@ -20,9 +20,12 @@ pub const ShopItem = enum(u8) {
     /// Every run starts with Swift, Efficient and Gardener bees unlocked.
     royal_retinue,
     /// One more bulk-buy quantity step per level, on top of the Bulk Order
-    /// tree node (x5000 ... x100000 with both maxed). Appended last: shop
-    /// levels are saved by enum index.
+    /// tree node (x5000 ... x100000 with both maxed). Shop levels are saved
+    /// by enum index, so new items append at the end.
     wholesale_contract,
+    /// Queen's Count (#63): bee-count milestones. Each bee type's output
+    /// doubles at 10 / 25 / 50 / 100 owned, then at every doubling after.
+    queens_count,
 };
 
 pub const SHOP_ITEM_COUNT = @typeInfo(ShopItem).@"enum".fields.len;
@@ -60,6 +63,7 @@ pub fn shopSpec(item: ShopItem) ShopSpec {
         .busy_bees => .{ .baseCost = 100, .costGrowth = 2.0, .maxLevel = 5 },
         .royal_retinue => .{ .baseCost = 400, .costGrowth = 1.0, .maxLevel = 1 },
         .wholesale_contract => .{ .baseCost = 300, .costGrowth = 2.0, .maxLevel = WHOLESALE_MAX_LEVEL },
+        .queens_count => .{ .baseCost = 300, .costGrowth = 1.0, .maxLevel = 1 },
     };
 }
 

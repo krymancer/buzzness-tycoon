@@ -751,6 +751,7 @@ pub const Game = struct {
 
         var handler = self.createActionHandler();
         const honeyBefore = self.resources.honey;
+        const milestoneBefore = self.milestoneMulFor(buyAction);
         var delta: i32 = 0;
         // Bulk buy: repeat until the quantity is met or honey runs out.
         var n: u32 = 0;
@@ -762,6 +763,7 @@ pub const Game = struct {
         if (delta > 0) {
             self.cachedBeeCount += @intCast(delta);
             self.largestPurchase = @max(self.largestPurchase, @as(u32, @intCast(delta)));
+            self.celebrateMilestone(buyAction, milestoneBefore);
             try self.spawnSpendFeedback(honeyBefore);
             ui.action_hud.flashSlot(switch (buyAction) {
                 .buy_worker_bee => 0,
@@ -1007,6 +1009,7 @@ pub const Game = struct {
             .buy => |b| {
                 var handler = self.createActionHandler();
                 const honeyBefore = self.resources.honey;
+                const milestoneBefore = self.milestoneMulFor(b.action);
                 var delta: i32 = 0;
                 // Bulk buy: repeat until the quantity is met or honey runs out.
                 var n: u32 = 0;
@@ -1019,7 +1022,10 @@ pub const Game = struct {
                 if (delta != 0) {
                     self.cachedBeeCount = @intCast(@as(i64, @intCast(self.cachedBeeCount)) + delta);
                 }
-                if (delta > 0) self.largestPurchase = @max(self.largestPurchase, @as(u32, @intCast(delta)));
+                if (delta > 0) {
+                    self.largestPurchase = @max(self.largestPurchase, @as(u32, @intCast(delta)));
+                    self.celebrateMilestone(b.action, milestoneBefore);
+                }
             },
         }
 
@@ -1238,6 +1244,7 @@ pub const Game = struct {
             .royal_retinue => try self.unlockRetinue(),
             .wholesale_contract => ui.action_hud.setShopTier(self.prestige.shopLevel(.wholesale_contract)),
             .queens_blessing, .jelly_refinery => {},
+            .queens_count => bee_ai_system.milestonesUnlocked = true,
         }
         self.saveProgress() catch |err| std.debug.print("Could not save shop purchase: {}\n", .{err});
     }
@@ -1248,6 +1255,7 @@ pub const Game = struct {
         try self.spawnExtraBees(prestige_mod.BEES_PER_BUSY_LEVEL * @as(u32, self.prestige.shopLevel(.busy_bees)));
         if (self.prestige.shopLevel(.royal_retinue) > 0) try self.unlockRetinue();
         ui.action_hud.setShopTier(self.prestige.shopLevel(.wholesale_contract));
+        bee_ai_system.milestonesUnlocked = self.prestige.shopLevel(.queens_count) > 0;
     }
 
     fn spawnExtraBees(self: *@This(), count: u32) !void {
@@ -1821,6 +1829,7 @@ pub const Game = struct {
         lifespan_system.rotChancePercent = lifespan_system.rotChanceForLevel(self.upgradeTree.level(upgrade_tree.HARDY_BLOOMS_ID));
         ui.action_hud.setBulkTier(self.upgradeTree.level(upgrade_tree.BULK_ORDER_ID));
         ui.action_hud.setShopTier(self.prestige.shopLevel(.wholesale_contract));
+        bee_ai_system.milestonesUnlocked = self.prestige.shopLevel(.queens_count) > 0;
         // The bees above were respawned with base lifespans before the tree
         // was applied; stretch them to the boosted span now.
         if (spawners.beeLifespanMul != 1.0) self.multiplyBeeLifespans(spawners.beeLifespanMul);
@@ -1846,6 +1855,30 @@ pub const Game = struct {
         for (self.world.bees.list.items(.ai)) |*ai| {
             ai.searchCooldown = @as(f32, @floatFromInt(rl.getRandomValue(0, 100))) / 100.0;
         }
+    }
+
+    fn beeTypeOf(action: actions.BuyAction) components.BeeType {
+        return switch (action) {
+            .buy_worker_bee => .worker,
+            .buy_swift_bee => .swift,
+            .buy_efficient_bee => .efficient,
+            .buy_gardener_bee => .gardener,
+        };
+    }
+
+    /// Queen's Count: the milestone multiplier the bought type has right now.
+    fn milestoneMulFor(self: *const @This(), action: actions.BuyAction) f32 {
+        if (!bee_ai_system.milestonesUnlocked) return 1;
+        return bee_ai_system.milestoneMul(self.world.bees.count(beeTypeOf(action)));
+    }
+
+    /// Fire the milestone juice once per purchase that crossed one or more
+    /// thresholds (a bulk buy may skip several; that's one burst, not one
+    /// per bee).
+    fn celebrateMilestone(self: *@This(), action: actions.BuyAction, before: f32) void {
+        if (self.milestoneMulFor(action) <= before) return;
+        ui.action_hud.flashMilestone(@intFromEnum(beeTypeOf(action)));
+        self.audio.playShopBuy();
     }
 
     /// Honey for clearing one rotten flower by hand: a few seconds of the

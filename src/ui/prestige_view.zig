@@ -37,7 +37,7 @@ pub const Context = struct {
     ascendUnlocked: bool,
 };
 
-const ITEMS = [_]prestige_mod.ShopItem{ .queens_blessing, .jelly_refinery, .royal_meadow, .busy_bees, .royal_retinue, .wholesale_contract };
+const ITEMS = [_]prestige_mod.ShopItem{ .queens_blessing, .jelly_refinery, .royal_meadow, .busy_bees, .royal_retinue, .wholesale_contract, .queens_count };
 
 const ROW_H: f32 = 72;
 const FLASH_TIME: f32 = 0.45;
@@ -304,6 +304,11 @@ fn itemCopy(item: prestige_mod.ShopItem) ItemCopy {
             .desc = locale.tr("Swift, Efficient and Gardener bees unlocked from the start.", "Abelhas Veloz, Eficiente e Jardineira liberadas desde o início."),
             .accent = C.teal,
         },
+        .queens_count => .{
+            .name = locale.tr("Queen's Count", "Contagem da Rainha"),
+            .desc = locale.tr("Each bee type doubles its pollen at 10, 25, 50 and 100 owned, then at every doubling.", "Cada tipo de abelha dobra o pólen com 10, 25, 50 e 100 abelhas, e depois a cada dobro."),
+            .accent = C.pink,
+        },
         .wholesale_contract => .{
             .name = locale.tr("Wholesale Contract", "Contrato de Atacado"),
             .desc = locale.tr("One more bulk-buy step per level, beyond Bulk Order: up to x100K bees per click.", "Um passo a mais de compra em massa por nível, além do Pedido em Massa: até x100K abelhas por clique."),
@@ -343,7 +348,7 @@ fn itemStatus(p: *const prestige_mod.PrestigeState, item: prestige_mod.ShopItem,
             if (maxed) return std.fmt.bufPrintZ(buf, "{s}: +{d} {s}", .{ now, cur, bees }) catch null;
             return std.fmt.bufPrintZ(buf, "{s}: +{d} {s}  ·  {s}: +{d} {s}", .{ now, cur, bees, nxt, cur + prestige_mod.BEES_PER_BUSY_LEVEL, bees }) catch null;
         },
-        .royal_retinue => return null,
+        .royal_retinue, .queens_count => return null,
         .wholesale_contract => {
             var b1: [16]u8 = undefined;
             var b2: [16]u8 = undefined;
@@ -451,6 +456,12 @@ fn drawItemIcon(ctx: Context, item: prestige_mod.ShopItem, cx: f32, cy: f32, col
             drawBee(ctx, cx - 8, cy - 5, 20, if (dim) col else C.blue);
             drawBee(ctx, cx + 8, cy - 5, 20, if (dim) col else C.green);
             drawBee(ctx, cx, cy + 7, 20, if (dim) col else C.pink);
+        },
+        .queens_count => {
+            // A crown over a pair of bees: the queen counting her workers.
+            icons.drawCrown(cx, cy - 7, 14, col, C.pink);
+            drawBee(ctx, cx - 8, cy + 7, 16, col);
+            drawBee(ctx, cx + 8, cy + 7, 16, col);
         },
         .wholesale_contract => {
             // A crate of bees: a stacked pair with a small third on top.

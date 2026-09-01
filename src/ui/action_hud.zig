@@ -21,6 +21,7 @@ const icons = @import("icons.zig");
 const prompt_icons = @import("prompt_icons.zig");
 const input = @import("../input.zig");
 const spawners = @import("../spawners.zig");
+const bee_ai_system = @import("../ecs/systems/bee_ai_system.zig");
 const upgrade_tree = @import("../upgrade_tree.zig");
 const prestige_mod = @import("../prestige.zig");
 const labs_mod = @import("../labs.zig");
@@ -141,6 +142,14 @@ const FLASH_TIME: f32 = 0.3;
 
 var slotFlash: [4]f32 = @splat(0);
 
+/// Queen's Count: burst on a slot when its type just crossed a milestone.
+const MILESTONE_FLASH_TIME: f32 = 0.9;
+var milestoneFlash: [4]f32 = @splat(0);
+
+pub fn flashMilestone(index: usize) void {
+    if (index < milestoneFlash.len) milestoneFlash[index] = MILESTONE_FLASH_TIME;
+}
+
 /// Trigger the buy glow on a cross slot (0 worker, 1 swift, 2 efficient,
 /// 3 gardener). Also called from game.zig for d-pad/number quick buys.
 pub fn flashSlot(index: usize) void {
@@ -161,6 +170,7 @@ pub fn draw(ctx: Context) Action {
     const mouse = input.pointerPos();
     const dt = rl.getFrameTime();
     for (&slotFlash) |*f| f.* = @max(0, f.* - dt);
+    for (&milestoneFlash) |*f| f.* = @max(0, f.* - dt);
     drawBeeCross(ctx, mouse, &action);
     drawTreeButton(ctx, mouse, &action);
     drawPassives(ctx, mouse, &action);
@@ -293,6 +303,28 @@ fn drawBeeSlot(ctx: Context, spec: SlotSpec, pos: rl.Vector2, mouse: rl.Vector2,
             0,
             rl.Color.init(255, 246, 190, @intFromFloat(220 * t)),
         );
+    }
+
+    // Queen's Count: "owned/next milestone" in the top-right corner, and a
+    // ring + "x2!" burst when a purchase just crossed one.
+    if (bee_ai_system.milestonesUnlocked) {
+        const owned: u64 = ctx.beeTypeCounts[spec.beeIndex];
+        var mbuf: [48]u8 = undefined;
+        const hint = std.fmt.bufPrintZ(&mbuf, "{d}/{d}", .{ owned, bee_ai_system.nextMilestone(owned) }) catch "";
+        const hw = text.measure(hint, 12);
+        text.drawOutline(hint, @as(i32, @intFromFloat(rect.x + SLOT)) - hw - 2, @intFromFloat(rect.y + 2), 12, C.teal, OUTLINE);
+        const mf = milestoneFlash[spec.beeIndex];
+        if (mf > 0) {
+            const t = 1 - mf / MILESTONE_FLASH_TIME;
+            const r = SLOT * (0.5 + 0.6 * t);
+            const fade: u8 = @intFromFloat(230 * (1 - t));
+            rl.drawRing(rl.Vector2.init(cx, cy), r - 3, r, 0, 360, 32, withAlpha(C.teal, fade));
+            var xb: [24]u8 = undefined;
+            const mul: u64 = @intFromFloat(bee_ai_system.milestoneMul(owned));
+            const label = std.fmt.bufPrintZ(&xb, "x{d}!", .{mul}) catch "";
+            const lw = text.measure(label, 20);
+            text.drawOutline(label, @as(i32, @intFromFloat(cx)) - @divFloor(lw, 2), @intFromFloat(cy - 14 - 22 * t), 20, withAlpha(C.teal, fade), OUTLINE);
+        }
     }
 
     // Cost along the slot's bottom edge.
