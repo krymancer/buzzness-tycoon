@@ -1325,6 +1325,7 @@ pub const Game = struct {
         bee_ai_system.gardenerSow = false;
         bee_ai_system.nightPenaltyScale = 1.0;
         bee_ai_system.beeSpeedMul = 1.0;
+        bee_ai_system.bagCapacity = 1;
         flower_growth_system.growthMul = 1.0;
         spawners.beeLifespanMul = 1.0;
         lifespan_system.rotChancePercent = lifespan_system.ROT_CHANCE_PERCENT;
@@ -1486,6 +1487,7 @@ pub const Game = struct {
             .gardener_sow => bee_ai_system.gardenerSow = true,
             .night_penalty_sub => bee_ai_system.nightPenaltyScale = bee_ai_system.nightPenaltyScaleForLevel(self.upgradeTree.level(nodeId) + 1),
             .bee_speed_mul => bee_ai_system.beeSpeedMul = bee_ai_system.beeSpeedMulForLevel(self.upgradeTree.level(nodeId) + 1),
+            .bee_carry_add => bee_ai_system.bagCapacity = bee_ai_system.bagCapacityForLevel(self.upgradeTree.level(nodeId) + 1),
             .bulk_buy_tier => ui.action_hud.setBulkTier(self.upgradeTree.level(nodeId) + 1),
             .flower_growth_mul => flower_growth_system.growthMul = flower_growth_system.growthMulForLevel(self.upgradeTree.level(nodeId) + 1),
             .bee_lifespan_mul => {
@@ -1808,6 +1810,7 @@ pub const Game = struct {
         bee_ai_system.gardenerSow = self.upgradeTree.hasEffect(.gardener_sow);
         bee_ai_system.nightPenaltyScale = bee_ai_system.nightPenaltyScaleForLevel(self.upgradeTree.level(upgrade_tree.NIGHT_SHIFT_ID));
         bee_ai_system.beeSpeedMul = bee_ai_system.beeSpeedMulForLevel(self.upgradeTree.level(upgrade_tree.TAILWIND_ID));
+        bee_ai_system.bagCapacity = bee_ai_system.bagCapacityForLevel(self.upgradeTree.level(upgrade_tree.SADDLEBAGS_ID));
         flower_growth_system.growthMul = flower_growth_system.growthMulForLevel(self.upgradeTree.level(upgrade_tree.FERTILE_SOIL_ID));
         spawners.beeLifespanMul = spawners.beeLifespanMulForLevel(self.upgradeTree.level(upgrade_tree.BEE_VITALITY_ID));
         lifespan_system.rotChancePercent = lifespan_system.rotChanceForLevel(self.upgradeTree.level(upgrade_tree.HARDY_BLOOMS_ID));

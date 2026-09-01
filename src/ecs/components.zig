@@ -66,6 +66,9 @@ pub const BeeAI = struct {
     // Seed Scouts: the locked target is an empty tile to plant (targetEntity
     // is null; targetGridX/Y hold the cell).
     sowTarget: bool = false,
+    // Saddlebags: flowers collected on the current trip. The bee only
+    // heads home (carryingPollen) once this reaches the bag capacity.
+    tripLoads: u8 = 0,
     // Cached target grid coords — lets the stagger-skip path compute world pos
     // without a HashMap lookup. Invalid when targetLocked == false.
     targetGridX: f32,
