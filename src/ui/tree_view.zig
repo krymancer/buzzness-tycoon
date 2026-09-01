@@ -29,9 +29,10 @@ const NODE_W: f32 = 158;
 const NODE_H: f32 = 44;
 const COL_SPACING: f32 = 174;
 const ROW_SPACING: f32 = 56;
-// Layout extents (cols -2..2, rows 0..6) at scale 1.
+// Layout extents (cols -2..3, rows 0..6) at scale 1; col 3 is the Drills
+// column (#66).
 const MIN_COL: f32 = -2;
-const MAX_COL: f32 = 2;
+const MAX_COL: f32 = 3;
 const MAX_ROW: f32 = 6;
 const TREE_W: f32 = (MAX_COL - MIN_COL) * COL_SPACING + NODE_W;
 const TREE_H: f32 = MAX_ROW * ROW_SPACING + NODE_H;
@@ -397,7 +398,7 @@ fn drawNodeIcon(ctx: TreeContext, node: *const upgrade_tree.Node, cx: f32, cy: f
             rl.drawRectangleRounded(rl.Rectangle.init(cx - w / 2, cy - 3 * s, w, 9 * s), 0.5, 4, col);
             rl.drawRectangleRounded(rl.Rectangle.init(cx - w / 2 - 1.5 * s, cy - 7 * s, w + 3 * s, 4 * s), 0.6, 4, col);
         },
-        .bee_unlock_worker, .bee_unlock_swift, .bee_unlock_efficient, .bee_unlock_gardener, .bee_lifespan_mul, .bulk_buy_tier, .bee_speed_mul, .bee_carry_add => {
+        .bee_unlock_worker, .bee_unlock_swift, .bee_unlock_efficient, .bee_unlock_gardener, .bee_lifespan_mul, .bulk_buy_tier, .bee_speed_mul, .bee_carry_add, .bee_training => {
             const accent = switch (node.effect) {
                 .bee_unlock_swift => C.blue,
                 .bee_unlock_efficient => C.green,
@@ -406,6 +407,14 @@ fn drawNodeIcon(ctx: TreeContext, node: *const upgrade_tree.Node, cx: f32, cy: f
                 .bulk_buy_tier => C.yellow,
                 .bee_speed_mul => C.sky,
                 .bee_carry_add => C.peach,
+                // Drills wear their type's colour so the column reads as
+                // "one per bee".
+                .bee_training => switch (upgrade_tree.trainingType(node.id) orelse 0) {
+                    1 => C.blue,
+                    2 => C.green,
+                    3 => C.pink,
+                    else => C.text,
+                },
                 else => C.text,
             };
             const size = 22 * s;
@@ -552,6 +561,13 @@ fn nodeStatus(ctx: TreeContext, node: *const upgrade_tree.Node, lvl: u16, buf: [
             const cur = bee_ai_system.beeSpeedMulForLevel(lvl);
             if (maxed) return std.fmt.bufPrintZ(buf, "{s}: x{s}  ·  {s}", .{ now, fmtMul(cur, &b1), capHint(node) }) catch null;
             return std.fmt.bufPrintZ(buf, "{s}: x{s}  ·  {s}: x{s}", .{ now, fmtMul(cur, &b1), nxt, fmtMul(bee_ai_system.beeSpeedMulForLevel(lvl + 1), &b2) }) catch null;
+        },
+        .bee_training => {
+            var b1: [24]u8 = undefined;
+            var b2: [24]u8 = undefined;
+            const cur = bee_ai_system.trainingMulForLevel(lvl);
+            if (maxed) return std.fmt.bufPrintZ(buf, "{s}: x{s}  ·  {s}", .{ now, fmtMul(cur, &b1), capHint(node) }) catch null;
+            return std.fmt.bufPrintZ(buf, "{s}: x{s}  ·  {s}: x{s}", .{ now, fmtMul(cur, &b1), nxt, fmtMul(bee_ai_system.trainingMulForLevel(lvl + 1), &b2) }) catch null;
         },
         .bee_carry_add => {
             const per = locale.tr("flowers per trip", "flores por viagem");
