@@ -150,7 +150,9 @@ pub fn update(ctx: UpdateCtx) !void {
     // Night penalty: honey and speed ramp down smoothly with the night
     // factor, scaled back by the Night Shift node (see nightPenaltyScale).
     const nightHoney = nightHoneyMul(ctx.nightFactor);
-    const nightSpeed = nightSpeedMul(ctx.nightFactor);
+    // Tailwind rides along with the night speed factor: every flight below
+    // multiplies the type's own speed by this one number.
+    const nightSpeed = nightSpeedMul(ctx.nightFactor) * beeSpeedMul;
 
     pollinationTimer += ctx.deltaTime;
     const checkPollination = pollinationTimer >= POLLINATION_CHECK_INTERVAL;
@@ -802,6 +804,15 @@ pub var nightPenaltyScale: f32 = 1.0;
 pub fn nightPenaltyScaleForLevel(level: u16) f32 {
     const lvl: f32 = @floatFromInt(@min(level, NIGHT_SHIFT_MAX_LEVEL));
     return 1.0 - lvl / @as(f32, @floatFromInt(NIGHT_SHIFT_MAX_LEVEL));
+}
+
+/// Tailwind node: every bee's flight speed multiplier (game.zig sets it
+/// from the tree level on purchase, reset and load).
+pub var beeSpeedMul: f32 = 1.0;
+pub const BEE_SPEED_PER_LEVEL: f32 = 1.15;
+
+pub fn beeSpeedMulForLevel(level: u16) f32 {
+    return std.math.pow(f32, BEE_SPEED_PER_LEVEL, @floatFromInt(level));
 }
 
 /// Honey multiplier at night factor `night` under the current penalty scale.

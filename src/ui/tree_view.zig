@@ -397,13 +397,14 @@ fn drawNodeIcon(ctx: TreeContext, node: *const upgrade_tree.Node, cx: f32, cy: f
             rl.drawRectangleRounded(rl.Rectangle.init(cx - w / 2, cy - 3 * s, w, 9 * s), 0.5, 4, col);
             rl.drawRectangleRounded(rl.Rectangle.init(cx - w / 2 - 1.5 * s, cy - 7 * s, w + 3 * s, 4 * s), 0.6, 4, col);
         },
-        .bee_unlock_worker, .bee_unlock_swift, .bee_unlock_efficient, .bee_unlock_gardener, .bee_lifespan_mul, .bulk_buy_tier => {
+        .bee_unlock_worker, .bee_unlock_swift, .bee_unlock_efficient, .bee_unlock_gardener, .bee_lifespan_mul, .bulk_buy_tier, .bee_speed_mul => {
             const accent = switch (node.effect) {
                 .bee_unlock_swift => C.blue,
                 .bee_unlock_efficient => C.green,
                 .bee_unlock_gardener => C.pink,
                 .bee_lifespan_mul => C.teal,
                 .bulk_buy_tier => C.yellow,
+                .bee_speed_mul => C.sky,
                 else => C.text,
             };
             const size = 22 * s;
@@ -543,6 +544,13 @@ fn nodeStatus(ctx: TreeContext, node: *const upgrade_tree.Node, lvl: u16, buf: [
             const cur = bee_ai_system.nightHoneyMulForLevel(lvl);
             if (maxed) return std.fmt.bufPrintZ(buf, "{s}: x{s} {s}", .{ now, fmtMul(cur, &b1), suffix }) catch null;
             return std.fmt.bufPrintZ(buf, "{s}: x{s}  ·  {s}: x{s} {s}", .{ now, fmtMul(cur, &b1), nxt, fmtMul(bee_ai_system.nightHoneyMulForLevel(lvl + 1), &b2), suffix }) catch null;
+        },
+        .bee_speed_mul => {
+            var b1: [24]u8 = undefined;
+            var b2: [24]u8 = undefined;
+            const cur = bee_ai_system.beeSpeedMulForLevel(lvl);
+            if (maxed) return std.fmt.bufPrintZ(buf, "{s}: x{s}  ·  {s}", .{ now, fmtMul(cur, &b1), capHint(node) }) catch null;
+            return std.fmt.bufPrintZ(buf, "{s}: x{s}  ·  {s}: x{s}", .{ now, fmtMul(cur, &b1), nxt, fmtMul(bee_ai_system.beeSpeedMulForLevel(lvl + 1), &b2) }) catch null;
         },
         .bulk_buy_tier => {
             const hud = @import("action_hud.zig");
