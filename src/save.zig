@@ -60,11 +60,15 @@ pub const Data = struct {
     beehive_upgrade_cost: f32 = 20,
     grid_width: usize = 17,
     grid_height: usize = 17,
-    royal_jelly: u32 = 0,
+    royal_jelly: u64 = 0,
     this_run_honey: f32 = 0,
     prestige_unlocked: bool = false,
     /// Royal Jelly spent in the prestige shop (absent in older saves).
-    jelly_spent: u32 = 0,
+    jelly_spent: u64 = 0,
+    /// True when the file predates the Royal Shop (0.3.0): no `jelly_spent`
+    /// line. Those builds ascended on `prestige_unlocked` alone, so a run
+    /// saved mid-way may lack the Prestige node the current rule requires.
+    pre_royal_shop: bool = false,
     /// Prestige shop level per item, indexed by prestige.ShopItem.
     shop_levels: [MAX_SHOP_ITEMS]u16 = [_]u16{0} ** MAX_SHOP_ITEMS,
     // Legacy labs line. aura_multiplier is derived from tree levels on load;
@@ -215,6 +219,7 @@ pub fn read(allocator: std.mem.Allocator, io: std.Io, save_path: []const u8) !Da
     var saw_grid = false;
     var saw_prestige = false;
     var saw_labs = false;
+    var saw_jelly_spent = false;
 
     var lines = std.mem.tokenizeScalar(u8, contents, '\n');
     while (lines.next()) |raw_line| {
@@ -265,7 +270,7 @@ pub fn read(allocator: std.mem.Allocator, io: std.Io, save_path: []const u8) !Da
             data.grid_height = try parse(usize, tokens.next());
         } else if (std.mem.eql(u8, key, "prestige")) {
             saw_prestige = true;
-            data.royal_jelly = try parse(u32, tokens.next());
+            data.royal_jelly = try parse(u64, tokens.next());
             data.this_run_honey = try parse(f32, tokens.next());
             data.prestige_unlocked = (try parse(u8, tokens.next())) != 0;
         } else if (std.mem.eql(u8, key, "labs")) {
@@ -275,7 +280,8 @@ pub fn read(allocator: std.mem.Allocator, io: std.Io, save_path: []const u8) !Da
             data.burst_cooldown = try parse(f32, tokens.next());
             data.bloom_cooldown = try parse(f32, tokens.next());
         } else if (std.mem.eql(u8, key, "jelly_spent")) {
-            data.jelly_spent = try parse(u32, tokens.next());
+            saw_jelly_spent = true;
+            data.jelly_spent = try parse(u64, tokens.next());
         } else if (std.mem.eql(u8, key, "shop")) {
             const id = try parse(usize, tokens.next());
             const lvl = try parse(u16, tokens.next());
@@ -337,6 +343,7 @@ pub fn read(allocator: std.mem.Allocator, io: std.Io, save_path: []const u8) !Da
     if (!saw_header or !saw_end or !saw_resources or !saw_hive or !saw_grid or !saw_prestige or !saw_labs) {
         return error.InvalidSave;
     }
+    data.pre_royal_shop = !saw_jelly_spent;
     return data;
 }
 
@@ -412,12 +419,13 @@ test "save data survives an atomic round trip" {
     try std.testing.expectEqual(@as(f32, 0.25), restored.fx_volume);
     try std.testing.expectEqual(@as(f32, 9_000_000), restored.honey);
     try std.testing.expectEqual(@as(f32, 128), restored.beehive_factor);
-    try std.testing.expectEqual(@as(u32, 42), restored.royal_jelly);
-    try std.testing.expectEqual(@as(u32, 17), restored.jelly_spent);
+    try std.testing.expectEqual(@as(u64, 42), restored.royal_jelly);
+    try std.testing.expectEqual(@as(u64, 17), restored.jelly_spent);
     try std.testing.expectEqual(@as(u16, 3), restored.shop_levels[2]);
     try std.testing.expectEqual(@as(u16, 0), restored.shop_levels[0]);
     try std.testing.expectEqual(@as(f64, 2.5e12), restored.stats.lifetimeHoney);
     try std.testing.expectEqual(@as(u32, 6), restored.stats.prestigeCount);
+    try std.testing.expect(!restored.pre_royal_shop);
     try std.testing.expectEqual(@as(u32, 12_345), restored.stats.maxBeesAlive);
     try std.testing.expectEqual(@as(u32, 0), restored.stats.rottenCleared);
     try std.testing.expect(restored.achievements[@intFromEnum(achievements.Id.first_drop)]);
@@ -464,8 +472,10 @@ test "flower lines without the is_super field still parse (old saves)" {
     // A legacy master volume seeds both channels.
     try std.testing.expectEqual(@as(f32, 0.4), restored.music_volume);
     try std.testing.expectEqual(@as(f32, 0.4), restored.fx_volume);
-    // No shop lines: nothing spent, nothing owned.
-    try std.testing.expectEqual(@as(u32, 0), restored.jelly_spent);
+    // No shop lines: nothing spent, nothing owned — and flagged as a
+    // pre-Royal-Shop file so the loader can apply the old ascend rule once.
+    try std.testing.expectEqual(@as(u64, 0), restored.jelly_spent);
+    try std.testing.expect(restored.pre_royal_shop);
     try std.testing.expectEqual(@as(u16, 0), restored.shop_levels[0]);
     try std.testing.expectEqual(@as(usize, 1), restored.flowers.items.len);
     try std.testing.expect(!restored.flowers.items[0].is_super);

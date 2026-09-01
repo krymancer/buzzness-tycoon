@@ -1198,7 +1198,7 @@ pub const Game = struct {
         }
     }
 
-    fn doPrestige(self: *@This(), gain: u32) !void {
+    fn doPrestige(self: *@This(), gain: u64) !void {
         self.prestige.resetRun(gain);
         // Royal jelly alone can't recover the run count (sqrt-based), so
         // prestiges are counted here.
@@ -1350,7 +1350,7 @@ pub const Game = struct {
             .beeTypeCounts = beeTypes,
             .superFlowersAlive = superAlive,
             .superTypesAlive = superTypes,
-            .availableJelly = self.prestige.availableJelly(),
+            .availableJelly = @intCast(@min(self.prestige.availableJelly(), std.math.maxInt(u32))),
             .largestPurchase = self.largestPurchase,
             .allOneShotNodesOwned = self.upgradeTree.allOneShotsOwned(),
             .gridRingLevel = self.upgradeTree.level(10),
@@ -1753,6 +1753,16 @@ pub const Game = struct {
             if (m.legacy < data.purchased.len and data.purchased[m.legacy] and self.upgradeTree.isPurchased(m.target)) {
                 try self.upgradeTree.setLevel(m.target, self.upgradeTree.level(m.target) + 1);
             }
+        }
+
+        // Before 0.3.0 the Prestige node only had to be bought once: every
+        // ascend wiped it from the tree and the sticky flag kept Ascend
+        // enabled. Now the node must be owned in the current run, so a run
+        // carried over from an older build would be locked out of the ascend
+        // it was working toward. Grant it for that run only; later runs buy
+        // it like everyone else.
+        if (data.pre_royal_shop and data.prestige_unlocked and !self.upgradeTree.hasEffect(.prestige_unlock)) {
+            try self.upgradeTree.setLevel(upgrade_tree.PRESTIGE_ID, 1);
         }
 
         self.prestige.royalJelly = data.royal_jelly;

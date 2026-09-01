@@ -22,7 +22,7 @@ pub const Action = union(enum) {
     none,
     close,
     /// Ascend with the gain the panel displayed.
-    confirm: u32,
+    confirm: u64,
     buy: prestige_mod.ShopItem,
 };
 
@@ -54,7 +54,7 @@ fn withAlpha(c: rl.Color, a: u8) rl.Color {
     return rl.Color.init(c.r, c.g, c.b, a);
 }
 
-fn fmtInt(v: u32, buf: []u8) [:0]const u8 {
+fn fmtInt(v: u64, buf: []u8) [:0]const u8 {
     return format.formatShort(@floatFromInt(v), buf);
 }
 

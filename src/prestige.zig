@@ -65,9 +65,9 @@ pub fn shopSpec(item: ShopItem) ShopSpec {
 
 pub const PrestigeState = struct {
     /// Lifetime Royal Jelly earned; drives the income multiplier.
-    royalJelly: u32 = 0,
+    royalJelly: u64 = 0,
     /// Jelly spent in the shop; never exceeds royalJelly.
-    jellySpent: u32 = 0,
+    jellySpent: u64 = 0,
     thisRunHoney: f32 = 0,
     hasUnlockedPrestige: bool = false,
     shopLevels: [SHOP_ITEM_COUNT]u16 = @splat(0),
@@ -76,12 +76,22 @@ pub const PrestigeState = struct {
         self.thisRunHoney += amount;
     }
 
-    pub fn gainFromReset(self: *const @This()) u32 {
-        if (self.thisRunHoney < HONEY_PER_JELLY) return 0;
-        const base = @sqrt(self.thisRunHoney / HONEY_PER_JELLY);
-        const boosted = base * (1.0 + REFINERY_PER_LEVEL * @as(f32, @floatFromInt(self.shopLevel(.jelly_refinery))));
-        return @intFromFloat(@min(boosted, @as(f32, @floatFromInt(std.math.maxInt(u32)))));
+    /// Jelly a reset would grant: sqrt(honey / 10k), boosted by the
+    /// Refinery. Computed in f64 and clamped to a value that is exactly
+    /// representable and inside u64 — clamping to `maxInt(u32)` as an f32
+    /// rounded up to 2^32, which is *out* of range, and in ReleaseFast that
+    /// `@intFromFloat` read as 0 once a run passed ~4.6e22 honey (the
+    /// "Royal Jelly gained +0, can't ascend" bug).
+    pub fn gainFromReset(self: *const @This()) u64 {
+        if (!std.math.isFinite(self.thisRunHoney) or self.thisRunHoney < HONEY_PER_JELLY) return 0;
+        const honey: f64 = self.thisRunHoney;
+        const base = @sqrt(honey / HONEY_PER_JELLY);
+        const boosted = base * (1.0 + REFINERY_PER_LEVEL * @as(f64, @floatFromInt(self.shopLevel(.jelly_refinery))));
+        return @intFromFloat(@min(boosted, MAX_GAIN));
     }
+
+    /// Largest single gain (exactly representable in f64, well inside u64).
+    const MAX_GAIN: f64 = 1.0e18;
 
     /// Multiplier from lifetime jelly alone (what prestige prices scale from).
     pub fn jellyMul(self: *const @This()) f32 {
@@ -106,12 +116,12 @@ pub const PrestigeState = struct {
         return @sqrt(self.jellyMul());
     }
 
-    pub fn resetRun(self: *@This(), gain: u32) void {
+    pub fn resetRun(self: *@This(), gain: u64) void {
         self.royalJelly +|= gain;
         self.thisRunHoney = 0;
     }
 
-    pub fn availableJelly(self: *const @This()) u32 {
+    pub fn availableJelly(self: *const @This()) u64 {
         return self.royalJelly -| self.jellySpent;
     }
 
@@ -164,7 +174,7 @@ test "shop purchases spend from the balance without touching the multiplier" {
 
     try std.testing.expect(p.canBuyShop(.queens_blessing));
     try std.testing.expect(p.buyShop(.queens_blessing));
-    try std.testing.expectEqual(@as(u32, 50), p.availableJelly());
+    try std.testing.expectEqual(@as(u64, 50), p.availableJelly());
     try std.testing.expectEqual(@as(u16, 1), p.shopLevel(.queens_blessing));
     try std.testing.expectEqual(mulBefore, p.jellyMul());
     try std.testing.expectEqual(costBefore, p.costMul());
@@ -178,7 +188,7 @@ test "shop refuses unaffordable and maxed items" {
     try std.testing.expect(p.buyShop(.royal_retinue));
     try std.testing.expect(!p.canBuyShop(.royal_retinue)); // maxed (one-shot)
     try std.testing.expect(!p.buyShop(.royal_meadow)); // 0 left
-    try std.testing.expectEqual(@as(u32, 0), p.availableJelly());
+    try std.testing.expectEqual(@as(u64, 0), p.availableJelly());
 }
 
 test "a typical first prestige affords a real choice but not the whole shop" {
@@ -202,15 +212,43 @@ test "blessing total cost stays inside a u32 balance" {
 
 test "jelly refinery boosts the prestige gain" {
     var p: PrestigeState = .{ .thisRunHoney = 1_000_000 }; // sqrt(100) = 10
-    try std.testing.expectEqual(@as(u32, 10), p.gainFromReset());
+    try std.testing.expectEqual(@as(u64, 10), p.gainFromReset());
     p.shopLevels[@intFromEnum(ShopItem.jelly_refinery)] = 5;
-    try std.testing.expectEqual(@as(u32, 15), p.gainFromReset());
+    try std.testing.expectEqual(@as(u64, 15), p.gainFromReset());
+}
+
+test "huge runs still grant jelly (regression: gain read as 0 past 2^32)" {
+    // A real late-game run: 764.86 nonillion honey, Refinery maxed.
+    var p: PrestigeState = .{ .thisRunHoney = 7.6486e32 };
+    p.shopLevels[@intFromEnum(ShopItem.jelly_refinery)] = 10;
+    const gain = p.gainFromReset();
+    try std.testing.expect(gain > std.math.maxInt(u32));
+    try std.testing.expectApproxEqRel(@as(f64, 2.0 * @sqrt(7.6486e32 / 1e4)), @as(f64, @floatFromInt(gain)), 1e-5);
+
+    // Second report: 25.60Oc honey showed +0 and a frozen x310.20M
+    // multiplier preview — same clamp, mid-size run.
+    p.thisRunHoney = 2.56e28;
+    const gain2 = p.gainFromReset();
+    try std.testing.expect(gain2 > std.math.maxInt(u32));
+    try std.testing.expectApproxEqRel(@as(f64, 2.0 * @sqrt(2.56e28 / 1e4)), @as(f64, @floatFromInt(gain2)), 1e-5);
+
+    // Past the f32 economy's ceiling the gain saturates instead of wrapping.
+    p.thisRunHoney = std.math.floatMax(f32);
+    try std.testing.expect(p.gainFromReset() > 0);
+    p.thisRunHoney = std.math.inf(f32);
+    try std.testing.expectEqual(@as(u64, 0), p.gainFromReset());
+
+    // Lifetime jelly accumulates past u32 without wrapping.
+    var q: PrestigeState = .{ .royalJelly = 4_000_000_000 };
+    q.resetRun(1_000_000_000);
+    try std.testing.expectEqual(@as(u64, 5_000_000_000), q.royalJelly);
+    try std.testing.expect(q.jellyMul() > 4.0e8);
 }
 
 test "sanitize clamps over-max levels and overspent balances" {
     var p: PrestigeState = .{ .royalJelly = 5, .jellySpent = 50 };
     p.shopLevels[@intFromEnum(ShopItem.royal_retinue)] = 9;
     p.sanitize();
-    try std.testing.expectEqual(@as(u32, 5), p.jellySpent);
+    try std.testing.expectEqual(@as(u64, 5), p.jellySpent);
     try std.testing.expectEqual(@as(u16, 1), p.shopLevel(.royal_retinue));
 }
