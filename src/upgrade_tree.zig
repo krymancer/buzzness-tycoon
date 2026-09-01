@@ -1,4 +1,5 @@
 const std = @import("std");
+const lifespan_system = @import("ecs/systems/lifespan_system.zig");
 
 pub const NodeId = u16;
 
@@ -132,10 +133,11 @@ pub const NODES = [_]Node{
 
     // Colony vitality (col 2, under Storage). Available from the start;
     // flowers mature/re-pollen faster (x1.2/level), bees live longer
-    // (x1.2/level), dying flowers rot less (x0.85/level).
+    // (x1.2/level), dying flowers rot less (-10%/level, gone at 6: a
+    // semantic cap like Night Shift, so ascending adds nothing).
     .{ .id = 29, .name = "Fertile Soil", .cost = 300, .prereqs = r_worker, .effect = .flower_growth_mul, .value = 1.2, .col = 2, .row = 2, .repeat = .{ .cost_growth = 1.6, .max_level = 25, .per_ascension = 5 } },
     .{ .id = 30, .name = "Bee Vitality", .cost = 800, .prereqs = r_worker, .effect = .bee_lifespan_mul, .value = 1.2, .col = 2, .row = 3, .repeat = .{ .cost_growth = 1.7, .max_level = 25, .per_ascension = 5 } },
-    .{ .id = 31, .name = "Hardy Blooms", .cost = 2500, .prereqs = r_worker, .effect = .rot_chance_sub, .value = 0.85, .col = 2, .row = 4, .repeat = .{ .cost_growth = 1.8, .max_level = 25, .per_ascension = 5 } },
+    .{ .id = 31, .name = "Hardy Blooms", .cost = 2500, .prereqs = r_worker, .effect = .rot_chance_sub, .value = 10, .col = 2, .row = 4, .repeat = .{ .cost_growth = 1.8, .max_level = lifespan_system.HARDY_BLOOMS_MAX_LEVEL } },
     // Bees produce half honey and fly slower at night (see bee_ai_system);
     // each level removes a quarter of the penalty, all of it at level 4.
     .{ .id = 33, .name = "Night Shift", .cost = 2000, .prereqs = r_worker, .effect = .night_penalty_sub, .col = 2, .row = 5, .repeat = .{ .cost_growth = 1.8, .max_level = 4 } },
@@ -366,13 +368,32 @@ test "storage upgrades never cost more than the capacity they build" {
 test "colony vitality nodes are buyable at start and cap by ascension" {
     var s = State.init(std.testing.allocator);
     defer s.deinit();
-    for ([_]NodeId{ FERTILE_SOIL_ID, BEE_VITALITY_ID, HARDY_BLOOMS_ID }) |id| {
+    for ([_]NodeId{ FERTILE_SOIL_ID, BEE_VITALITY_ID }) |id| {
         const n = findNode(id).?;
         try std.testing.expect(s.canBuy(n, 0));
         const cap = n.repeat.?.max_level;
         try std.testing.expect(n.isMaxed(cap, 0));
         try std.testing.expect(!n.isMaxed(cap, 1)); // one ascend reopens it
     }
+}
+
+test "hardy blooms is buyable at start and its last level is where rot hits 0% (#70)" {
+    var s = State.init(std.testing.allocator);
+    defer s.deinit();
+    const hardy = findNode(HARDY_BLOOMS_ID).?;
+    try std.testing.expect(s.canBuy(hardy, 0));
+    const cap = hardy.repeat.?.max_level;
+    // Every level up to the cap still changes the number; the cap is 0%.
+    var prev = lifespan_system.rotChanceForLevel(0);
+    for (1..cap + 1) |lvl| {
+        const cur = lifespan_system.rotChanceForLevel(@intCast(lvl));
+        try std.testing.expect(cur < prev);
+        prev = cur;
+    }
+    try std.testing.expectEqual(@as(i32, 0), lifespan_system.rotChanceForLevel(cap));
+    // Semantic cap: ascending adds nothing.
+    try std.testing.expect(hardy.isMaxed(cap, 0));
+    try std.testing.expect(hardy.isMaxed(cap, 50));
 }
 
 test "night shift is buyable from the start and maxes at level 4" {
