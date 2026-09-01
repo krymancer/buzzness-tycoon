@@ -793,13 +793,23 @@ pub const Game = struct {
             self.hiveClickStreak = 0;
         }
 
-        // Rotten flower under the cursor: clear it so the cell can regrow.
+        // Rotten flower under the cursor: clear it so the cell can regrow,
+        // and pay a little honey for the chore (#72). Gardener sweeps
+        // (Composting / Cleanup Crew) get nothing: the treat is for the
+        // player's own click, and auto-clearing must never become income.
         if (self.grid.getHoveredTile()) |tile| {
             if (self.world.getFlowerAtGrid(tile.x, tile.y)) |flowerEntity| {
                 if (self.world.getFlowerGrowth(flowerEntity)) |growth| {
                     if (growth.isRotten) {
+                        // A SUPER block is one entity, so one reward per block.
                         lifespan_system.removeFlower(&self.world, flowerEntity) catch {};
                         self.cachedFlowerCount = self.world.entityToFlowerGrowth.count();
+                        const reward = rotClearReward(self.resources.honeyPerSec);
+                        self.resources.addHoney(reward);
+                        self.prestige.trackHoney(reward);
+                        self.stats.lifetimeHoney += reward;
+                        self.floatingTexts.spawn(@floatFromInt(tile.x), @floatFromInt(tile.y), reward) catch {};
+                        self.audio.playCollect();
                         return;
                     }
                 }
@@ -1825,6 +1835,17 @@ pub const Game = struct {
         for (self.world.bees.list.items(.ai)) |*ai| {
             ai.searchCooldown = @as(f32, @floatFromInt(rl.getRandomValue(0, 100))) / 100.0;
         }
+    }
+
+    /// Honey for clearing one rotten flower by hand: a few seconds of the
+    /// run's current income so it scales with the game but stays a treat,
+    /// with a floor so the very first clears still show a number.
+    pub const ROT_CLEAR_REWARD_SECONDS: f32 = 3;
+    pub const ROT_CLEAR_REWARD_MIN: f32 = 5;
+
+    pub fn rotClearReward(honeyPerSec: f32) f32 {
+        if (!std.math.isFinite(honeyPerSec)) return ROT_CLEAR_REWARD_MIN;
+        return @max(ROT_CLEAR_REWARD_MIN, honeyPerSec * ROT_CLEAR_REWARD_SECONDS);
     }
 
     fn finiteAtLeast(value: f32, minimum: f32, fallback: f32) f32 {
