@@ -69,7 +69,7 @@ fn trySpawnFlowerInEmptyCell(world: *World, gridWidth: usize, gridHeight: usize,
                 try world.addGridPosition(flowerEntity, components.GridPosition.init(@floatFromInt(gridI), @floatFromInt(gridJ)));
                 try world.addSprite(flowerEntity, components.Sprite.init(flowerTexture, 32, 32, 2));
                 try world.addFlowerGrowth(flowerEntity, components.FlowerGrowth.init(textures.flowersToFlowerType(flowerType)));
-                try world.addLifespan(flowerEntity, components.Lifespan.init(@floatFromInt(rl.getRandomValue(60, 120))));
+                try world.addLifespan(flowerEntity, components.Lifespan.init(spawners.newFlowerLifespan(textures.flowersToFlowerType(flowerType))));
                 world.registerFlowerAtGrid(@intCast(gridI), @intCast(gridJ), flowerEntity);
                 _ = try spawners.tryMergeSuperFlower(world, @intCast(gridI), @intCast(gridJ));
                 return;

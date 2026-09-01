@@ -578,7 +578,7 @@ fn plantFlower(world: *World, gridX: i32, gridY: i32, texturesRef: Textures) !vo
     try world.addGridPosition(flowerEntity, components.GridPosition.init(gridXf, gridYf));
     try world.addSprite(flowerEntity, components.Sprite.init(flowerTexture, 32, 32, 2));
     try world.addFlowerGrowth(flowerEntity, components.FlowerGrowth.init(textures.flowersToFlowerType(flowerType)));
-    try world.addLifespan(flowerEntity, components.Lifespan.init(@floatFromInt(rl.getRandomValue(60, 120))));
+    try world.addLifespan(flowerEntity, components.Lifespan.init(spawners.newFlowerLifespan(textures.flowersToFlowerType(flowerType))));
     world.registerFlowerAtGrid(gridX, gridY, flowerEntity);
     _ = try spawners.tryMergeSuperFlower(world, gridX, gridY);
 }

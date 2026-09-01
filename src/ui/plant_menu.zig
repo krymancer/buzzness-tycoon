@@ -61,6 +61,16 @@ fn flowerName(f: Flowers) [:0]const u8 {
     };
 }
 
+/// One-line niche per type so the choice is visible (#71); numbers live in
+/// components.FlowerType.stats.
+fn flowerHint(f: Flowers) [:0]const u8 {
+    return switch (f) {
+        .rose => locale.tr("balanced", "equilibrada"),
+        .tulip => locale.tr("rich pollen · slow · lasting", "muito pólen · lenta · duradoura"),
+        .dandelion => locale.tr("light pollen · quick · brief", "pouco pólen · rápida · breve"),
+    };
+}
+
 /// Draw the menu anchored under its tile and return what the player did.
 pub fn draw(state: *const State, ctx: Context) Action {
     const C = theme.CatppuccinMocha.Color;
@@ -99,7 +109,8 @@ pub fn draw(state: *const State, ctx: Context) Action {
         const dst = rl.Rectangle.init(row.x + 6, row.y + (row.height - iconS) / 2, iconS, iconS);
         rl.drawTexturePro(tex, src, dst, rl.Vector2.init(0, 0), 0, if (afford) rl.Color.white else C.overlay0);
 
-        text.draw(flowerName(entry.flower), @intFromFloat(row.x + 44), @intFromFloat(row.y + 11), 17, if (afford) C.text else C.overlay0);
+        text.draw(flowerName(entry.flower), @intFromFloat(row.x + 44), @intFromFloat(row.y + 5), 16, if (afford) C.text else C.overlay0);
+        text.draw(flowerHint(entry.flower), @intFromFloat(row.x + 44), @intFromFloat(row.y + 24), 11, if (afford) C.subtext0 else C.overlay0);
 
         var cbuf: [32]u8 = undefined;
         const cstr = format.formatShort(entry.cost, &cbuf);
