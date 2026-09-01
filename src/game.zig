@@ -1025,6 +1025,7 @@ pub const Game = struct {
                 .resources = &self.resources,
                 .textures = &self.textures,
                 .prestigeCostMul = self.prestige.costMul(),
+                .ascensions = self.stats.prestigeCount,
             };
             const treeAction = ui.tree_view.draw(treeCtx);
             switch (treeAction) {
@@ -1449,7 +1450,7 @@ pub const Game = struct {
 
     fn purchaseUpgrade(self: *@This(), nodeId: upgrade_tree.NodeId) !void {
         const node = upgrade_tree.findNode(nodeId) orelse return;
-        if (!self.upgradeTree.canBuy(node)) return;
+        if (!self.upgradeTree.canBuy(node, self.stats.prestigeCount)) return;
         if (!self.resources.spendHoney(self.upgradeTree.nextCost(node, self.prestige.costMul()))) return;
 
         switch (node.effect) {
@@ -1720,8 +1721,17 @@ pub const Game = struct {
         try self.world.rebalanceBees();
         self.staggerBeeSearches();
 
-        self.resources.honey = finiteAtLeast(data.honey, 0, 100);
-        self.resources.honeyCapacity = finiteAtLeast(data.honey_capacity, 1, 500);
+        // A pre-cap run could grow capacity past f32 into inf (#64); an
+        // over-ceiling or non-finite value means Storage was maxed out, so
+        // it lands on the new ceiling rather than resetting to the base tank.
+        self.resources.honeyCapacity = if (std.math.isFinite(data.honey_capacity))
+            std.math.clamp(data.honey_capacity, 1, upgrade_tree.MAX_HONEY_CAPACITY)
+        else
+            upgrade_tree.MAX_HONEY_CAPACITY;
+        self.resources.honey = if (std.math.isFinite(data.honey))
+            std.math.clamp(data.honey, 0, self.resources.honeyCapacity)
+        else
+            self.resources.honeyCapacity;
         self.resources.storageLevel = @max(1, data.storage_level);
         self.resources.honeyPerSec = finiteAtLeast(data.honey_per_sec, 0, 0);
         self.resources.honeyThisSecond = 0;
@@ -1741,10 +1751,13 @@ pub const Game = struct {
                 if (m.legacy == id) is_legacy = true;
             }
             if (is_legacy) continue;
-            // Old saves only have the "upgrade" flag -> level 1; clamp to max.
+            // Old saves only have the "upgrade" flag -> level 1. Repeatables
+            // clamp to the hard ceiling, not the ascension-scaled cap: a
+            // pre-cap run keeps levels above today's cap (they just read as
+            // maxed), while a hand-edited save can't smuggle in overflow.
             var lvl: u16 = @max(1, data.levels[id]);
             if (node.repeat) |r| {
-                if (r.max_level != 0) lvl = @min(lvl, r.max_level);
+                lvl = @min(lvl, r.capCeiling());
             } else lvl = 1;
             try self.upgradeTree.setLevel(@intCast(id), lvl);
         }
@@ -1766,7 +1779,13 @@ pub const Game = struct {
         }
 
         self.prestige.royalJelly = data.royal_jelly;
-        self.prestige.thisRunHoney = finiteAtLeast(data.this_run_honey, 0, 0);
+        // An f32-era save that overflowed wrote "inf" for the run total,
+        // which read as gain 0 and locked ascending. Credit such a run with
+        // the f32 ceiling it provably passed so the player can finally ascend.
+        self.prestige.thisRunHoney = if (std.math.isFinite(data.this_run_honey))
+            @max(0, data.this_run_honey)
+        else
+            std.math.floatMax(f32);
         self.prestige.hasUnlockedPrestige = data.prestige_unlocked or self.upgradeTree.hasEffect(.prestige_unlock);
         self.prestige.jellySpent = data.jelly_spent;
         for (&self.prestige.shopLevels, 0..) |*lvl, i| lvl.* = data.shop_levels[i];

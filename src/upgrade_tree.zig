@@ -30,10 +30,29 @@ pub const EffectKind = enum {
 
 /// Marks a node as re-buyable. Each purchase raises its level and re-applies
 /// the node's effect; the cost scales geometrically: cost * cost_growth^level.
+/// Every repeatable is capped: unlimited levels let a run stack multipliers
+/// until the f32 economy overflowed to inf (#64). Ascending raises the cap.
 pub const Repeat = struct {
     cost_growth: f32,
-    /// 0 = unlimited.
-    max_level: u16 = 0,
+    /// Levels available on a fresh profile.
+    max_level: u16,
+    /// Extra cap levels granted per ascension (stats.prestigeCount).
+    per_ascension: u16 = 0,
+    /// Ceiling the per-ascension growth never passes (0 = max_level is
+    /// final). Required when per_ascension > 0, so no amount of ascending
+    /// can push an effect or cost back into overflow territory.
+    hard_cap: u16 = 0,
+
+    /// Level cap for a profile with `ascensions` prestiges behind it.
+    pub fn capAt(self: @This(), ascensions: u32) u16 {
+        const grown = @as(u64, self.max_level) + @as(u64, self.per_ascension) * ascensions;
+        return @intCast(@min(grown, self.capCeiling()));
+    }
+
+    /// Absolute ceiling regardless of ascension count.
+    pub fn capCeiling(self: @This()) u16 {
+        return if (self.hard_cap != 0) self.hard_cap else self.max_level;
+    }
 };
 
 pub const Node = struct {
@@ -57,9 +76,9 @@ pub const Node = struct {
         return self.cost * std.math.pow(f32, r.cost_growth, @floatFromInt(level));
     }
 
-    pub fn isMaxed(self: *const @This(), level: u16) bool {
+    pub fn isMaxed(self: *const @This(), level: u16, ascensions: u32) bool {
         const r = self.repeat orelse return level > 0;
-        return r.max_level != 0 and level >= r.max_level;
+        return level >= r.capAt(ascensions);
     }
 };
 
@@ -79,8 +98,9 @@ pub const NODES = [_]Node{
     .{ .id = 3, .name = "Honey x8", .cost = 1500, .prereqs = &[_]NodeId{2}, .effect = .honey_factor_mul, .value = 2.0, .col = -2, .row = 3 },
     .{ .id = 22, .name = "Honey x16", .cost = 3500, .prereqs = &[_]NodeId{3}, .effect = .honey_factor_mul, .value = 2.0, .col = -2, .row = 4 },
     .{ .id = 23, .name = "Honey x32", .cost = 10000, .prereqs = &[_]NodeId{22}, .effect = .honey_factor_mul, .value = 2.0, .col = -2, .row = 5 },
-    // Repeatable: +25% honey per level, cost x1.5 per level, no cap.
-    .{ .id = 24, .name = "Honey Boost", .cost = 8000, .prereqs = &[_]NodeId{23}, .effect = .honey_factor_mul, .value = 1.25, .col = -2, .row = 6, .repeat = .{ .cost_growth = 1.5 } },
+    // Repeatable: +25% honey per level, cost x1.5 per level. Capped: the
+    // hard ceiling keeps the hive factor (x32 chain included) inside f32.
+    .{ .id = 24, .name = "Honey Boost", .cost = 8000, .prereqs = &[_]NodeId{23}, .effect = .honey_factor_mul, .value = 1.25, .col = -2, .row = 6, .repeat = .{ .cost_growth = 1.5, .max_level = 40, .per_ascension = 5, .hard_cap = 120 } },
 
     // Bees branch (col -1)
     .{ .id = 4, .name = "Swift Bee", .cost = 80, .prereqs = r_worker, .effect = .bee_unlock_swift, .col = -1, .row = 1 },
@@ -108,16 +128,18 @@ pub const NODES = [_]Node{
     // Storage (col 2). Repeatable: adds value * STORAGE_CAPACITY_GROWTH^level
     // capacity per level. cost_growth must never exceed the capacity growth:
     // honey is capped at the current capacity, so a faster-growing cost
-    // eventually becomes unreachable and softlocks progression.
-    .{ .id = 13, .name = "Storage", .cost = 40, .prereqs = r_worker, .effect = .storage_add, .value = 500, .col = 2, .row = 1, .repeat = .{ .cost_growth = STORAGE_CAPACITY_GROWTH } },
+    // eventually becomes unreachable and softlocks progression. The hard cap
+    // bounds the whole economy: honey can never exceed the capacity this
+    // node builds, so capping it is what keeps honey off f32 infinity.
+    .{ .id = 13, .name = "Storage", .cost = 40, .prereqs = r_worker, .effect = .storage_add, .value = 500, .col = 2, .row = 1, .repeat = .{ .cost_growth = STORAGE_CAPACITY_GROWTH, .max_level = 70, .per_ascension = 10, .hard_cap = STORAGE_HARD_CAP } },
     // (ids 14/15 were Storage +1K/+2K — folded into 13's levels on load.)
 
-    // Colony vitality (col 2, under Storage). Available from the start and
-    // infinitely repeatable: flowers mature/re-pollen faster (x1.2/level),
-    // bees live longer (x1.2/level), dying flowers rot less (x0.85/level).
-    .{ .id = 29, .name = "Fertile Soil", .cost = 300, .prereqs = r_worker, .effect = .flower_growth_mul, .value = 1.2, .col = 2, .row = 2, .repeat = .{ .cost_growth = 1.6 } },
-    .{ .id = 30, .name = "Bee Vitality", .cost = 800, .prereqs = r_worker, .effect = .bee_lifespan_mul, .value = 1.2, .col = 2, .row = 3, .repeat = .{ .cost_growth = 1.7 } },
-    .{ .id = 31, .name = "Hardy Blooms", .cost = 2500, .prereqs = r_worker, .effect = .rot_chance_sub, .value = 0.85, .col = 2, .row = 4, .repeat = .{ .cost_growth = 1.8 } },
+    // Colony vitality (col 2, under Storage). Available from the start;
+    // flowers mature/re-pollen faster (x1.2/level), bees live longer
+    // (x1.2/level), dying flowers rot less (x0.85/level).
+    .{ .id = 29, .name = "Fertile Soil", .cost = 300, .prereqs = r_worker, .effect = .flower_growth_mul, .value = 1.2, .col = 2, .row = 2, .repeat = .{ .cost_growth = 1.6, .max_level = 25, .per_ascension = 5, .hard_cap = 60 } },
+    .{ .id = 30, .name = "Bee Vitality", .cost = 800, .prereqs = r_worker, .effect = .bee_lifespan_mul, .value = 1.2, .col = 2, .row = 3, .repeat = .{ .cost_growth = 1.7, .max_level = 25, .per_ascension = 5, .hard_cap = 60 } },
+    .{ .id = 31, .name = "Hardy Blooms", .cost = 2500, .prereqs = r_worker, .effect = .rot_chance_sub, .value = 0.85, .col = 2, .row = 4, .repeat = .{ .cost_growth = 1.8, .max_level = 25, .per_ascension = 5, .hard_cap = 40 } },
     // Bees produce half honey and fly slower at night (see bee_ai_system);
     // each level removes a quarter of the penalty, all of it at level 4.
     .{ .id = 33, .name = "Night Shift", .cost = 2000, .prereqs = r_worker, .effect = .night_penalty_sub, .col = 2, .row = 5, .repeat = .{ .cost_growth = 1.8, .max_level = 4 } },
@@ -126,8 +148,10 @@ pub const NODES = [_]Node{
     // Aura: flowers inside the rings around the hive yield more pollen.
     // Lab: Aura levels the factor (+25%/level); Aura Reach widens the rings
     // (+1 tile/level). Both repeatable.
-    .{ .id = 16, .name = "Lab: Aura", .cost = 8000, .prereqs = &[_]NodeId{ 3, 6 }, .effect = .lab_aura, .col = 0, .row = 4, .repeat = .{ .cost_growth = 1.8 } },
-    .{ .id = 25, .name = "Aura Reach", .cost = 5000, .prereqs = &[_]NodeId{16}, .effect = .aura_reach, .col = 0, .row = 5, .repeat = .{ .cost_growth = 1.6 } },
+    .{ .id = 16, .name = "Lab: Aura", .cost = 8000, .prereqs = &[_]NodeId{ 3, 6 }, .effect = .lab_aura, .col = 0, .row = 4, .repeat = .{ .cost_growth = 1.8, .max_level = 25, .per_ascension = 5, .hard_cap = 100 } },
+    // Reach past the biggest possible meadow (20 tree rings + 12 shop rings)
+    // would be dead levels, so the ceiling stops just short of it.
+    .{ .id = 25, .name = "Aura Reach", .cost = 5000, .prereqs = &[_]NodeId{16}, .effect = .aura_reach, .col = 0, .row = 5, .repeat = .{ .cost_growth = 1.6, .max_level = 8, .per_ascension = 2, .hard_cap = 32 } },
     // (ids 17/18 were Lab: Burst / Lab: Bloom — removed; stale save entries are ignored.)
     .{ .id = 19, .name = "Prestige", .cost = 100000, .prereqs = &[_]NodeId{ 25, 21 }, .effect = .prestige_unlock, .col = 0, .row = 6 },
 
@@ -146,6 +170,25 @@ pub const PRESTIGE_ID: NodeId = 19;
 /// applies value * this^level on purchase). The node's cost_growth is tied to
 /// this value so the next upgrade always fits inside the honey cap.
 pub const STORAGE_CAPACITY_GROWTH: f32 = 1.6;
+
+/// Storage's absolute level ceiling. 150 puts the maximum capacity around
+/// 3.5e33 (~3.5 decillion) — five orders of magnitude under f32 max, so no
+/// multiplier stack on top can carry honey to infinity again (#64).
+pub const STORAGE_HARD_CAP: u16 = 150;
+
+/// Honey capacity with Storage at its hard cap: the economy's ceiling.
+/// Loaders clamp a save's capacity here so a pre-cap run that already
+/// overflowed comes back finite.
+pub const MAX_HONEY_CAPACITY: f32 = blk: {
+    @setEvalBranchQuota(4000);
+    var cap: f64 = 500; // Resources BASE_CAPACITY
+    var add: f64 = 500; // Storage value * growth^0
+    for (0..STORAGE_HARD_CAP) |_| {
+        cap += add;
+        add *= STORAGE_CAPACITY_GROWTH;
+    }
+    break :blk @floatCast(cap);
+};
 pub const AURA_REACH_ID: NodeId = 25;
 pub const GREEN_THUMB_ID: NodeId = 26;
 pub const FERTILE_SOIL_ID: NodeId = 29;
@@ -201,9 +244,10 @@ pub const State = struct {
         return true;
     }
 
-    /// True when the node can be bought (first purchase) or leveled up again.
-    pub fn canBuy(self: *const @This(), node: *const Node) bool {
-        return self.isUnlocked(node) and !node.isMaxed(self.level(node.id));
+    /// True when the node can be bought (first purchase) or leveled up
+    /// again. `ascensions` (stats.prestigeCount) raises repeatable caps.
+    pub fn canBuy(self: *const @This(), node: *const Node, ascensions: u32) bool {
+        return self.isUnlocked(node) and !node.isMaxed(self.level(node.id), ascensions);
     }
 
     /// Honey price of the next purchase of this node. `prestigeCostMul` is
@@ -268,30 +312,72 @@ test "repeatable node cost grows geometrically and one-shot nodes max at level 1
     const boost = findNode(24).?;
     try std.testing.expectApproxEqRel(@as(f32, 8000), boost.costAtLevel(0), 1e-5);
     try std.testing.expectApproxEqRel(@as(f32, 8000 * 1.5), boost.costAtLevel(1), 1e-5);
-    try std.testing.expect(!boost.isMaxed(50));
+    try std.testing.expect(!boost.isMaxed(39, 0));
+    try std.testing.expect(boost.isMaxed(40, 0));
 
     const honey2 = findNode(1).?;
     try std.testing.expectEqual(@as(f32, 50), honey2.costAtLevel(0));
-    try std.testing.expect(!honey2.isMaxed(0));
-    try std.testing.expect(honey2.isMaxed(1));
+    try std.testing.expect(!honey2.isMaxed(0, 0));
+    try std.testing.expect(honey2.isMaxed(1, 0));
+}
+
+test "every repeatable is capped and ascending raises the cap up to its ceiling (#64)" {
+    for (&NODES) |*n| {
+        const r = n.repeat orelse continue;
+        // No node may offer unlimited levels again.
+        try std.testing.expect(r.max_level != 0);
+        try std.testing.expect(r.capCeiling() >= r.max_level);
+        // Fresh profiles see the base cap; ascensions never pass the ceiling.
+        try std.testing.expectEqual(r.max_level, r.capAt(0));
+        try std.testing.expectEqual(r.capCeiling(), r.capAt(1_000_000));
+        if (r.per_ascension > 0) {
+            try std.testing.expect(r.hard_cap > r.max_level);
+            try std.testing.expectEqual(r.max_level + r.per_ascension, r.capAt(1));
+        }
+    }
+
+    // A grandfathered level above the ceiling still reads as maxed.
+    const boost = findNode(24).?;
+    try std.testing.expect(boost.isMaxed(193, 1_000_000));
+}
+
+test "the capped economy stays far inside f32 (regression: 173Ud run hit inf)" {
+    // Honey can never exceed the capacity Storage builds, and that capacity
+    // keeps generous headroom under f32 max even at the hard cap.
+    try std.testing.expect(std.math.isFinite(MAX_HONEY_CAPACITY));
+    try std.testing.expect(MAX_HONEY_CAPACITY < std.math.floatMax(f32) / 1e4);
+    try std.testing.expect(MAX_HONEY_CAPACITY > 1e33); // still a late-game sized tank
+
+    // The hive factor with the x2..x32 chain and Honey Boost at its ceiling,
+    // and every repeatable's final purchase price, stay finite too.
+    const boost = findNode(24).?;
+    const factor = 32.0 * std.math.pow(f32, boost.value, @floatFromInt(boost.repeat.?.hard_cap));
+    try std.testing.expect(std.math.isFinite(factor));
+    for (&NODES) |*n| {
+        const r = n.repeat orelse continue;
+        try std.testing.expect(std.math.isFinite(n.costAtLevel(r.capCeiling() - 1)));
+    }
 }
 
 test "storage upgrades never cost more than the capacity they build" {
     const storage = findNode(STORAGE_ID).?;
     var capacity: f32 = 500; // Resources BASE_CAPACITY
-    for (0..80) |level| {
+    for (0..STORAGE_HARD_CAP) |level| {
         try std.testing.expect(storage.costAtLevel(@intCast(level)) <= capacity);
         capacity += storage.value * std.math.pow(f32, STORAGE_CAPACITY_GROWTH, @floatFromInt(level));
     }
+    try std.testing.expectApproxEqRel(MAX_HONEY_CAPACITY, capacity, 1e-4);
 }
 
-test "colony vitality nodes are buyable at start and never max out" {
+test "colony vitality nodes are buyable at start and cap by ascension" {
     var s = State.init(std.testing.allocator);
     defer s.deinit();
     for ([_]NodeId{ FERTILE_SOIL_ID, BEE_VITALITY_ID, HARDY_BLOOMS_ID }) |id| {
         const n = findNode(id).?;
-        try std.testing.expect(s.canBuy(n));
-        try std.testing.expect(!n.isMaxed(100));
+        try std.testing.expect(s.canBuy(n, 0));
+        const cap = n.repeat.?.max_level;
+        try std.testing.expect(n.isMaxed(cap, 0));
+        try std.testing.expect(!n.isMaxed(cap, 1)); // one ascend reopens it
     }
 }
 
@@ -299,10 +385,12 @@ test "night shift is buyable from the start and maxes at level 4" {
     var s = State.init(std.testing.allocator);
     defer s.deinit();
     const night = findNode(NIGHT_SHIFT_ID).?;
-    try std.testing.expect(s.canBuy(night));
+    try std.testing.expect(s.canBuy(night, 0));
     try std.testing.expectApproxEqRel(@as(f32, 2000 * 1.8), night.costAtLevel(1), 1e-5);
-    try std.testing.expect(!night.isMaxed(3));
-    try std.testing.expect(night.isMaxed(4));
+    try std.testing.expect(!night.isMaxed(3, 0));
+    try std.testing.expect(night.isMaxed(4, 0));
+    // Semantic cap (the penalty is fully gone at 4): ascending adds nothing.
+    try std.testing.expect(night.isMaxed(4, 50));
 }
 
 test "bulk order has one level per unlockable buy step" {
@@ -319,19 +407,19 @@ test "state tracks levels and gates buying" {
     var s = State.init(std.testing.allocator);
     defer s.deinit();
     const honey2 = findNode(1).?;
-    try std.testing.expect(s.canBuy(honey2));
+    try std.testing.expect(s.canBuy(honey2, 0));
     try s.markPurchased(1);
-    try std.testing.expect(!s.canBuy(honey2));
+    try std.testing.expect(!s.canBuy(honey2, 0));
     try std.testing.expectEqual(@as(u16, 1), s.level(1));
 
     const boost = findNode(24).?;
-    try std.testing.expect(!s.canBuy(boost)); // prereqs missing
+    try std.testing.expect(!s.canBuy(boost, 0)); // prereqs missing
     try s.setLevel(23, 1);
-    try std.testing.expect(s.canBuy(boost));
+    try std.testing.expect(s.canBuy(boost, 0));
     try s.markPurchased(24);
     try s.markPurchased(24);
     try std.testing.expectEqual(@as(u16, 2), s.level(24));
-    try std.testing.expect(s.canBuy(boost));
+    try std.testing.expect(s.canBuy(boost, 0));
     try std.testing.expectApproxEqRel(@as(f32, 8000 * 1.5 * 1.5), s.nextCost(boost, 1.0), 1e-5);
 }
 

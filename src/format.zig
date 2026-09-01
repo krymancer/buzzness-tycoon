@@ -5,8 +5,10 @@ const std = @import("std");
 /// never runs out of labels.
 const SUFFIXES = [_][]const u8{ "", "K", "M", "B", "T", "Qa", "Qi", "Sx", "Sp", "Oc", "No", "Dc", "Ud", "Dd" };
 
-pub fn formatShort(value: f32, buf: []u8) [:0]const u8 {
-    // A run that overflowed the f32 economy shows "inf" rather than a
+// f64 so values that outgrow the f32 economy (run-honey totals) still print;
+// f32 callers coerce.
+pub fn formatShort(value: f64, buf: []u8) [:0]const u8 {
+    // A run that overflowed the economy shows "inf" rather than a
     // meaningless "infDd"; NaN would otherwise print as "nan".
     if (!std.math.isFinite(value)) return if (std.math.isNan(value)) "?" else if (value < 0) "-inf" else "inf";
     const abs = @abs(value);
@@ -16,7 +18,10 @@ pub fn formatShort(value: f32, buf: []u8) [:0]const u8 {
 
     var scaled = abs;
     var tier: usize = 0;
-    while (scaled >= 1000.0 and tier + 1 < SUFFIXES.len) : (tier += 1) {
+    // 999.995 is where {d:.2} rounds to "1000.00": promoting there keeps a
+    // value that repeated division left one ULP under 1000 (e.g. 1e33) from
+    // printing as "1000.00No" instead of "1.00Dc".
+    while (scaled >= 999.995 and tier + 1 < SUFFIXES.len) : (tier += 1) {
         scaled /= 1000.0;
     }
 

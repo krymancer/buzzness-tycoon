@@ -80,6 +80,8 @@ pub const TreeContext = struct {
     textures: *const Textures,
     /// PrestigeState.costMul() — scales displayed node prices.
     prestigeCostMul: f32,
+    /// stats.prestigeCount — raises repeatable level caps.
+    ascensions: u32,
 };
 
 const NodeStyle = struct {
@@ -271,7 +273,7 @@ pub fn draw(ctx: TreeContext) TreeAction {
         const hitRect = rl.Rectangle.init(basePos.x, basePos.y, nodeW, nodeH);
         const lvl = ctx.state.level(node.id);
         const purchased = lvl > 0;
-        const maxed = node.isMaxed(lvl);
+        const maxed = node.isMaxed(lvl, ctx.ascensions);
         const unlocked = ctx.state.isUnlocked(node);
         const cost = ctx.state.nextCost(node, ctx.prestigeCostMul);
         const afford = ctx.resources.honey >= cost;
@@ -320,7 +322,7 @@ pub fn draw(ctx: TreeContext) TreeAction {
         var nameBuf: [64]u8 = undefined;
         const localizedName = locale.nodeName(node.id, node.name);
         const nameZ = if (node.isRepeatable() and lvl > 0)
-            std.fmt.bufPrintZ(&nameBuf, "{s} {s}{d}", .{ localizedName, locale.tr("Lv", "Nv"), lvl }) catch continue
+            std.fmt.bufPrintZ(&nameBuf, "{s} {s}{d}/{d}", .{ localizedName, locale.tr("Lv", "Nv"), lvl, node.repeat.?.capAt(ctx.ascensions) }) catch continue
         else
             std.fmt.bufPrintZ(&nameBuf, "{s}", .{localizedName}) catch continue;
 
@@ -468,13 +470,21 @@ fn fmtMul(v: f32, buf: []u8) [:0]const u8 {
     return format.formatShort(v, buf);
 }
 
+/// "Level cap reached — Ascend raises it" hint for maxed repeatables whose
+/// cap grows with ascensions; a plain cap notice for the rest.
+fn capHint(node: *const upgrade_tree.Node) [:0]const u8 {
+    const r = node.repeat orelse return "";
+    if (r.per_ascension > 0) return locale.tr("Ascend to raise the cap", "Ascenda para aumentar o limite");
+    return locale.tr("Max level", "Nível máximo");
+}
+
 /// Live "Now → Next" line for the tooltip: what the node currently gives and
 /// what the next level would give, using the same formulas the game applies.
 /// Null for one-shot nodes whose static description already says it all.
 fn nodeStatus(ctx: TreeContext, node: *const upgrade_tree.Node, lvl: u16, buf: []u8) ?[:0]const u8 {
     const now = locale.tr("Now", "Agora");
     const nxt = locale.tr("Next", "Próx.");
-    const maxed = node.isMaxed(lvl);
+    const maxed = node.isMaxed(lvl, ctx.ascensions);
     switch (node.effect) {
         .honey_factor_mul => {
             // Only the repeatable Honey Boost accumulates a visible total.
@@ -482,6 +492,7 @@ fn nodeStatus(ctx: TreeContext, node: *const upgrade_tree.Node, lvl: u16, buf: [
             var b1: [24]u8 = undefined;
             var b2: [24]u8 = undefined;
             const cur = std.math.pow(f32, node.value, @floatFromInt(lvl));
+            if (maxed) return std.fmt.bufPrintZ(buf, "{s}: x{s}  ·  {s}", .{ now, fmtMul(cur, &b1), capHint(node) }) catch null;
             return std.fmt.bufPrintZ(buf, "{s}: x{s}  ·  {s}: x{s}", .{ now, fmtMul(cur, &b1), nxt, fmtMul(cur * node.value, &b2) }) catch null;
         },
         .gardener_chance => {
@@ -496,27 +507,33 @@ fn nodeStatus(ctx: TreeContext, node: *const upgrade_tree.Node, lvl: u16, buf: [
         },
         .storage_add => {
             var b1: [24]u8 = undefined;
+            if (maxed) return std.fmt.bufPrintZ(buf, "{s}", .{capHint(node)}) catch null;
             const add = node.value * std.math.pow(f32, upgrade_tree.STORAGE_CAPACITY_GROWTH, @floatFromInt(lvl));
             return std.fmt.bufPrintZ(buf, "{s}: +{s} {s}", .{ nxt, format.formatShort(add, &b1), locale.tr("capacity", "de capacidade") }) catch null;
         },
         .lab_aura => {
             const cur = labs.auraMultiplierForLevel(lvl);
+            if (maxed) return std.fmt.bufPrintZ(buf, "{s}: x{d:.2}  ·  {s}", .{ now, cur, capHint(node) }) catch null;
             return std.fmt.bufPrintZ(buf, "{s}: x{d:.2}  ·  {s}: x{d:.2}", .{ now, cur, nxt, labs.auraMultiplierForLevel(lvl + 1) }) catch null;
         },
         .aura_reach => {
+            if (maxed) return std.fmt.bufPrintZ(buf, "{s}: {d:.0} {s}  ·  {s}", .{ now, labs.auraReachForLevel(lvl), locale.tr("tiles", "células"), capHint(node) }) catch null;
             return std.fmt.bufPrintZ(buf, "{s}: {d:.0}  ·  {s}: {d:.0} {s}", .{ now, labs.auraReachForLevel(lvl), nxt, labs.auraReachForLevel(lvl + 1), locale.tr("tiles", "células") }) catch null;
         },
         .flower_growth_mul => {
             var b1: [24]u8 = undefined;
             var b2: [24]u8 = undefined;
+            if (maxed) return std.fmt.bufPrintZ(buf, "{s}: x{s}  ·  {s}", .{ now, fmtMul(flower_growth_system.growthMulForLevel(lvl), &b1), capHint(node) }) catch null;
             return std.fmt.bufPrintZ(buf, "{s}: x{s}  ·  {s}: x{s}", .{ now, fmtMul(flower_growth_system.growthMulForLevel(lvl), &b1), nxt, fmtMul(flower_growth_system.growthMulForLevel(lvl + 1), &b2) }) catch null;
         },
         .bee_lifespan_mul => {
             var b1: [24]u8 = undefined;
             var b2: [24]u8 = undefined;
+            if (maxed) return std.fmt.bufPrintZ(buf, "{s}: x{s}  ·  {s}", .{ now, fmtMul(spawners.beeLifespanMulForLevel(lvl), &b1), capHint(node) }) catch null;
             return std.fmt.bufPrintZ(buf, "{s}: x{s}  ·  {s}: x{s}", .{ now, fmtMul(spawners.beeLifespanMulForLevel(lvl), &b1), nxt, fmtMul(spawners.beeLifespanMulForLevel(lvl + 1), &b2) }) catch null;
         },
         .rot_chance_sub => {
+            if (maxed) return std.fmt.bufPrintZ(buf, "{s}: {d}%  ·  {s}", .{ now, lifespan_system.rotChanceForLevel(lvl), capHint(node) }) catch null;
             return std.fmt.bufPrintZ(buf, "{s}: {d}%  ·  {s}: {d}%", .{ now, lifespan_system.rotChanceForLevel(lvl), nxt, lifespan_system.rotChanceForLevel(lvl + 1) }) catch null;
         },
         .night_penalty_sub => {

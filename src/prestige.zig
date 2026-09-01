@@ -68,11 +68,16 @@ pub const PrestigeState = struct {
     royalJelly: u64 = 0,
     /// Jelly spent in the shop; never exceeds royalJelly.
     jellySpent: u64 = 0,
-    thisRunHoney: f32 = 0,
+    /// f64: a long run's income sum outgrew f32 and read as inf, which made
+    /// gainFromReset() report 0 and locked the player out of ascending (#64).
+    thisRunHoney: f64 = 0,
     hasUnlockedPrestige: bool = false,
     shopLevels: [SHOP_ITEM_COUNT]u16 = @splat(0),
 
     pub fn trackHoney(self: *@This(), amount: f32) void {
+        // A single delivery that overflowed the f32 pipeline upstream must
+        // not poison the f64 run total with inf.
+        if (!std.math.isFinite(amount)) return;
         self.thisRunHoney += amount;
     }
 
@@ -84,8 +89,7 @@ pub const PrestigeState = struct {
     /// "Royal Jelly gained +0, can't ascend" bug).
     pub fn gainFromReset(self: *const @This()) u64 {
         if (!std.math.isFinite(self.thisRunHoney) or self.thisRunHoney < HONEY_PER_JELLY) return 0;
-        const honey: f64 = self.thisRunHoney;
-        const base = @sqrt(honey / HONEY_PER_JELLY);
+        const base = @sqrt(self.thisRunHoney / HONEY_PER_JELLY);
         const boosted = base * (1.0 + REFINERY_PER_LEVEL * @as(f64, @floatFromInt(self.shopLevel(.jelly_refinery))));
         return @intFromFloat(@min(boosted, MAX_GAIN));
     }
