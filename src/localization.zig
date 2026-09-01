@@ -80,6 +80,10 @@ pub fn nodeDesc(id: u16) [:0]const u8 {
         33 => tr("Bees make half honey and fly slower at night; each level removes a quarter of the penalty.", "Abelhas produzem metade do mel e voam mais devagar à noite; cada nível remove um quarto da penalidade."),
         34 => tr("All bees fly 15% faster per level.", "Todas as abelhas voam 15% mais rápido por nível."),
         35 => tr("Bees visit one more flower per trip before flying home, per level.", "Abelhas visitam uma flor a mais por viagem antes de voltar, por nível."),
+        36 => tr("Worker bees fly and collect 10% better per level.", "Abelhas operárias voam e coletam 10% melhor por nível."),
+        37 => tr("Swift bees fly and collect 10% better per level.", "Abelhas velozes voam e coletam 10% melhor por nível."),
+        38 => tr("Efficient bees fly and collect 10% better per level.", "Abelhas eficientes voam e coletam 10% melhor por nível."),
+        39 => tr("Gardener bees fly and collect 10% better per level.", "Abelhas jardineiras voam e coletam 10% melhor por nível."),
         else => "",
     };
 }
@@ -115,6 +119,10 @@ pub fn nodeName(id: u16, english: []const u8) []const u8 {
         33 => "Turno da Noite",
         34 => "Vento de Cauda",
         35 => "Alforjes",
+        36 => "Treino: Operária",
+        37 => "Treino: Veloz",
+        38 => "Treino: Eficiente",
+        39 => "Treino: Jardineira",
         else => english,
     };
 }

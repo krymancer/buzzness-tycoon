@@ -31,6 +31,9 @@ pub const EffectKind = enum {
     bee_speed_mul,
     /// Saddlebags: bees visit one more flower per trip per level.
     bee_carry_add,
+    /// Drills: one bee type flies and collects x1.1 better per level. The
+    /// type comes from the node id (see TRAINING_IDS).
+    bee_training,
 };
 
 /// Marks a node as re-buyable. Each purchase raises its level and re-applies
@@ -129,6 +132,14 @@ pub const NODES = [_]Node{
     .{ .id = 35, .name = "Saddlebags", .cost = 10000, .prereqs = r_worker, .effect = .bee_carry_add, .value = 1, .col = 1, .row = 3, .repeat = .{ .cost_growth = 2.0, .max_level = 4, .per_ascension = 1 } },
     .{ .id = 32, .name = "Bulk Order", .cost = 3000, .prereqs = &[_]NodeId{10}, .effect = .bulk_buy_tier, .col = 1, .row = 2, .repeat = .{ .cost_growth = 4.0, .max_level = 4 } },
 
+    // Drills (col 3): per-type training, one repeatable per bee type. Bee
+    // prices stay flat (#66), so this is what makes a type worth investing
+    // in beyond "buy more". Each gates on its type's unlock node.
+    .{ .id = 36, .name = "Worker Drills", .cost = 200, .prereqs = r_worker, .effect = .bee_training, .value = 1.1, .col = 3, .row = 1, .repeat = .{ .cost_growth = 1.6, .max_level = 20, .per_ascension = 5 } },
+    .{ .id = 37, .name = "Swift Drills", .cost = 600, .prereqs = &[_]NodeId{4}, .effect = .bee_training, .value = 1.1, .col = 3, .row = 2, .repeat = .{ .cost_growth = 1.6, .max_level = 20, .per_ascension = 5 } },
+    .{ .id = 38, .name = "Efficient Drills", .cost = 1500, .prereqs = &[_]NodeId{5}, .effect = .bee_training, .value = 1.1, .col = 3, .row = 3, .repeat = .{ .cost_growth = 1.6, .max_level = 20, .per_ascension = 5 } },
+    .{ .id = 39, .name = "Gardener Drills", .cost = 4000, .prereqs = &[_]NodeId{6}, .effect = .bee_training, .value = 1.1, .col = 3, .row = 4, .repeat = .{ .cost_growth = 1.6, .max_level = 20, .per_ascension = 5 } },
+
     // Storage (col 2). Repeatable: adds value * STORAGE_CAPACITY_GROWTH^level
     // capacity per level. cost_growth must never exceed the capacity growth:
     // honey is capped at the current capacity, so a faster-growing cost
@@ -189,6 +200,16 @@ pub const BEE_VITALITY_ID: NodeId = 30;
 pub const HARDY_BLOOMS_ID: NodeId = 31;
 pub const TAILWIND_ID: NodeId = 34;
 pub const SADDLEBAGS_ID: NodeId = 35;
+/// Drills nodes indexed by @intFromEnum(BeeType): worker, swift, efficient, gardener.
+pub const TRAINING_IDS = [_]NodeId{ 36, 37, 38, 39 };
+
+/// Which bee type a Drills node trains (its index into TRAINING_IDS).
+pub fn trainingType(id: NodeId) ?usize {
+    for (TRAINING_IDS, 0..) |tid, t| {
+        if (tid == id) return t;
+    }
+    return null;
+}
 pub const BULK_ORDER_ID: NodeId = 32;
 pub const NIGHT_SHIFT_ID: NodeId = 33;
 
@@ -430,6 +451,23 @@ test "saddlebags is buyable at start with a short ascension-grown cap (#68)" {
     try std.testing.expect(s.canBuy(bags, 0));
     try std.testing.expect(bags.isMaxed(4, 0));
     try std.testing.expect(!bags.isMaxed(4, 1));
+}
+
+test "drills: one capped repeatable per bee type, gated on the type's unlock (#66)" {
+    var s = State.init(std.testing.allocator);
+    defer s.deinit();
+    for (TRAINING_IDS, 0..) |id, t| {
+        const n = findNode(id).?;
+        try std.testing.expectEqual(EffectKind.bee_training, n.effect);
+        try std.testing.expectEqual(t, trainingType(id).?);
+        try std.testing.expect(n.isMaxed(n.repeat.?.max_level, 0));
+        try std.testing.expect(!n.isMaxed(n.repeat.?.max_level, 1));
+    }
+    try std.testing.expect(s.canBuy(findNode(36).?, 0)); // workers are always owned
+    try std.testing.expect(!s.canBuy(findNode(37).?, 0)); // Swift Bee not unlocked yet
+    try s.setLevel(4, 1);
+    try std.testing.expect(s.canBuy(findNode(37).?, 0));
+    try std.testing.expectEqual(@as(?usize, null), trainingType(24));
 }
 
 test "night shift is buyable from the start and maxes at level 4" {

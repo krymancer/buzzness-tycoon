@@ -256,7 +256,7 @@ pub fn update(ctx: UpdateCtx) !void {
                     beeAI.targetEntity = null;
                 }
             } else {
-                moveTowardsWithSpeed(position, beehiveWorldPos, scaledDeltaTime, beeAI.beeType.getSpeedMultiplier() * nightSpeed);
+                moveTowardsWithSpeed(position, beehiveWorldPos, scaledDeltaTime, typeSpeed(beeAI.beeType) * nightSpeed);
             }
             continue;
         }
@@ -342,7 +342,7 @@ pub fn update(ctx: UpdateCtx) !void {
                 beeAI.tripLoads +|= 1;
                 beeAI.carryingPollen = beeAI.tripLoads >= bagCapacity;
 
-                const collectionMultiplier = beeAI.beeType.getCollectionMultiplier();
+                const collectionMultiplier = beeAI.beeType.getCollectionMultiplier() * trainingMul(beeAI.beeType);
                 // Lab: Aura boosts flowers inside its rings around the hive.
                 const auraMul = ctx.labs.pollenMultiplierAt(beeAI.targetGridX, beeAI.targetGridY, cachedBeehiveGridX, cachedBeehiveGridY);
                 collectors[beeIndex].collect(1.0 * targetFlower.?.pollenMultiplier * collectionMultiplier * auraMul);
@@ -356,7 +356,7 @@ pub fn update(ctx: UpdateCtx) !void {
             beeAI.targetLocked = false;
             beeAI.targetEntity = null;
         } else {
-            moveTowardsWithSpeed(position, targetPos, scaledDeltaTime, beeAI.beeType.getSpeedMultiplier() * nightSpeed);
+            moveTowardsWithSpeed(position, targetPos, scaledDeltaTime, typeSpeed(beeAI.beeType) * nightSpeed);
         }
     }
 
@@ -548,7 +548,7 @@ fn handleSowTrip(ctx: UpdateCtx, beeAI: *components.BeeAI, position: *components
     const targetPos = getWorldPosFromGrid(beeAI.targetGridX, beeAI.targetGridY, ctx.gridOffset, ctx.gridScale);
     const distance = rl.math.vector2Distance(position.toVector2(), targetPos);
     if (distance >= 5.0) {
-        moveTowardsWithSpeed(position, targetPos, scaledDeltaTime, beeAI.beeType.getSpeedMultiplier() * nightSpeed);
+        moveTowardsWithSpeed(position, targetPos, scaledDeltaTime, typeSpeed(beeAI.beeType) * nightSpeed);
         return;
     }
 
@@ -811,6 +811,25 @@ pub var nightPenaltyScale: f32 = 1.0;
 pub fn nightPenaltyScaleForLevel(level: u16) f32 {
     const lvl: f32 = @floatFromInt(@min(level, NIGHT_SHIFT_MAX_LEVEL));
     return 1.0 - lvl / @as(f32, @floatFromInt(NIGHT_SHIFT_MAX_LEVEL));
+}
+
+/// Drills nodes: per-type training level, indexed by @intFromEnum(BeeType)
+/// (game.zig sets them from the tree on purchase, reset and load). Each
+/// level makes that type fly and collect x1.1 better.
+pub var trainingLevel: [4]u16 = @splat(0);
+pub const TRAINING_PER_LEVEL: f32 = 1.1;
+
+pub fn trainingMulForLevel(level: u16) f32 {
+    return std.math.pow(f32, TRAINING_PER_LEVEL, @floatFromInt(level));
+}
+
+pub fn trainingMul(beeType: components.BeeType) f32 {
+    return trainingMulForLevel(trainingLevel[@intFromEnum(beeType)]);
+}
+
+/// A type's flight speed with its Drills applied (before night/Tailwind).
+fn typeSpeed(beeType: components.BeeType) f32 {
+    return beeType.getSpeedMultiplier() * trainingMul(beeType);
 }
 
 /// Saddlebags node: flowers a bee visits per trip before flying home
