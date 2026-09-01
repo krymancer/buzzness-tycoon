@@ -1755,6 +1755,16 @@ pub const Game = struct {
             }
         }
 
+        // Before 0.3.0 the Prestige node only had to be bought once: every
+        // ascend wiped it from the tree and the sticky flag kept Ascend
+        // enabled. Now the node must be owned in the current run, so a run
+        // carried over from an older build would be locked out of the ascend
+        // it was working toward. Grant it for that run only; later runs buy
+        // it like everyone else.
+        if (data.pre_royal_shop and data.prestige_unlocked and !self.upgradeTree.hasEffect(.prestige_unlock)) {
+            try self.upgradeTree.setLevel(upgrade_tree.PRESTIGE_ID, 1);
+        }
+
         self.prestige.royalJelly = data.royal_jelly;
         self.prestige.thisRunHoney = finiteAtLeast(data.this_run_honey, 0, 0);
         self.prestige.hasUnlockedPrestige = data.prestige_unlocked or self.upgradeTree.hasEffect(.prestige_unlock);

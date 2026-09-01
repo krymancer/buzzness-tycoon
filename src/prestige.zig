@@ -225,6 +225,13 @@ test "huge runs still grant jelly (regression: gain read as 0 past 2^32)" {
     try std.testing.expect(gain > std.math.maxInt(u32));
     try std.testing.expectApproxEqRel(@as(f64, 2.0 * @sqrt(7.6486e32 / 1e4)), @as(f64, @floatFromInt(gain)), 1e-5);
 
+    // Second report: 25.60Oc honey showed +0 and a frozen x310.20M
+    // multiplier preview — same clamp, mid-size run.
+    p.thisRunHoney = 2.56e28;
+    const gain2 = p.gainFromReset();
+    try std.testing.expect(gain2 > std.math.maxInt(u32));
+    try std.testing.expectApproxEqRel(@as(f64, 2.0 * @sqrt(2.56e28 / 1e4)), @as(f64, @floatFromInt(gain2)), 1e-5);
+
     // Past the f32 economy's ceiling the gain saturates instead of wrapping.
     p.thisRunHoney = std.math.floatMax(f32);
     try std.testing.expect(p.gainFromReset() > 0);

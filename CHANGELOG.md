@@ -9,6 +9,15 @@
   builds that conversion read as 0. Royal Jelly is now a 64-bit counter
   (lifetime and spent), the gain is computed in f64, and saves with the
   larger numbers load in place.
+- **Saves from before 0.3.0 could not ascend the run they were in.** 0.3.0
+  started requiring the Prestige node in the current run (older builds
+  only needed it once, and every ascend wiped it from the tree). A run
+  carried over from an older build now gets the node granted on first load
+  so it can finish the ascend it was working toward; runs after that buy
+  it as usual.
+- **Honey labels past `Dc`**: added `Ud`/`Dd` tiers so very long runs keep
+  a readable suffix all the way to the f32 ceiling, and a non-finite
+  honey value prints `inf` instead of garbage.
 
 ## 0.3.1 — 2026-08-26
 

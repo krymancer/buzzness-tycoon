@@ -140,6 +140,7 @@ pub const NODES = [_]Node{
 pub const ROOT_ID: NodeId = 0;
 pub const STORAGE_ID: NodeId = 13;
 pub const AURA_ID: NodeId = 16;
+pub const PRESTIGE_ID: NodeId = 19;
 
 /// Per-level growth of the capacity granted by the Storage node (game.zig
 /// applies value * this^level on purchase). The node's cost_growth is tied to
