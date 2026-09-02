@@ -401,13 +401,21 @@ fn drawShopRow(ctx: Context, item: prestige_mod.ShopItem, x: f32, y: f32, w: f32
         std.fmt.bufPrintZ(&nameBuf, "{s}  {s}{d}", .{ copy.name, locale.tr("Lv", "Nv"), lvl }) catch copy.name
     else
         copy.name;
-    text.draw(nameZ, tx, @intFromFloat(y + 8), 19, if (maxed) C.green else C.text);
-    drawFitted(copy.desc, tx, @intFromFloat(y + 31), 14, textAvail, C.subtext0);
+    // Seven items no longer fit the tall layout at the default window
+    // height (rows shrink to ~52px), so short rows use a compact stack.
+    const compact = h < 66;
+    const nameY: f32 = if (compact) 4 else 8;
+    const nameSize: i32 = if (compact) 17 else 19;
+    const descY: f32 = if (compact) 22 else 31;
+    const smallSize: i32 = if (compact) 12 else 14;
+    const statusY: f32 = if (compact) 36 else 49;
+    text.draw(nameZ, tx, @intFromFloat(y + nameY), nameSize, if (maxed) C.green else C.text);
+    drawFitted(copy.desc, tx, @intFromFloat(y + descY), smallSize, textAvail, C.subtext0);
     var statusBuf: [96]u8 = undefined;
     if (itemStatus(p, item, &statusBuf)) |st| {
-        drawFitted(st, tx, @intFromFloat(y + 49), 14, textAvail, C.teal);
+        drawFitted(st, tx, @intFromFloat(y + statusY), smallSize, textAvail, C.teal);
     } else if (maxed) {
-        text.draw(locale.tr("Owned", "Adquirido"), tx, @intFromFloat(y + 49), 14, C.green);
+        text.draw(locale.tr("Owned", "Adquirido"), tx, @intFromFloat(y + statusY), smallSize, C.green);
     }
 
     // Buy button on the right: cost, or MAX once fully leveled.
