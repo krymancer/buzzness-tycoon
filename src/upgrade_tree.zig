@@ -122,7 +122,7 @@ pub const NODES = [_]Node{
     // (ids 8/9 were Grow CD -3s/-6s — folded into 7's levels on load.)
 
     // Grid (col 1). Repeatable: +1 ring per level.
-    .{ .id = 10, .name = "Grid Ring", .cost = 150, .prereqs = r_worker, .effect = .grid_expand, .value = 1, .col = 1, .row = 1, .repeat = .{ .cost_growth = 3.0, .max_level = 20 } },
+    .{ .id = 10, .name = "Grid Ring", .cost = 150, .prereqs = r_worker, .effect = .grid_expand, .value = 1, .col = 1, .row = 1, .repeat = .{ .cost_growth = 3.0, .max_level = 10, .per_ascension = 2 } },
     // (ids 11/12 were Grid +2/+3 ring — folded into 10's levels on load.)
     // Each level adds one step to the bee buy-quantity cycle: x50, x100,
     // x500, x1000 (see action_hud.BUY_QTYS).
@@ -172,9 +172,9 @@ pub const NODES = [_]Node{
     // Lab: Aura levels the factor (+25%/level); Aura Reach widens the rings
     // (+1 tile/level). Both repeatable.
     .{ .id = 16, .name = "Lab: Aura", .cost = 8000, .prereqs = &[_]NodeId{ 3, 6 }, .effect = .lab_aura, .col = 0, .row = 4, .repeat = .{ .cost_growth = 1.8, .max_level = 15, .per_ascension = 5 } },
-    // Semantic cap: reach past the biggest possible meadow (20 tree rings +
-    // 12 shop rings) would be dead levels, so it stops there for good.
-    .{ .id = 25, .name = "Aura Reach", .cost = 5000, .prereqs = &[_]NodeId{16}, .effect = .aura_reach, .col = 0, .row = 5, .repeat = .{ .cost_growth = 1.6, .max_level = 32 } },
+    // Reach past the meadow is dead levels, so its cap tracks Grid Ring's
+    // (10 base, +2 per ascension) rather than a fixed ceiling.
+    .{ .id = 25, .name = "Aura Reach", .cost = 5000, .prereqs = &[_]NodeId{16}, .effect = .aura_reach, .col = 0, .row = 5, .repeat = .{ .cost_growth = 1.6, .max_level = 10, .per_ascension = 2 } },
     // (ids 17/18 were Lab: Burst / Lab: Bloom — removed; stale save entries are ignored.)
     .{ .id = 19, .name = "Prestige", .cost = 100000, .prereqs = &[_]NodeId{ 25, 21 }, .effect = .prestige_unlock, .col = 0, .row = 6 },
 
@@ -388,6 +388,37 @@ test "a fresh profile stays finite; reaching inf takes many ascensions (#64)" {
     for (&NODES) |*n| {
         const rep = n.repeat orelse continue;
         try std.testing.expect(std.math.isFinite(n.costAtLevel(rep.max_level - 1)));
+    }
+}
+
+/// Honey capacity with Storage at `level` (Resources BASE_CAPACITY plus
+/// every level's grant) — the most a run at that cap can ever hold.
+fn tankAt(level: u16) f32 {
+    var capacity: f32 = 500;
+    for (0..level) |l| capacity += 500 * std.math.pow(f32, STORAGE_CAPACITY_GROWTH, @floatFromInt(l));
+    return capacity;
+}
+
+test "no upgrade ever costs more than the tank a run at the same ascension can build" {
+    // The rule: at every ascension, every node's final level (and every
+    // one-shot) is affordable inside Storage's capacity at that ascension,
+    // otherwise the node is a dead end. Grid Ring at 150 x 3^level broke it
+    // by 160x at prestige 0. Prestige-scaled prices are checked with the
+    // multiplier a first ascension was observed to give (~x7.4).
+    const storage = findNode(STORAGE_ID).?;
+    for (0..11) |a| {
+        const asc: u32 = @intCast(a);
+        const tank = tankAt(storage.repeat.?.capAt(asc));
+        const costMul: f32 = if (asc == 0) 1.0 else 7.4;
+        for (&NODES) |*n| {
+            const last: u16 = if (n.repeat) |r| r.capAt(asc) - 1 else 0;
+            const scaled = if (n.effect == .storage_add) 1.0 else costMul;
+            const cost = n.costAtLevel(last) * scaled;
+            if (cost > tank) {
+                std.debug.print("{s} last level costs {d} but the tank holds {d} at ascension {d}\n", .{ n.name, cost, tank, asc });
+                return error.UpgradeOutgrowsTank;
+            }
+        }
     }
 }
 
