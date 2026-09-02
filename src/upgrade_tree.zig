@@ -103,7 +103,7 @@ pub const NODES = [_]Node{
     .{ .id = 23, .name = "Honey x32", .cost = 10000, .prereqs = &[_]NodeId{22}, .effect = .honey_factor_mul, .value = 2.0, .col = -2, .row = 5 },
     // Repeatable: +25% honey per level, cost x1.5 per level; the per-run
     // cap grows with every ascension.
-    .{ .id = 24, .name = "Honey Boost", .cost = 8000, .prereqs = &[_]NodeId{23}, .effect = .honey_factor_mul, .value = 1.25, .col = -2, .row = 6, .repeat = .{ .cost_growth = 1.5, .max_level = 40, .per_ascension = 5 } },
+    .{ .id = 24, .name = "Honey Boost", .cost = 8000, .prereqs = &[_]NodeId{23}, .effect = .honey_factor_mul, .value = 1.25, .col = -2, .row = 6, .repeat = .{ .cost_growth = 1.5, .max_level = 10, .per_ascension = 5 } },
 
     // Bees branch (col -1)
     .{ .id = 4, .name = "Swift Bee", .cost = 80, .prereqs = r_worker, .effect = .bee_unlock_swift, .col = -1, .row = 1 },
@@ -135,10 +135,10 @@ pub const NODES = [_]Node{
     // Drills (col 3): per-type training, one repeatable per bee type. Bee
     // prices stay flat (#66), so this is what makes a type worth investing
     // in beyond "buy more". Each gates on its type's unlock node.
-    .{ .id = 36, .name = "Worker Drills", .cost = 200, .prereqs = r_worker, .effect = .bee_training, .value = 1.1, .col = 3, .row = 1, .repeat = .{ .cost_growth = 1.6, .max_level = 20, .per_ascension = 5 } },
-    .{ .id = 37, .name = "Swift Drills", .cost = 600, .prereqs = &[_]NodeId{4}, .effect = .bee_training, .value = 1.1, .col = 3, .row = 2, .repeat = .{ .cost_growth = 1.6, .max_level = 20, .per_ascension = 5 } },
-    .{ .id = 38, .name = "Efficient Drills", .cost = 1500, .prereqs = &[_]NodeId{5}, .effect = .bee_training, .value = 1.1, .col = 3, .row = 3, .repeat = .{ .cost_growth = 1.6, .max_level = 20, .per_ascension = 5 } },
-    .{ .id = 39, .name = "Gardener Drills", .cost = 4000, .prereqs = &[_]NodeId{6}, .effect = .bee_training, .value = 1.1, .col = 3, .row = 4, .repeat = .{ .cost_growth = 1.6, .max_level = 20, .per_ascension = 5 } },
+    .{ .id = 36, .name = "Worker Drills", .cost = 200, .prereqs = r_worker, .effect = .bee_training, .value = 1.1, .col = 3, .row = 1, .repeat = .{ .cost_growth = 1.6, .max_level = 5, .per_ascension = 2 } },
+    .{ .id = 37, .name = "Swift Drills", .cost = 600, .prereqs = &[_]NodeId{4}, .effect = .bee_training, .value = 1.1, .col = 3, .row = 2, .repeat = .{ .cost_growth = 1.6, .max_level = 5, .per_ascension = 2 } },
+    .{ .id = 38, .name = "Efficient Drills", .cost = 1500, .prereqs = &[_]NodeId{5}, .effect = .bee_training, .value = 1.1, .col = 3, .row = 3, .repeat = .{ .cost_growth = 1.6, .max_level = 5, .per_ascension = 2 } },
+    .{ .id = 39, .name = "Gardener Drills", .cost = 4000, .prereqs = &[_]NodeId{6}, .effect = .bee_training, .value = 1.1, .col = 3, .row = 4, .repeat = .{ .cost_growth = 1.6, .max_level = 5, .per_ascension = 2 } },
 
     // Storage (col 2). Repeatable: adds value * STORAGE_CAPACITY_GROWTH^level
     // capacity per level. cost_growth must never exceed the capacity growth:
@@ -147,14 +147,14 @@ pub const NODES = [_]Node{
     // paces the whole economy: honey can never exceed the capacity this
     // node builds, so its per-ascension growth is what decides how many
     // prestiges it takes before a run can reach f32 infinity (~11).
-    .{ .id = 13, .name = "Storage", .cost = 40, .prereqs = r_worker, .effect = .storage_add, .value = 500, .col = 2, .row = 1, .repeat = .{ .cost_growth = STORAGE_CAPACITY_GROWTH, .max_level = 70, .per_ascension = 10 } },
+    .{ .id = 13, .name = "Storage", .cost = 40, .prereqs = r_worker, .effect = .storage_add, .value = 500, .col = 2, .row = 1, .repeat = .{ .cost_growth = STORAGE_CAPACITY_GROWTH, .max_level = 30, .per_ascension = 10 } },
     // (ids 14/15 were Storage +1K/+2K — folded into 13's levels on load.)
 
     // Colony vitality (col 2, under Storage). Available from the start;
     // flowers mature/re-pollen faster (x1.2/level), bees live longer
     // (x1.2/level), dying flowers rot less (-10%/level, gone at 6: a
     // semantic cap like Night Shift, so ascending adds nothing).
-    .{ .id = 29, .name = "Fertile Soil", .cost = 300, .prereqs = r_worker, .effect = .flower_growth_mul, .value = 1.2, .col = 2, .row = 2, .repeat = .{ .cost_growth = 1.6, .max_level = 25, .per_ascension = 5 } },
+    .{ .id = 29, .name = "Fertile Soil", .cost = 300, .prereqs = r_worker, .effect = .flower_growth_mul, .value = 1.2, .col = 2, .row = 2, .repeat = .{ .cost_growth = 1.6, .max_level = 15, .per_ascension = 5 } },
     // Bee Vitality: x1.2 lifespan per level; 10 levels is x6.2, a bee that
     // lives most of an hour, so the cap is a real ceiling the player feels.
     .{ .id = 30, .name = "Bee Vitality", .cost = 800, .prereqs = r_worker, .effect = .bee_lifespan_mul, .value = 1.2, .col = 2, .row = 3, .repeat = .{ .cost_growth = 1.7, .max_level = 10, .per_ascension = 2 } },
@@ -165,13 +165,13 @@ pub const NODES = [_]Node{
     // Tailwind: all bees fly x1.15 faster per level (multiplies Swift's x2
     // and the night debuff). A direct throughput lever, so the cap grows
     // with ascension like the honey line (#67).
-    .{ .id = 34, .name = "Tailwind", .cost = 1500, .prereqs = r_worker, .effect = .bee_speed_mul, .value = 1.15, .col = 2, .row = 6, .repeat = .{ .cost_growth = 1.7, .max_level = 20, .per_ascension = 5 } },
+    .{ .id = 34, .name = "Tailwind", .cost = 1500, .prereqs = r_worker, .effect = .bee_speed_mul, .value = 1.15, .col = 2, .row = 6, .repeat = .{ .cost_growth = 1.7, .max_level = 5, .per_ascension = 2 } },
 
     // Labs branch (col 0, rows 4-6) — gated behind cross-branch t3 nodes
     // Aura: flowers inside the rings around the hive yield more pollen.
     // Lab: Aura levels the factor (+25%/level); Aura Reach widens the rings
     // (+1 tile/level). Both repeatable.
-    .{ .id = 16, .name = "Lab: Aura", .cost = 8000, .prereqs = &[_]NodeId{ 3, 6 }, .effect = .lab_aura, .col = 0, .row = 4, .repeat = .{ .cost_growth = 1.8, .max_level = 25, .per_ascension = 5 } },
+    .{ .id = 16, .name = "Lab: Aura", .cost = 8000, .prereqs = &[_]NodeId{ 3, 6 }, .effect = .lab_aura, .col = 0, .row = 4, .repeat = .{ .cost_growth = 1.8, .max_level = 15, .per_ascension = 5 } },
     // Semantic cap: reach past the biggest possible meadow (20 tree rings +
     // 12 shop rings) would be dead levels, so it stops there for good.
     .{ .id = 25, .name = "Aura Reach", .cost = 5000, .prereqs = &[_]NodeId{16}, .effect = .aura_reach, .col = 0, .row = 5, .repeat = .{ .cost_growth = 1.6, .max_level = 32 } },
@@ -328,8 +328,8 @@ test "repeatable node cost grows geometrically and one-shot nodes max at level 1
     const boost = findNode(24).?;
     try std.testing.expectApproxEqRel(@as(f32, 8000), boost.costAtLevel(0), 1e-5);
     try std.testing.expectApproxEqRel(@as(f32, 8000 * 1.5), boost.costAtLevel(1), 1e-5);
-    try std.testing.expect(!boost.isMaxed(39, 0));
-    try std.testing.expect(boost.isMaxed(40, 0));
+    try std.testing.expect(!boost.isMaxed(9, 0));
+    try std.testing.expect(boost.isMaxed(10, 0));
 
     const honey2 = findNode(1).?;
     try std.testing.expectEqual(@as(f32, 50), honey2.costAtLevel(0));
@@ -353,7 +353,7 @@ test "every repeatable is capped per run and ascending keeps raising the cap (#6
     try std.testing.expectEqual(@as(u16, std.math.maxInt(u16)), boost.repeat.?.capAt(1_000_000));
     // A grandfathered level above today's cap still reads as maxed.
     try std.testing.expect(boost.isMaxed(193, 0));
-    try std.testing.expect(!boost.isMaxed(193, 40)); // 40 + 5*40 = 240
+    try std.testing.expect(!boost.isMaxed(193, 40)); // 10 + 5*40 = 210
 }
 
 /// Honey capacity with Storage at `level` (Resources BASE_CAPACITY plus
@@ -373,7 +373,7 @@ test "a fresh profile stays finite; reaching inf takes many ascensions (#64)" {
     const r = storage.repeat.?;
     const fresh = storageCapacityAt(r.capAt(0));
     try std.testing.expect(std.math.isFinite(fresh));
-    try std.testing.expect(fresh > 1e15);
+    try std.testing.expect(fresh > 1e8); // ~1.1e9 at Storage 30: the first run is meant to feel the cap
     try std.testing.expect(fresh < std.math.floatMax(f32) / 1e10);
 
     var ascensions: u32 = 0;
