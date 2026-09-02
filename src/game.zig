@@ -1881,10 +1881,11 @@ pub const Game = struct {
         self.audio.playShopBuy();
     }
 
-    /// Honey for clearing one rotten flower by hand: a few seconds of the
-    /// run's current income so it scales with the game but stays a treat,
-    /// with a floor so the very first clears still show a number.
-    pub const ROT_CLEAR_REWARD_SECONDS: f32 = 3;
+    /// Honey for clearing one rotten flower by hand: half a second of the
+    /// run's current income so it scales with the game but stays a treat
+    /// (3 s felt like real income late game), with a floor so the very
+    /// first clears still show a number.
+    pub const ROT_CLEAR_REWARD_SECONDS: f32 = 0.5;
     pub const ROT_CLEAR_REWARD_MIN: f32 = 5;
 
     pub fn rotClearReward(honeyPerSec: f32) f32 {
