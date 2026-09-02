@@ -1,5 +1,58 @@
 # Changelog
 
+## 0.3.3 — 2026-09-02
+
+### New
+- **Ascend to raise your caps.** Every repeatable tree node now has a
+  per-run level cap that grows with each ascension (`Lv 12/40` on the
+  node, "Ascend to raise the cap" on maxed tooltips). There is no hard
+  ceiling: the economy can still reach infinity, it just takes many
+  ascensions rather than one run. Caps also stop a monster first run
+  from buying out the Royal Shop on run two.
+- **Royal Shop needs Prestige this run.** Shop purchases now require the
+  Prestige node in the current run, the same gate Ascend has; the shop
+  stays browsable with a hint.
+- **Queen's Count** (Royal Shop, 300 RJ): each bee type doubles its
+  pollen at 10, 25, 50 and 100 owned, then at every doubling. Bee slots
+  show `owned/next` and burst when a purchase crosses a milestone.
+- **Drills**: a new tree column with one training node per bee type —
+  ×1.1 speed and collection per level for that type only. Bee prices
+  stay flat.
+- **Tailwind**: all bees fly 15% faster per level.
+- **Saddlebags**: bees visit one more flower per trip per level before
+  flying home.
+- **Flower types differ**: dandelion is cheap, quick and brief (5 honey,
+  ×0.7 pollen); tulip is rich, slow and lasting (25, ×1.6); rose is the
+  baseline. The plant chooser shows each niche.
+- **Bees are mortal again** (8–16 min base, longer for busy bees). Bee
+  Vitality now actually does something and caps at 10 (+2 per ascension).
+  A small puff marks where a bee died.
+- **Clearing rot by hand pays a little honey** (half a second of income,
+  floor 5). Gardener sweeps pay nothing.
+
+### Balance
+- First-run caps: Honey Boost 10, Storage 30, Fertile Soil 15, Lab: Aura
+  15, Grid Ring 10, Aura Reach 10, Tailwind 5, Drills 5, Bee Vitality 10,
+  Saddlebags 4; each grows per ascension. Hardy Blooms now drops a flat
+  10% per level and maxes at 6 where rot reaches 0%.
+- Rule, enforced by a test: no upgrade's last level ever costs more than
+  the tank Storage can build at the same ascension (Grid Ring was 160×
+  over at prestige 0).
+
+### Fixes
+- **Crash** (`integer part of floating point value out of bounds`): with
+  Swift, Tailwind and Drills stacked, a slow frame could make a bee
+  overshoot its target and fly off to NaN. Bees now move at most to their
+  target.
+- Saves that had overflowed to `inf` load again; an `inf` run total is
+  credited so the stuck player can finally ascend; spending from an
+  infinite stockpile no longer produces NaN.
+- `1e33` printed as `1000.00No` instead of `1.00Dc`.
+- The tree centres on its full column span (the Drills column was
+  clipped); the Royal Shop's rows fit seven items.
+- The meadow stops growing at 127 cells, the size the bee simulation is
+  built for.
+
 ## 0.3.2 — 2026-09-01
 
 ### Fixes
