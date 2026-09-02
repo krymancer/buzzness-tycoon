@@ -372,9 +372,25 @@ fn moveTowards(position: *components.Position, target: rl.Vector2, deltaTime: f3
 }
 
 fn moveTowardsWithSpeed(position: *components.Position, target: rl.Vector2, deltaTime: f32, speedMultiplier: f32) void {
-    const speed = MOVEMENT_LEAP_FACTOR * speedMultiplier;
-    position.x += (target.x - position.x) * speed * deltaTime;
-    position.y += (target.y - position.y) * speed * deltaTime;
+    // Exponential approach: the step is a fraction of the remaining
+    // distance. Past 1.0 the bee overshoots and the error grows every frame
+    // (Swift x Tailwind x Drills on a slow frame did exactly that, ending in
+    // a NaN position and a crash in the grid conversion), so at most arrive.
+    const k = @min(1.0, MOVEMENT_LEAP_FACTOR * speedMultiplier * deltaTime);
+    position.x += (target.x - position.x) * k;
+    position.y += (target.y - position.y) * k;
+}
+
+test "moving toward a target never overshoots, whatever the speed stack" {
+    var pos = components.Position{ .x = 0, .y = 0 };
+    const target = rl.Vector2.init(100, -40);
+    moveTowardsWithSpeed(&pos, target, 0.25, 1000.0);
+    try std.testing.expectEqual(target.x, pos.x);
+    try std.testing.expectEqual(target.y, pos.y);
+    // And a further step stays put rather than bouncing around the target.
+    moveTowardsWithSpeed(&pos, target, 0.25, 1000.0);
+    try std.testing.expectEqual(target.x, pos.x);
+    try std.testing.expect(std.math.isFinite(pos.x) and std.math.isFinite(pos.y));
 }
 
 fn buildAvailableFlowersCache(world: *World, gridWidth: usize, gridHeight: usize) void {
@@ -949,6 +965,8 @@ pub fn gardenerChanceForLevel(level: u16) i32 {
 /// Gardener flies over a rotten flower: clear it so the cell can regrow.
 fn handleComposting(world: *World, beeAI: *components.BeeAI, position: *components.Position, gridOffset: rl.Vector2, gridScale: f32, gridWidth: usize, gridHeight: usize) !void {
     const gridPos = utils.worldToGrid(position.toVector2(), gridOffset, gridScale);
+    // A non-finite position must never reach @intFromFloat (it panics).
+    if (!std.math.isFinite(gridPos.x) or !std.math.isFinite(gridPos.y)) return;
     const gridX: i32 = @intFromFloat(@floor(gridPos.x));
     const gridY: i32 = @intFromFloat(@floor(gridPos.y));
     if (gridX == beeAI.lastCompostX and gridY == beeAI.lastCompostY) return;
