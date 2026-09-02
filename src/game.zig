@@ -1415,7 +1415,12 @@ pub const Game = struct {
         steam.pushStats(&self.stats);
     }
 
+    /// Largest meadow the bee simulation is sized for (bees.SIM_CAP covers
+    /// its flower claim slots); Grid Ring grows with ascension, so guard it.
+    pub const MAX_GRID_SIZE: usize = 127;
+
     fn expandGrid(self: *@This()) !void {
+        if (self.gridWidth + 2 > MAX_GRID_SIZE or self.gridHeight + 2 > MAX_GRID_SIZE) return;
         const oldOffset = self.grid.offset;
 
         self.gridWidth += 2;
