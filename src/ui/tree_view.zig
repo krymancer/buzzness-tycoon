@@ -222,7 +222,14 @@ pub fn draw(ctx: TreeContext) TreeAction {
     scrollY = std.math.clamp(scrollY, 0, overflowY);
 
     // Centre when it fits; otherwise anchor top-left and apply the scroll.
-    const centerX = if (overflowX > 0) contentX + treeW / 2 - scrollX else panelX + panelW / 2;
+    // centerX is where column 0 sits; the column span is not symmetric
+    // (cols -2..3 since the Drills column), so centre the span's midpoint,
+    // not column 0, or the right-hand column falls off the panel.
+    const midCol = (MIN_COL + MAX_COL) / 2;
+    const centerX = if (overflowX > 0)
+        contentX - scrollX - MIN_COL * COL_SPACING * s + NODE_W * s / 2
+    else
+        panelX + panelW / 2 - midCol * COL_SPACING * s;
     const topY = if (overflowY > 0) contentY - scrollY else contentY + (contentH - treeH) / 2;
     const nodeW = NODE_W * s;
     const nodeH = NODE_H * s;
