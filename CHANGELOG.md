@@ -2,6 +2,8 @@
 
 ## 0.4.0 — unreleased
 
+- Reduced base bee lifespan from 8–16 minutes to 1–2 minutes. Bee Vitality and pollen-based life extensions still apply.
+
 - Removed the persistent garden instructions panel. A 250-honey Removal Brush upgrade unlocks drag-to-remove flowers and plans, including whole Super flowers.
 
 - Double-click a tech-tree card to buy it; storage-blocked purchases can upgrade capacity without changing the selected card.
