@@ -17,9 +17,12 @@
 
 ### UI: full-screen tree and Royal Shop
 - The upgrade tree and the Prestige / Royal Shop view now take the whole
-  window instead of floating as popups over a dimmed meadow. The tree
-  grows into the extra room (up to 1.3x); the shop's cards fill the height
-  and centre horizontally.
+  window instead of floating as popups over a dimmed meadow. The shop's
+  cards fill the height and centre horizontally.
+- **The tree is a map.** It opens fitted, then drag (right stick, WASD)
+  pans and the wheel (triggers, +/-) zooms about the cursor, 45%–220%.
+  Text never shrinks to squeeze the tree in; a Fit button and Home reset
+  the view, and the tree can't be pushed off screen.
 
 ### UI: upgrade tree
 - **Orthogonal connectors** (down, across, down) on a re-laid lattice with

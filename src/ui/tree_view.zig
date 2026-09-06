@@ -44,22 +44,59 @@ const MAX_COL: f32 = 4;
 const MAX_ROW: f32 = 6;
 const TREE_W: f32 = (MAX_COL - MIN_COL) * COL_SPACING + NODE_W;
 const TREE_H: f32 = MAX_ROW * ROW_SPACING + NODE_H;
-// Below this the tree stops shrinking to fit and scrolls instead.
-const MIN_FIT_SCALE: f32 = 0.6;
-// Above this the tree stops growing into spare room (text gets clumsy).
-const MAX_FIT_SCALE: f32 = 1.3;
+// The tree is a map: drag (or right stick / WASD) to pan, wheel (or
+// triggers / +-) to zoom about the cursor, "Fit" or Home to reset. It never
+// shrinks text to fit; opening fits the whole tree once, then it's yours.
+const ZOOM_MIN: f32 = 0.45;
+const ZOOM_MAX: f32 = 2.2;
+/// Opening leaves this much of the content area as margin around the tree.
+const FIT_MARGIN: f32 = 0.92;
+/// Panning can't push the tree further than this many px from the edge, so
+/// it can always be dragged back.
+const KEEP_VISIBLE: f32 = 140;
 
-// Scroll offset (logical px) when the tree doesn't fit; reset on open.
-var scrollX: f32 = 0;
-var scrollY: f32 = 0;
+var zoom: f32 = 1;
+// Tree-centre offset from the content centre, logical px.
+var panX: f32 = 0;
+var panY: f32 = 0;
+var viewFitted: bool = false;
 var dragging: bool = false;
 var dragMoved: f32 = 0;
 var lastMouse: rl.Vector2 = .{ .x = 0, .y = 0 };
 
-pub fn resetScroll() void {
-    scrollX = 0;
-    scrollY = 0;
+/// Refit the view on the next draw (called when the tree opens).
+pub fn resetView() void {
+    viewFitted = false;
     dragging = false;
+}
+
+/// Dev: BT_TREE_ZOOM=<factor> opens the tree at that zoom instead of the
+/// fit (screenshots of the zoomed-in map). Set by game.zig at startup.
+pub var devOpenZoom: ?f32 = null;
+
+fn fitView(contentW: f32, contentH: f32) void {
+    zoom = std.math.clamp(@min(contentW / TREE_W, contentH / TREE_H) * FIT_MARGIN, ZOOM_MIN, ZOOM_MAX);
+    if (devOpenZoom) |z| {
+        zoom = std.math.clamp(z, ZOOM_MIN, ZOOM_MAX);
+        devOpenZoom = null;
+    }
+    panX = 0;
+    panY = 0;
+    viewFitted = true;
+}
+
+/// Change the zoom while keeping the tree point under `anchor` (screen px)
+/// where it is, so wheel-zoom feels anchored to the cursor.
+fn zoomAt(anchor: rl.Vector2, newZoom: f32, cx: f32, cy: f32) void {
+    const z1 = std.math.clamp(newZoom, ZOOM_MIN, ZOOM_MAX);
+    if (z1 == zoom) return;
+    const tl0 = rl.Vector2.init(cx + panX - TREE_W * zoom / 2, cy + panY - TREE_H * zoom / 2);
+    const ux = (anchor.x - tl0.x) / zoom;
+    const uy = (anchor.y - tl0.y) / zoom;
+    const tl1 = rl.Vector2.init(anchor.x - ux * z1, anchor.y - uy * z1);
+    zoom = z1;
+    panX = tl1.x + TREE_W * z1 / 2 - cx;
+    panY = tl1.y + TREE_H * z1 / 2 - cy;
 }
 
 /// Purchase glow per node id: the node swells with a green ring that fades.
@@ -140,9 +177,10 @@ fn styleFor(purchased: bool, maxed: bool, unlocked: bool, afford: bool) NodeStyl
     };
 }
 
-fn nodePos(node: *const upgrade_tree.Node, centerX: f32, topY: f32, s: f32) rl.Vector2 {
-    const x = centerX + @as(f32, @floatFromInt(node.col)) * COL_SPACING * s - NODE_W * s / 2;
-    const y = topY + @as(f32, @floatFromInt(node.row)) * ROW_SPACING * s;
+/// Node top-left from the tree's top-left corner `tl` at scale `s`.
+fn nodePos(node: *const upgrade_tree.Node, tl: rl.Vector2, s: f32) rl.Vector2 {
+    const x = tl.x + (@as(f32, @floatFromInt(node.col)) - MIN_COL) * COL_SPACING * s;
+    const y = tl.y + @as(f32, @floatFromInt(node.row)) * ROW_SPACING * s;
     return rl.Vector2.init(x, y);
 }
 
@@ -190,11 +228,11 @@ const Path = struct {
     }
 };
 
-fn routeFor(parent: *const upgrade_tree.Node, child: *const upgrade_tree.Node, centerX: f32, topY: f32, s: f32) Path {
+fn routeFor(parent: *const upgrade_tree.Node, child: *const upgrade_tree.Node, tl: rl.Vector2, s: f32) Path {
     const nodeW = NODE_W * s;
     const nodeH = NODE_H * s;
-    const p = nodePos(parent, centerX, topY, s);
-    const c = nodePos(child, centerX, topY, s);
+    const p = nodePos(parent, tl, s);
+    const c = nodePos(child, tl, s);
     const from = rl.Vector2.init(p.x + nodeW / 2, p.y + nodeH);
     const to = rl.Vector2.init(c.x + nodeW / 2, c.y);
     if (child.row <= parent.row) {
@@ -257,58 +295,50 @@ pub fn draw(ctx: TreeContext) TreeAction {
     const contentW = panelW - 40;
     const contentH = panelH - 60 - 78;
 
-    // Auto-fit: shrink the layout so the whole tree shows whenever it can
-    // (big UI scale => small logical panel); below MIN_FIT_SCALE, scroll.
-    const fit = @min(contentW / TREE_W, contentH / TREE_H);
-    const s: f32 = std.math.clamp(fit, MIN_FIT_SCALE, MAX_FIT_SCALE);
-    const treeW = TREE_W * s;
-    const treeH = TREE_H * s;
-    const overflowX = @max(0, treeW - contentW);
-    const overflowY = @max(0, treeH - contentH);
-    const scrollable = overflowX > 0 or overflowY > 0;
+    const ccx = contentX + contentW / 2;
+    const ccy = contentY + contentH / 2;
+    if (!viewFitted) fitView(contentW, contentH);
 
     const mouse = input.pointerPos();
     const inContent = rl.checkCollisionPointRec(mouse, rl.Rectangle.init(contentX, contentY, contentW, contentH));
 
-    // Wheel or right stick (vertical; shift or horizontal wheel for X) and
-    // left-drag panning.
-    if (scrollable) {
-        const wheel = input.scrollV();
-        const shift = rl.isKeyDown(rl.KeyboardKey.left_shift) or rl.isKeyDown(rl.KeyboardKey.right_shift);
-        if (inContent or input.gamepadActive()) {
-            if (shift) scrollX -= wheel.y * 40 else scrollY -= wheel.y * 40;
-            scrollX -= wheel.x * 40;
-        }
-        if (inContent and input.confirmPressed()) {
-            dragging = true;
-            dragMoved = 0;
-            lastMouse = mouse;
-        }
-        if (dragging) {
-            if (input.confirmDown()) {
-                const dx = mouse.x - lastMouse.x;
-                const dy = mouse.y - lastMouse.y;
-                dragMoved += @abs(dx) + @abs(dy);
-                scrollX -= dx;
-                scrollY -= dy;
-                lastMouse = mouse;
-            } else dragging = false;
-        }
-    } else {
-        dragging = false;
-    }
-    scrollX = std.math.clamp(scrollX, 0, overflowX);
-    scrollY = std.math.clamp(scrollY, 0, overflowY);
+    // Zoom: wheel about the cursor; triggers / +- about the centre.
+    const wheel = rl.getMouseWheelMoveV().y;
+    if (inContent and wheel != 0) zoomAt(mouse, zoom * std.math.pow(f32, 1.12, wheel), ccx, ccy);
+    const zaxis = input.zoomAxis();
+    if (zaxis != 0) zoomAt(rl.Vector2.init(ccx, ccy), zoom * std.math.pow(f32, 2.0, zaxis * dt), ccx, ccy);
 
-    // Centre when it fits; otherwise anchor top-left and apply the scroll.
-    // centerX is where column 0 sits, so centre the column span's midpoint
-    // in case the span is ever asymmetric.
-    const midCol = (MIN_COL + MAX_COL) / 2;
-    const centerX = if (overflowX > 0)
-        contentX - scrollX - MIN_COL * COL_SPACING * s + NODE_W * s / 2
-    else
-        panelX + panelW / 2 - midCol * COL_SPACING * s;
-    const topY = if (overflowY > 0) contentY - scrollY else contentY + (contentH - treeH) / 2;
+    // Pan: left-drag, right stick, WASD / arrows.
+    if (inContent and input.confirmPressed()) {
+        dragging = true;
+        dragMoved = 0;
+        lastMouse = mouse;
+    }
+    if (dragging) {
+        if (input.confirmDown()) {
+            const dx = mouse.x - lastMouse.x;
+            const dy = mouse.y - lastMouse.y;
+            dragMoved += @abs(dx) + @abs(dy);
+            panX += dx;
+            panY += dy;
+            lastMouse = mouse;
+        } else dragging = false;
+    }
+    const keyPan = input.cameraPan();
+    panX -= keyPan.x;
+    panY -= keyPan.y;
+    if (rl.isKeyPressed(rl.KeyboardKey.home)) fitView(contentW, contentH);
+
+    const s = zoom;
+    const treeW = TREE_W * s;
+    const treeH = TREE_H * s;
+    // Keep some of the tree on screen so it can't be lost off an edge.
+    const limX = @max(0, treeW / 2 + contentW / 2 - KEEP_VISIBLE);
+    const limY = @max(0, treeH / 2 + contentH / 2 - KEEP_VISIBLE);
+    panX = std.math.clamp(panX, -limX, limX);
+    panY = std.math.clamp(panY, -limY, limY);
+
+    const tl = rl.Vector2.init(ccx + panX - treeW / 2, ccy + panY - treeH / 2);
     const nodeW = NODE_W * s;
     const nodeH = NODE_H * s;
 
@@ -317,7 +347,7 @@ pub fn draw(ctx: TreeContext) TreeAction {
     var hoveredNode: ?*const upgrade_tree.Node = null;
     if (inContent) {
         for (&upgrade_tree.NODES) |*node| {
-            const p = nodePos(node, centerX, topY, s);
+            const p = nodePos(node, tl, s);
             if (rl.checkCollisionPointRec(mouse, rl.Rectangle.init(p.x, p.y, nodeW, nodeH))) hoveredNode = node;
         }
     }
@@ -336,7 +366,7 @@ pub fn draw(ctx: TreeContext) TreeAction {
                 const parentMet = ctx.state.prereqMet(p);
                 const cls: usize = if (childOwned) 2 else if (parentMet) 1 else 0;
                 if (cls != pass) continue;
-                const path = routeFor(pnode, node, centerX, topY, s);
+                const path = routeFor(pnode, node, tl, s);
                 const thick: f32 = (if (childOwned) @as(f32, 3) else 2) * s;
                 const color = if (childOwned) C.green else if (parentMet) C.sapphire else C.surface1;
                 path.draw(thick, color);
@@ -357,10 +387,10 @@ pub fn draw(ctx: TreeContext) TreeAction {
 
     var action: TreeAction = .none;
     // A click that was really a pan shouldn't buy the node under the cursor.
-    const clickOk = inContent and (!scrollable or dragMoved < 8);
+    const clickOk = inContent and dragMoved < 8;
 
     for (&upgrade_tree.NODES) |*node| {
-        const basePos = nodePos(node, centerX, topY, s);
+        const basePos = nodePos(node, tl, s);
         const hitRect = rl.Rectangle.init(basePos.x, basePos.y, nodeW, nodeH);
         const lvl = ctx.state.level(node.id);
         const purchased = lvl > 0;
@@ -507,7 +537,7 @@ pub fn draw(ctx: TreeContext) TreeAction {
         if (desc.len > 0) drawTooltip(desc, status, needs, mouse, ctx.screenWidth, ctx.screenHeight);
     }
 
-    // Close button
+    // Close and Fit buttons, bottom-right.
     const closeW: f32 = 140;
     const closeH: f32 = 44;
     const closeX = panelX + panelW - closeW - 14;
@@ -515,12 +545,19 @@ pub fn draw(ctx: TreeContext) TreeAction {
     if (widgets.button(rl.Rectangle.init(closeX, closeY, closeW, closeH), locale.tr("Close", "Fechar"))) {
         action = .close;
     }
-
-    // Scroll hint when clipped, bottom-left, level with the close button.
-    if (scrollable) {
-        const hint = locale.tr("scroll / drag to pan", "role / arraste para mover");
-        text.draw(hint, @intFromFloat(panelX + 18), @intFromFloat(closeY + 14), 14, C.overlay1);
+    const fitW: f32 = 110;
+    if (widgets.buttonEx(rl.Rectangle.init(closeX - fitW - 10, closeY, fitW, closeH), locale.tr("Fit", "Ajustar"), .{ .face = C.surface2, .textColor = C.text })) {
+        fitView(contentW, contentH);
     }
+
+    // Map controls hint and zoom level, bottom-left, level with the buttons.
+    const hint = if (input.gamepadActive())
+        locale.tr("right stick pans · triggers zoom", "direito move · gatilhos ampliam")
+    else
+        locale.tr("drag to pan · wheel to zoom · Home fits", "arraste para mover · role para ampliar · Home ajusta");
+    text.draw(hint, @intFromFloat(panelX + 18), @intFromFloat(closeY + 14), 14, C.overlay1);
+    const zoomLabel = rl.textFormat("%d%%", .{@as(c_int, @intFromFloat(@round(zoom * 100)))});
+    text.draw(zoomLabel, @as(i32, @intFromFloat(panelX + 18)) + text.measure(hint, 14) + 14, @intFromFloat(closeY + 14), 14, C.subtext0);
 
     return action;
 }

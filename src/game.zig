@@ -249,8 +249,12 @@ pub const Game = struct {
             .metrics = Metrics.init(io),
             .floatingTexts = floating_text.Manager.init(allocator),
             .upgradeTree = upgrade_tree.State.init(allocator),
-            // Dev: BT_OPEN_TREE starts with the upgrade tree open (screenshots).
-            .showTree = env.get("BT_OPEN_TREE") != null,
+            // Dev: BT_OPEN_TREE starts with the upgrade tree open (screenshots);
+            // BT_TREE_ZOOM=<factor> opens it zoomed instead of fitted.
+            .showTree = blk: {
+                if (env.get("BT_TREE_ZOOM")) |z| ui.tree_view.devOpenZoom = std.fmt.parseFloat(f32, z) catch null;
+                break :blk env.get("BT_OPEN_TREE") != null;
+            },
             // Dev: BT_OPEN_OPTIONS starts with the options panel open.
             .showOptions = env.get("BT_OPEN_OPTIONS") != null,
             // Dev: BT_OPEN_PLANT=x,y starts with the plant chooser open on a tile.
@@ -557,7 +561,7 @@ pub const Game = struct {
                 return;
             } else if (!self.inMenuContext()) {
                 self.showTree = true;
-                ui.tree_view.resetScroll();
+                ui.tree_view.resetView();
                 return;
             }
         }
@@ -1014,7 +1018,7 @@ pub const Game = struct {
                 .none => {},
                 .open_tree => {
                     self.showTree = true;
-                    ui.tree_view.resetScroll();
+                    ui.tree_view.resetView();
                 },
                 .open_prestige => self.showPrestigeDialog = true,
                 .buy => |b| {
