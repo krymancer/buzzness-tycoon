@@ -12,6 +12,8 @@ python tools/remap_flowers.py '/path/to/8flowers by Brysiaa.png'
 
 The script reads the current Mocha constants from `src/theme.zig`, maps foliage and petal color families separately, preserves every alpha value, reverses the five living stages into seed-to-mature order, and enlarges by exactly 2x using nearest-neighbor sampling. It writes 160x32 strips for Rose, Tulip, Dandelion, Pink Tulip, Poppy, Hyacinth, Red Tulip, and Iris. This deliberately replaces the first three hand redraws with source-shape remaps at the user’s request; names, enum IDs, growth timing and balance are unchanged. Display names describe their in-game roles/appearance, not botanical identifications supplied by the artist. Withered sprites are baked from these strips by the same grayscale loader as existing flowers.
 
+Dandelion has a species-specific override: its source pink petal shades become Mocha white (`text`) with neutral shadows, and its center uses yellow with peach shading. This preserves its established in-game color identity without altering pixels or growth frames.
+
 Color maps and enlarged comparisons go to `output/flower-comparison/`. The script verifies exact transparency preservation and that all visible remapped colors belong to Mocha. This is a palette adaptation; it does not add new outlines or redraw silhouettes.
 
 ## Alternatives compared
@@ -23,3 +25,20 @@ Color maps and enlarged comparisons go to `output/flower-comparison/`. The scrip
 Direct converters map many saturated dark greens to gray or near-background colors. The flower-aware version retains readability against a dark meadow. The comparison images and the three previous game references are attached to PR #85 on the `pr-assets` branch.
 
 An initial imagegen experiment was rejected because it changed shapes and frame alignment. None of its pixels are used by the game.
+
+## Color identity
+
+Each species has a distinct Mocha accent instead of inheriting the pack’s predominantly pink/purple hues. Source petal shades map to that accent with Mocha shadows; stems and leaves share the same green ramp.
+
+| Flower | Mocha accent |
+| --- | --- |
+| Rose | Yellow |
+| Tulip | Blue |
+| Dandelion | Text (white), yellow center |
+| Pink Tulip | Pink |
+| Poppy | Peach |
+| Hyacinth | Mauve |
+| Red Tulip | Red |
+| Iris | Teal |
+
+`FLOWER_ACCENTS` documents the intended identity and `ROW_RAMPS` preserves it when regenerating the strips. All colors remain exact Mocha values; no silhouettes, alpha values or frame positions change.
