@@ -34,6 +34,7 @@ pub const State = struct {
     /// Armed flower brush (paint the plan / plant on drag).
     brush: ?Flowers = null,
     eraser: bool = false,
+    waitForRelease: bool = false,
     /// Last tile painted this drag, so holding still doesn't re-paint.
     lastPaintX: i32 = -1,
     lastPaintY: i32 = -1,
@@ -163,7 +164,7 @@ pub fn draw(state: *const State, ctx: Context) Action {
         icons.drawHoneyDrop(cx - dropR - 5, row.y + row.height / 2 + dropR * 0.65, dropR, if (afford) C.yellow else C.overlay0);
         text.draw(costLabel, @intFromFloat(cx), @intFromFloat(row.y + 12), 15, if (afford) C.yellow else C.overlay0);
 
-        if (clicked and hovered and afford) action = .{ .plant = entry.flower };
+        if (clicked and hovered and (afford or planningEnabled)) action = .{ .plant = entry.flower };
     }
 
     if (planningEnabled) {

@@ -55,6 +55,7 @@ pub fn update(world: *World, deltaTime: f32) !void {
 /// occupied. Cleared by the player (see game.zig) via removeFlower.
 pub fn rotFlower(world: *World, entity: u32, growth: *components.FlowerGrowth, lifespan: *components.Lifespan) void {
     growth.isRotten = true;
+    world.markFlowersDirty();
     growth.hasPollen = false;
     // Park the lifespan so isDead() stays false forever.
     lifespan.timeAlive = 0;

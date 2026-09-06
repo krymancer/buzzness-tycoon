@@ -1,6 +1,10 @@
 const rl = @import("raylib");
 const std = @import("std");
 
+const meadow_plan = @import("meadow_plan.zig");
+const adjacency = @import("adjacency.zig");
+const meadow_overlay = @import("ui/meadow_overlay.zig");
+
 const Grid = @import("grid.zig").Grid;
 const grid_mod = @import("grid.zig");
 const Textures = @import("textures.zig").Textures;
@@ -231,7 +235,13 @@ pub const Game = struct {
             _ = try spawners.spawnBee(&world, &grid);
         }
 
-        const savePath = try save.path(allocator, env);
+        ui.plant_menu.planningEnabled = env.get("BT_POC_GARDEN") != null;
+        meadow_plan.reset();
+        adjacency.invalidate();
+        const savePath = if (ui.plant_menu.planningEnabled)
+            try allocator.dupe(u8, env.get("BT_SAVE_PATH") orelse "/tmp/bt-garden-prototype-save.txt")
+        else
+            try save.path(allocator, env);
         errdefer allocator.free(savePath);
 
         var game: @This() = .{
@@ -324,7 +334,7 @@ pub const Game = struct {
         if (useSavedWindowMode) settings.apply(settings.windowMode);
 
         // Steam comes up after the save so offline unlocks can be re-asserted.
-        steam.init(env);
+        if (!ui.plant_menu.planningEnabled) steam.init(env);
         // Dev: BT_RESET_ACHIEVEMENTS=1 wipes local unlocks + stats (and the
         // Steam ones when connected) so triggers can be re-tested.
         if (env.get("BT_RESET_ACHIEVEMENTS") != null) {
@@ -534,6 +544,9 @@ pub const Game = struct {
             } else if (self.plantMenu.open) {
                 self.plantMenu.open = false;
                 return;
+            } else if (self.plantMenu.brushActive()) {
+                self.plantMenu.dropBrush();
+                return;
             } else if (self.showPauseMenu) {
                 self.showPauseMenu = false;
                 self.isPaused = false;
@@ -584,8 +597,34 @@ pub const Game = struct {
         // The plant chooser owns the mouse while open (draw() handles it).
         if (self.plantMenu.open) return;
 
+        if (ui.plant_menu.planningEnabled and rl.isKeyPressed(.p)) {
+            self.tryOpenPlanterAtHover();
+            return;
+        }
         const mousePos = input.pointerPos();
         const mouseInPanel = input.pointerInUi();
+
+        if (ui.plant_menu.planningEnabled and self.plantMenu.brushActive()) {
+            self.isDragging = false;
+            if (self.plantMenu.waitForRelease) {
+                if (!input.confirmDown()) self.plantMenu.waitForRelease = false;
+                return;
+            }
+            if (rl.isMouseButtonPressed(.right)) self.plantMenu.dropBrush();
+            if (input.confirmReleased()) {
+                self.plantMenu.lastPaintX = -1;
+                self.plantMenu.lastPaintY = -1;
+            }
+            if (input.confirmDown() and !mouseInPanel) {
+                if (self.grid.getHoveredTile()) |tile| {
+                    if (tile.x != self.plantMenu.lastPaintX or tile.y != self.plantMenu.lastPaintY) {
+                        try self.paintGardenCell(tile.x, tile.y);
+                    }
+                }
+            }
+            try self.handleWorldShortcuts();
+            return;
+        }
 
         if (input.confirmPressed() and !mouseInPanel) {
             self.isDragging = true;
@@ -833,7 +872,8 @@ pub const Game = struct {
                         return;
                     }
                 }
-                return; // live flower: nothing to do
+                if (ui.plant_menu.planningEnabled) self.tryOpenPlanterAtHover();
+                return; // live flower: inspect its plan in the prototype
             }
             self.tryOpenPlanterAtHover();
         }
@@ -843,7 +883,7 @@ pub const Game = struct {
     /// cell (not the hive, not already flowered, inside the grid).
     fn tryOpenPlanterAtHover(self: *@This()) void {
         const tile = self.grid.getHoveredTile() orelse return;
-        if (self.world.hasFlowerAtGrid(tile.x, tile.y)) return;
+        if (!ui.plant_menu.planningEnabled and self.world.hasFlowerAtGrid(tile.x, tile.y)) return;
         const centerX = @as(i32, @intCast((self.gridWidth - 1) / 2));
         const centerY = @as(i32, @intCast((self.gridHeight - 1) / 2));
         const inBounds = tile.x >= 0 and tile.y >= 0 and tile.x < @as(i32, @intCast(self.gridWidth)) and tile.y < @as(i32, @intCast(self.gridHeight));
@@ -864,12 +904,22 @@ pub const Game = struct {
         switch (action) {
             .none => {},
             .erase => {
+                self.plantMenu.waitForRelease = true;
                 self.plantMenu.eraser = true;
                 self.plantMenu.brush = null;
                 self.plantMenu.open = false;
             },
             .close => self.plantMenu.open = false,
             .plant => |flower| {
+                if (ui.plant_menu.planningEnabled) {
+                    self.plantMenu.waitForRelease = true;
+                    self.plantMenu.brush = flower;
+                    self.plantMenu.eraser = false;
+                    try self.paintGardenCell(self.plantMenu.tileX, self.plantMenu.tileY);
+                    self.plantMenu.open = false;
+                    input.consumeConfirm();
+                    return;
+                }
                 const cost = flower.stats().plantCost;
                 const x = self.plantMenu.tileX;
                 const y = self.plantMenu.tileY;
@@ -883,6 +933,58 @@ pub const Game = struct {
                 self.plantMenu.open = false;
             },
         }
+    }
+
+    // POC: plans last for this session; only an empty tile costs honey.
+    fn paintGardenCell(self: *@This(), x: i32, y: i32) !void {
+        if (x < 0 or y < 0 or x >= self.gridWidth or y >= self.gridHeight) return;
+        if (x == (self.gridWidth - 1) / 2 and y == (self.gridHeight - 1) / 2) return;
+        self.plantMenu.lastPaintX = x;
+        self.plantMenu.lastPaintY = y;
+        if (self.plantMenu.eraser) {
+            meadow_plan.set(x, y, null);
+            return;
+        }
+        const flower = self.plantMenu.brush orelse return;
+        meadow_plan.set(x, y, flower);
+        std.debug.print("[garden-poc] plan {d},{d} {s}; planned={d}\n", .{ x, y, @tagName(flower), meadow_plan.count() });
+        const before = self.resources.honey;
+        if (!self.world.hasFlowerAtGrid(x, y) and self.resources.spendHoney(flower.stats().plantCost)) {
+            _ = try spawners.spawnFlower(&self.world, &self.textures, flower, x, y);
+            _ = try spawners.tryMergeSuperFlower(&self.world, x, y);
+            try self.spawnSpendFeedback(before);
+        }
+    }
+
+    fn drawGardenPrototype(self: *@This()) void {
+        const C = theme.CatppuccinMocha.Color;
+        if (!self.inMenuContext() and !input.pointerInUi()) {
+            if (self.grid.getHoveredTile()) |tile| {
+                meadow_overlay.drawClusterHighlight(&self.grid, adjacency.clusterIdAt(tile.x, tile.y));
+                if (self.plantMenu.brushActive()) {
+                    const cost = if (self.plantMenu.brush) |f| f.stats().plantCost else 0;
+                    meadow_overlay.drawBrushCursor(&self.grid, &self.textures, .{
+                        .brush = self.plantMenu.brush,
+                        .eraser = self.plantMenu.eraser,
+                        .x = tile.x,
+                        .y = tile.y,
+                        .valid = !(tile.x == (self.gridWidth - 1) / 2 and tile.y == (self.gridHeight - 1) / 2),
+                        .occupied = self.world.hasFlowerAtGrid(tile.x, tile.y),
+                        .planned = meadow_plan.get(tile.x, tile.y) != null,
+                        .cost = cost,
+                        .afford = self.resources.honey >= cost,
+                    }, self.width, @floatCast(rl.getTime()));
+                } else meadow_overlay.drawBonusLabel(&self.grid, tile.x, tile.y, self.width);
+            }
+        }
+        const rect = rl.Rectangle.init(230, self.height - 100, @max(280, self.width - 460), 82);
+        input.registerBlock(rect);
+        rl.drawRectangleRounded(rect, 0.12, 4, C.mantle);
+        var buf: [160]u8 = undefined;
+        const line = std.fmt.bufPrintZ(&buf, "GARDEN POC  |  {d} planned  |  {s}", .{ meadow_plan.count(), if (self.plantMenu.eraser) "ERASER" else if (self.plantMenu.brush) |f| ui.plant_menu.flowerName(f) else "Click a tile to choose a brush" }) catch "GARDEN POC";
+        text.draw(line, @intFromFloat(rect.x + 12), @intFromFloat(rect.y + 10), 18, C.green);
+        text.draw("Drag: paint / Esc: drop brush / P: change brush", @intFromFloat(rect.x + 12), @intFromFloat(rect.y + 34), 15, C.text);
+        text.draw("3 connected: +50% | 3 nearby types: x2 | session plans", @intFromFloat(rect.x + 12), @intFromFloat(rect.y + 55), 14, C.subtext0);
     }
 
     pub fn update(self: *@This()) !void {
@@ -918,6 +1020,11 @@ pub const Game = struct {
         try lifespan_system.update(&self.world, deltaTime);
         try flower_growth_system.update(&self.world, deltaTime);
 
+        if (ui.plant_menu.planningEnabled) {
+            meadow_plan.width = self.gridWidth;
+            meadow_plan.height = self.gridHeight;
+            adjacency.refresh(&self.world, self.gridWidth, self.gridHeight);
+        }
         var frameHoneyGain: f32 = 0;
         try bee_ai_system.update(.{
             .world = &self.world,
@@ -1005,6 +1112,8 @@ pub const Game = struct {
 
             // Floating pollen dust / fireflies over the light wash so they glow.
             self.ambient.draw(self.sky.nightFactor());
+
+            if (ui.plant_menu.planningEnabled) self.drawGardenPrototype();
 
             // Draw HUD (reuses this frame's cached factor)
             const honeyFactor = self.cachedHoneyFactor;
@@ -1332,6 +1441,9 @@ pub const Game = struct {
 
     /// Tear down the world and restore a fresh run (keeps prestige state).
     fn resetRun(self: *@This()) !void {
+        meadow_plan.reset();
+        adjacency.invalidate();
+        self.plantMenu = .{};
         // Reset world: full teardown + respawn
         self.world.deinit();
         self.world = World.init(self.allocator);
@@ -1465,6 +1577,8 @@ pub const Game = struct {
         if (self.gridWidth + 2 > MAX_GRID_SIZE or self.gridHeight + 2 > MAX_GRID_SIZE) return;
         const oldOffset = self.grid.offset;
 
+        if (ui.plant_menu.planningEnabled) meadow_plan.shift(1, 1);
+        self.plantMenu.dropBrush();
         self.gridWidth += 2;
         self.gridHeight += 2;
         self.grid.width = self.gridWidth;

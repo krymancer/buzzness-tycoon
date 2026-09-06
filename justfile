@@ -263,3 +263,7 @@ save-backup:
 # Remove build caches and dev screenshot output
 clean:
     rm -rf zig-out .zig-cache bt_shot.png
+
+# Disposable native flower-layout experiment (this prototype branch only)
+poc-garden:
+    bash tools/prototype/garden.sh

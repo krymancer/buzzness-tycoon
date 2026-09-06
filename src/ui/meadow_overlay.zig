@@ -17,6 +17,22 @@ const Flowers = @import("../textures.zig").Flowers;
 
 const OUTLINE = @import("hud.zig").OUTLINE;
 
+// Tint only the diamond's top face; drawing the whole cube over the
+// meadow made highlighted plans look like raised blocks.
+fn tintTile(grid: *const Grid, pos: rl.Vector2, color: rl.Color) void {
+    const w = 32 * grid.scale;
+    const top = rl.Vector2.init(pos.x + w / 2, pos.y);
+    const left = rl.Vector2.init(pos.x, pos.y + w / 4);
+    const bottom = rl.Vector2.init(pos.x + w / 2, pos.y + w / 2);
+    const right = rl.Vector2.init(pos.x + w, pos.y + w / 4);
+    rl.drawTriangle(top, left, bottom, color);
+    rl.drawTriangle(top, bottom, right, color);
+    rl.drawLineEx(top, left, 1.5, color);
+    rl.drawLineEx(left, bottom, 1.5, color);
+    rl.drawLineEx(bottom, right, 1.5, color);
+    rl.drawLineEx(right, top, 1.5, color);
+}
+
 /// Warm glow on every cell of cluster `id` (0 = none).
 pub fn drawClusterHighlight(grid: *const Grid, id: u32) void {
     if (id == 0) return;
@@ -24,7 +40,7 @@ pub fn drawClusterHighlight(grid: *const Grid, id: u32) void {
         for (0..grid.width) |i| {
             if (adjacency.clusterIdAt(@intCast(i), @intCast(j)) != id) continue;
             const pos = utils.isoToXY(@floatFromInt(i), @floatFromInt(j), grid.tileWidth, grid.tileHeight, grid.offset.x, grid.offset.y, grid.scale);
-            rl.drawTextureEx(grid.tileTexture, pos, 0, grid.scale, rl.Color.init(166, 227, 161, 110));
+            tintTile(grid, pos, rl.Color.init(166, 227, 161, 65));
         }
     }
 }
@@ -83,7 +99,7 @@ pub fn drawBonusLabel(grid: *const Grid, x: i32, y: i32, screenW: f32) void {
     if (!b.any()) return;
     var buf: [128]u8 = undefined;
     const line = describe(b, &buf) orelse return;
-    labelAbove(grid, x, y, line, 15, C.teal, 0, screenW);
+    labelAbove(grid, x, y, line, 20, C.teal, 0, screenW);
 }
 
 pub const BrushCursor = struct {
@@ -105,13 +121,13 @@ pub fn drawBrushCursor(grid: *const Grid, textures: *const Textures, cur: BrushC
     const C = theme.CatppuccinMocha.Color;
     const pos = utils.isoToXY(@floatFromInt(cur.x), @floatFromInt(cur.y), grid.tileWidth, grid.tileHeight, grid.offset.x, grid.offset.y, grid.scale);
     if (cur.eraser) {
-        rl.drawTextureEx(grid.tileTexture, pos, 0, grid.scale, rl.Color.init(243, 139, 168, if (cur.valid) 130 else 60));
-        labelAbove(grid, cur.x, cur.y, locale.tr("Clear plan", "Limpar plano"), 15, C.red, 8, screenW);
+        tintTile(grid, pos, rl.Color.init(243, 139, 168, if (cur.valid) 100 else 40));
+        labelAbove(grid, cur.x, cur.y, locale.tr("Clear plan", "Limpar plano"), 20, C.red, 8, screenW);
         return;
     }
     const brush = cur.brush orelse return;
     const tint: rl.Color = if (!cur.valid) rl.Color.init(243, 139, 168, 120) else if (cur.afford) rl.Color.init(255, 255, 255, 170) else rl.Color.init(255, 255, 255, 110);
-    rl.drawTextureEx(grid.tileTexture, pos, 0, grid.scale, rl.Color.init(255, 236, 150, if (cur.valid) 110 else 40));
+    tintTile(grid, pos, rl.Color.init(249, 226, 175, if (cur.valid) 80 else 30));
     if (!cur.occupied) {
         const tex = textures.getFlowerTexture(brush);
         const bob = 1.5 * @sin(time * 3.0) * grid.scale / 3.0;
@@ -133,13 +149,13 @@ pub fn drawBrushCursor(grid: *const Grid, textures: *const Textures, cur: BrushC
     else
         std.fmt.bufPrintZ(&lbuf, "{s} · {s} ({s})", .{ name, locale.tr("plan only", "só o plano"), format.formatShort(cur.cost, &cbuf) }) catch name;
     const color = if (!cur.valid) C.red else if (cur.afford or cur.occupied) C.yellow else C.peach;
-    labelAbove(grid, cur.x, cur.y, what, 15, color, 20, screenW);
+    labelAbove(grid, cur.x, cur.y, what, 20, color, 20, screenW);
 
     if (cur.valid and !cur.occupied) {
         const ft = brush;
         var bbuf: [128]u8 = undefined;
         if (describe(adjacency.preview(cur.x, cur.y, ft), &bbuf)) |line| {
-            labelAbove(grid, cur.x, cur.y, line, 13, C.teal, 0, screenW);
+            labelAbove(grid, cur.x, cur.y, line, 18, C.teal, 0, screenW);
         }
     }
 }
