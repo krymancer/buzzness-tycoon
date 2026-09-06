@@ -372,9 +372,6 @@ fn drawBeeSlot(ctx: Context, spec: SlotSpec, pos: rl.Vector2, mouse: rl.Vector2,
     }
 }
 
-var lastAffordable: usize = 0;
-var affordableFlash: f32 = 0;
-
 fn drawTreeButton(ctx: Context, mouse: rl.Vector2, out: *Action) void {
     const C = theme.CatppuccinMocha.Color;
     const size: f32 = 62;
@@ -383,7 +380,7 @@ fn drawTreeButton(ctx: Context, mouse: rl.Vector2, out: *Action) void {
     input.registerHotspot(rect);
     const hovered = rl.checkCollisionPointRec(mouse, rect);
     const cxf = rect.x + size / 2;
-    const cyf = rect.y + size / 2 + 4;
+    const cyf = rect.y + size / 2 + 8;
 
     // Mini upgrade-tree glyph: a root node branching into two child nodes,
     // with a drop shadow; it grows a little on hover.
@@ -405,24 +402,21 @@ fn drawTreeButton(ctx: Context, mouse: rl.Vector2, out: *Action) void {
 
     prompt_icons.draw(if (input.gamepadActive()) .pad_y else .key_t, rect.x - 9, rect.y - 9, PROMPT);
 
-    // "N upgrades affordable" badge, top-right, pulsing: the player never
+    // "N upgrades affordable" badge, top-right: the player never
     // has to open the tree to find out something is buyable.
     const affordable = ctx.treeState.affordableCount(ctx.resources.honey, ctx.prestigeCostMul, ctx.ascensions);
-    if (affordable > lastAffordable) affordableFlash = 1;
-    lastAffordable = affordable;
-    affordableFlash = @max(0, affordableFlash - rl.getFrameTime());
     if (affordable > 0) {
-        const t: f32 = @floatCast(rl.getTime());
-        const pulse = affordableFlash * (0.5 + 0.5 * @sin(t * 4.0));
-        const bx = rect.x + size - 4;
-        const by = rect.y + 4;
-        const r: f32 = 11 + 1.5 * pulse;
-        rl.drawCircleV(rl.Vector2.init(bx, by), r + 5, rl.Color.init(C.yellow.r, C.yellow.g, C.yellow.b, @intFromFloat(40 + 50 * pulse)));
-        rl.drawCircleV(rl.Vector2.init(bx, by), r + 2, OUTLINE);
-        rl.drawCircleV(rl.Vector2.init(bx, by), r, C.yellow);
-        const label = if (affordable > 9) "9+" else rl.textFormat("%d", .{@as(c_int, @intCast(affordable))});
-        const lw = text.measure(label, 15);
-        text.draw(label, @as(i32, @intFromFloat(bx)) - @divFloor(lw, 2), @as(i32, @intFromFloat(by)) - 9, 15, C.base);
+        // Stable pixel badge: exact count, no shrinking "9+" label,
+        // no moving circle/glow behind the digits.
+        const label = rl.textFormat("%d", .{@as(c_int, @intCast(affordable))});
+        const labelSize = 16;
+        const lw = text.measure(label, labelSize);
+        const bw = @max(32, lw + 14);
+        const bx: i32 = @intFromFloat(rect.x + size - @as(f32, @floatFromInt(bw)));
+        const by: i32 = @intFromFloat(rect.y);
+        rl.drawRectangle(bx - 2, by - 2, bw + 4, 28, C.crust);
+        rl.drawRectangle(bx, by, bw, 24, C.yellow);
+        text.draw(label, bx + @divFloor(bw - lw, 2), by + 4, labelSize, C.crust);
     }
 
     if (ctx.inputEnabled and hovered and input.confirmPressed()) {

@@ -134,6 +134,8 @@ pub fn draw(screenWidth: f32, screenHeight: f32, hasSave: bool) TitleScreenActio
     const versionFontSize: i32 = 16;
     text.draw(versionText, 10, @as(i32, @intFromFloat(screenHeight)) - 26, versionFontSize, theme.CatppuccinMocha.Color.overlay0);
 
+    text.draw("BoldPixels by YukiPixels | CC BY-SA 4.0", 10, @as(i32, @intFromFloat(screenHeight)) - 48, 12, theme.CatppuccinMocha.Color.overlay0);
+
     // Controls hint
     const hintText = locale.tr("Alt+Enter: Toggle Fullscreen", "Alt+Enter: Alternar tela cheia");
     const hintWidth = text.measure(hintText, 16);

@@ -2,11 +2,13 @@
 
 ## 0.4.0 — unreleased
 
+- BoldPixels UI font with attribution; a stable tech-tree badge shows the full affordable-upgrade count.
+
 - Five additional Mocha flowers: Pink Tulip, Poppy, Hyacinth, Red Tulip, and Iris. Rose, Tulip and Dandelion now share the same Mocha sprite treatment; existing save IDs and gameplay values are preserved.
 - Readable upgrade cards, branch shortcuts, remembered map view, and a fixed inspector with explicit purchase controls.
 - Upgrade levels remain visible; storage-blocked prices explain the blocker instead of showing impossible countdowns.
 - A slim honey strip keeps the meadow visible; hover shows income and multipliers, and selecting it opens Storage.
-- Bee purchase details explain type, role, bulk price, ownership, and milestones. Affordable-upgrade notifications animate briefly instead of continuously.
+- Bee purchase details explain type, role, bulk price, ownership, and milestones. Affordable-upgrade counts use a stable badge.
 - Discoveries is connected to the HUD and scrolls on smaller screens.
 - Flower component slots are reused across turnover, bounding long-session component storage.
 - Autosave disk writes run in the background; explicit saves drain older writes first.

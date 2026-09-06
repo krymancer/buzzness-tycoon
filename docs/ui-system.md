@@ -1,12 +1,12 @@
 # UI system
 
-The current UI lives in `src/ui/`, drawn with Raylib and the shared Baloo 2 font. Pixel buttons use `widgets.zig`; Mocha colors are defined in `theme.zig`. `ui_scale.zig` maps framebuffer pixels and input into the same logical canvas.
+The current UI lives in `src/ui/`, drawn with Raylib and the shared BoldPixels font. Pixel buttons use `widgets.zig`; Mocha colors are defined in `theme.zig`. `ui_scale.zig` maps framebuffer pixels and input into the same logical canvas.
 
 ## Meadow HUD
 
 `hud.zig` uses a 48-logical-pixel strip: honey/capacity, income or a full-storage warning, and a thin meter. Hover (including the controller cursor) reveals overflowing production and hive/night multipliers. Selecting the strip focuses Storage in the existing tree. The translucent backing permits single-pass text instead of nine outline passes.
 
-`action_hud.zig` owns the bee purchase cross, bulk quantity, census, Instant Grow/Aura status, Prestige, Discoveries, and tree button. Focusing a bee slot shows its name, role, quantity, total price, ownership, and milestone. Purchases above current capacity point to Storage instead of displaying an impossible ETA. The tree badge counts affordable upgrades and briefly animates when availability increases.
+`action_hud.zig` owns the bee purchase cross, bulk quantity, census, Instant Grow/Aura status, Prestige, Discoveries, and tree button. Focusing a bee slot shows its name, role, quantity, total price, ownership, and milestone. Purchases above current capacity point to Storage instead of displaying an impossible ETA. The tree badge counts affordable upgrades and shows the exact affordable count in a fixed, high-contrast pixel badge.
 
 ## Upgrade tree
 
@@ -23,3 +23,5 @@ The simulation continues while full-screen views are open; the covered meadow is
 ## Verification
 
 Use throwaway `BT_SAVE_PATH` files. Check English and Portuguese at 1280x800, 1920x1080, and increased UI scale; inspect unaffordable, storage-blocked, locked, purchased, and capped nodes. `zig build check`, `zig build test`, and the headless `zig build bench -Doptimize=ReleaseFast` cover compile, behavior, and simulation checks. Rendering captures require a display or Xvfb.
+
+BoldPixels is loaded unchanged with point filtering and no extra letter spacing. The badge uses a 16px label; other UI sizes still follow the existing scale setting, so arbitrary window/UI scales are not guaranteed to be pixel-integer multiples. Attribution and the font notice ship with Steam staging and release archives.
