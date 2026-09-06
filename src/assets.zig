@@ -8,6 +8,7 @@ pub const dandelion_png = sprites.dandelion_png;
 pub const tulip_png = sprites.tulip_png;
 pub const grass_cube_png = sprites.grass_cube_png;
 pub const beehive_png = sprites.beehive_png;
+pub const boldpixels_ttf = sprites.boldpixels_ttf;
 pub const baloo2_ttf = sprites.baloo2_ttf;
 
 pub const ui_cursor_png = sprites.ui_cursor_png;
