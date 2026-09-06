@@ -45,7 +45,17 @@ pub const Textures = struct {
     fn loadGrayscale(fileData: []const u8) !rl.Texture {
         var image = try assets.loadImageFromMemory(fileData);
         defer rl.unloadImage(image);
-        rl.imageColorGrayscale(&image);
+        // Not rl.imageColorGrayscale: that converts the image to a single
+        // grey channel and drops the alpha, so withered flowers drew on
+        // black squares. Desaturate each pixel and keep its alpha instead.
+        const colors = try rl.loadImageColors(image);
+        defer rl.unloadImageColors(colors);
+        const width: usize = @intCast(image.width);
+        for (colors, 0..) |c, i| {
+            const lum: u32 = (@as(u32, c.r) * 299 + @as(u32, c.g) * 587 + @as(u32, c.b) * 114) / 1000;
+            const g: u8 = @intCast(lum);
+            rl.imageDrawPixel(&image, @intCast(i % width), @intCast(i / width), rl.Color.init(g, g, g, c.a));
+        }
         return rl.loadTextureFromImage(image);
     }
 
