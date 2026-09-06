@@ -4,7 +4,7 @@ The current UI lives in `src/ui/`, drawn with Raylib and the shared Baloo 2 font
 
 ## Meadow HUD
 
-`hud.zig` shows honey/capacity, a fixed-width meter, production, hive multiplier, and the night modifier. At full capacity it explicitly labels production as overflowing; clicking the warning focuses Storage in the tree. The backing panel permits single-pass text instead of nine outline passes.
+`hud.zig` uses a 48-logical-pixel strip: honey/capacity, income or a full-storage warning, and a thin meter. Hover (including the controller cursor) reveals overflowing production and hive/night multipliers. Selecting the strip focuses Storage in the existing tree. The translucent backing permits single-pass text instead of nine outline passes.
 
 `action_hud.zig` owns the bee purchase cross, bulk quantity, census, Instant Grow/Aura status, Prestige, Discoveries, and tree button. Focusing a bee slot shows its name, role, quantity, total price, ownership, and milestone. Purchases above current capacity point to Storage instead of displaying an impossible ETA. The tree badge counts affordable upgrades and briefly animates when availability increases.
 
