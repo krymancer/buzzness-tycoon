@@ -263,3 +263,7 @@ save-backup:
 # Remove build caches and dev screenshot output
 clean:
     rm -rf zig-out .zig-cache bt_shot.png
+
+# Three disposable HUD directions; open http://localhost:8765/src/ui/prototype/
+poc-ui:
+    python3 -m http.server 8765 --bind 127.0.0.1
