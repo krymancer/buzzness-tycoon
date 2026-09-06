@@ -8,7 +8,7 @@ Use the bottom arrows or keyboard left/right to switch. `?variant=A`, `B`, or `C
 
 | Variant | Idea | Tradeoff |
 | --- | --- | --- |
-| A — Meadow first | Floating economy and a small pinned goal, contextual research inspector, bee/flower dock | Closest to the current game. The open inspector still occupies substantial space. |
+| A — Meadow first (selected) | Slim honey strip, a pinned goal, full Upgrade Tree and Royal Shop destinations | Preserves the full progression structure while leaving the meadow open. |
 | B — Field journal | Gentle chapters and a daily intention organize progression around the meadow | Stronger guidance and personality, but less meadow space; compact screens scroll. Chapters are illustrative suggestions, not implemented quests. |
 | C — Research workbench | Linear upgrade paths beside an always-visible effect inspector and meadow reference | Clearest comparison/planning view; better as an optional research screen than the default meadow HUD. |
 
@@ -29,3 +29,11 @@ The exercise suggests taking **A's compact economy and pinned goal**, **B's frie
 5. **Performance diagnostics:** profile rendering at several meadow sizes and inspect long frame percentiles during autosave. The existing simulation benchmark cannot establish GPU/Deck performance.
 
 These are follow-ups, not implemented production features. Choose a direction before rewriting it in native UI; do not merge the HTML prototype into the production interface.
+
+## Selected direction: preserve the tree and Royal Shop
+
+The user chose A’s meadow-first layout but rejected replacing progression with three paths. A now contains all 28 tree nodes (root plus 27 upgrades), their real prerequisites and per-run caps, branch navigation, zoom/Fit, selection inspector and goal pinning. The separate Royal Shop includes all seven existing perks, current-run Prestige gating, and a demo Ascend that keeps Royal purchases while resetting run upgrades. Node metadata is a snapshot of `src/upgrade_tree.zig`; effects and economy remain UI stubs. B/C remain historical alternatives.
+
+The honey pane was also rejected for covering the meadow. A now uses a thin resource strip; hover/focus exposes secondary details and selecting it opens Storage. The native HUD change is in PR #85.
+
+Revised Chrome playtest: verified 28 tree nodes, Aura’s actual level prerequisites, Storage purchase, goal pinning, all seven shop buttons gated by Prestige, Royal purchase and retention across demo Ascend, Escape back to the meadow, and 800×600 layouts. Use **Late run** to inspect the unlocked Royal Shop without progressing a real save.
