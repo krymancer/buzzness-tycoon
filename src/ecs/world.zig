@@ -20,6 +20,14 @@ pub const GridKey = struct {
 
 /// Entity/component storage for the meadow (flowers, the hive) plus the
 /// dense bee store. Bees are not entities — see bees.zig.
+var nextFlowerGen: u64 = 1;
+
+fn takeFlowerGen() u64 {
+    const g = nextFlowerGen;
+    nextFlowerGen += 1;
+    return g;
+}
+
 pub const World = struct {
     entityManager: EntityManager,
     allocator: std.mem.Allocator,
@@ -27,10 +35,15 @@ pub const World = struct {
     bees: bees.Store,
 
     gridPositions: std.ArrayList(components.GridPosition),
+    freeGridPosition: std.ArrayList(usize) = .empty,
     sprites: std.ArrayList(components.Sprite),
+    freeSprite: std.ArrayList(usize) = .empty,
     flowerGrowths: std.ArrayList(components.FlowerGrowth),
+    freeFlowerGrowth: std.ArrayList(usize) = .empty,
     lifespans: std.ArrayList(components.Lifespan),
+    freeLifespan: std.ArrayList(usize) = .empty,
     beehives: std.ArrayList(components.Beehive),
+    freeBeehive: std.ArrayList(usize) = .empty,
 
     entityToGridPosition: std.AutoHashMap(Entity, ComponentIndex),
     entityToSprite: std.AutoHashMap(Entity, ComponentIndex),
@@ -45,6 +58,13 @@ pub const World = struct {
     gridPosToFlower: std.AutoHashMap(GridKey, Entity),
 
     entitiesToDestroy: std.ArrayList(Entity),
+
+    /// Bumped whenever the set of flowers (or a flower's footprint) changes,
+    /// so the render system can keep its culled, depth-sorted draw list
+    /// across frames instead of rebuilding and sorting it every frame.
+    /// Globally unique across World instances (a fresh run must not reuse
+    /// a value the renderer cached from the previous one).
+    flowerGen: u64,
 
     pub fn init(allocator: std.mem.Allocator) @This() {
         var entityToGridPosition = std.AutoHashMap(Entity, ComponentIndex).init(allocator);
@@ -86,7 +106,14 @@ pub const World = struct {
             .gridPosToFlower = gridPosToFlower_,
 
             .entitiesToDestroy = .empty,
+            .flowerGen = takeFlowerGen(),
         };
+    }
+
+    /// Invalidate cached flower draw order (spawn, removal, SUPER merge,
+    /// registry rebuild after a grid shift).
+    pub fn markFlowersDirty(self: *@This()) void {
+        self.flowerGen = takeFlowerGen();
     }
 
     pub fn deinit(self: *@This()) void {
@@ -94,10 +121,15 @@ pub const World = struct {
         self.bees.deinit();
 
         self.gridPositions.deinit(self.allocator);
+        self.freeGridPosition.deinit(self.allocator);
         self.sprites.deinit(self.allocator);
+        self.freeSprite.deinit(self.allocator);
         self.flowerGrowths.deinit(self.allocator);
+        self.freeFlowerGrowth.deinit(self.allocator);
         self.lifespans.deinit(self.allocator);
+        self.freeLifespan.deinit(self.allocator);
         self.beehives.deinit(self.allocator);
+        self.freeBeehive.deinit(self.allocator);
 
         self.entityToGridPosition.deinit();
         self.entityToSprite.deinit();
@@ -142,9 +174,24 @@ pub const World = struct {
     }
 
     pub fn addGridPosition(self: *@This(), entity: Entity, gridPosition: components.GridPosition) !void {
-        const index = self.gridPositions.items.len;
-        try self.gridPositions.append(self.allocator, gridPosition);
-        try self.entityToGridPosition.put(entity, index);
+        if (self.entityToGridPosition.get(entity)) |index| {
+            self.gridPositions.items[index] = gridPosition;
+            self.markFlowersDirty();
+            return;
+        }
+        try self.entityToGridPosition.ensureUnusedCapacity(1);
+        // Reserve the free stack before growing storage: removing a component
+        // must never allocate, and surviving render-cache slots never move.
+        const index = if (self.freeGridPosition.pop()) |slot| blk: {
+            self.gridPositions.items[slot] = gridPosition;
+            break :blk slot;
+        } else blk: {
+            try self.freeGridPosition.ensureTotalCapacity(self.allocator, self.gridPositions.items.len + 1);
+            const slot = self.gridPositions.items.len;
+            try self.gridPositions.append(self.allocator, gridPosition);
+            break :blk slot;
+        };
+        self.entityToGridPosition.putAssumeCapacity(entity, index);
     }
 
     pub fn getGridPosition(self: *@This(), entity: Entity) ?*components.GridPosition {
@@ -153,13 +200,31 @@ pub const World = struct {
     }
 
     pub fn removeGridPosition(self: *@This(), entity: Entity) void {
-        _ = self.entityToGridPosition.remove(entity);
+        if (self.entityToGridPosition.fetchRemove(entity)) |entry| {
+            self.freeGridPosition.appendAssumeCapacity(entry.value);
+            self.markFlowersDirty();
+        }
     }
 
     pub fn addSprite(self: *@This(), entity: Entity, sprite: components.Sprite) !void {
-        const index = self.sprites.items.len;
-        try self.sprites.append(self.allocator, sprite);
-        try self.entityToSprite.put(entity, index);
+        if (self.entityToSprite.get(entity)) |index| {
+            self.sprites.items[index] = sprite;
+            self.markFlowersDirty();
+            return;
+        }
+        try self.entityToSprite.ensureUnusedCapacity(1);
+        // Reserve the free stack before growing storage: removing a component
+        // must never allocate, and surviving render-cache slots never move.
+        const index = if (self.freeSprite.pop()) |slot| blk: {
+            self.sprites.items[slot] = sprite;
+            break :blk slot;
+        } else blk: {
+            try self.freeSprite.ensureTotalCapacity(self.allocator, self.sprites.items.len + 1);
+            const slot = self.sprites.items.len;
+            try self.sprites.append(self.allocator, sprite);
+            break :blk slot;
+        };
+        self.entityToSprite.putAssumeCapacity(entity, index);
     }
 
     pub fn getSprite(self: *@This(), entity: Entity) ?*components.Sprite {
@@ -168,13 +233,32 @@ pub const World = struct {
     }
 
     pub fn removeSprite(self: *@This(), entity: Entity) void {
-        _ = self.entityToSprite.remove(entity);
+        if (self.entityToSprite.fetchRemove(entity)) |entry| {
+            self.freeSprite.appendAssumeCapacity(entry.value);
+            self.markFlowersDirty();
+        }
     }
 
     pub fn addFlowerGrowth(self: *@This(), entity: Entity, flowerGrowth: components.FlowerGrowth) !void {
-        const index = self.flowerGrowths.items.len;
-        try self.flowerGrowths.append(self.allocator, flowerGrowth);
-        try self.entityToFlowerGrowth.put(entity, index);
+        if (self.entityToFlowerGrowth.get(entity)) |index| {
+            self.flowerGrowths.items[index] = flowerGrowth;
+            self.markFlowersDirty();
+            return;
+        }
+        try self.entityToFlowerGrowth.ensureUnusedCapacity(1);
+        // Reserve the free stack before growing storage: removing a component
+        // must never allocate, and surviving render-cache slots never move.
+        const index = if (self.freeFlowerGrowth.pop()) |slot| blk: {
+            self.flowerGrowths.items[slot] = flowerGrowth;
+            break :blk slot;
+        } else blk: {
+            try self.freeFlowerGrowth.ensureTotalCapacity(self.allocator, self.flowerGrowths.items.len + 1);
+            const slot = self.flowerGrowths.items.len;
+            try self.flowerGrowths.append(self.allocator, flowerGrowth);
+            break :blk slot;
+        };
+        self.entityToFlowerGrowth.putAssumeCapacity(entity, index);
+        self.markFlowersDirty();
     }
 
     pub fn getFlowerGrowth(self: *@This(), entity: Entity) ?*components.FlowerGrowth {
@@ -183,13 +267,31 @@ pub const World = struct {
     }
 
     pub fn removeFlowerGrowth(self: *@This(), entity: Entity) void {
-        _ = self.entityToFlowerGrowth.remove(entity);
+        if (self.entityToFlowerGrowth.fetchRemove(entity)) |entry| {
+            self.freeFlowerGrowth.appendAssumeCapacity(entry.value);
+            self.markFlowersDirty();
+        }
     }
 
     pub fn addLifespan(self: *@This(), entity: Entity, lifespan: components.Lifespan) !void {
-        const index = self.lifespans.items.len;
-        try self.lifespans.append(self.allocator, lifespan);
-        try self.entityToLifespan.put(entity, index);
+        if (self.entityToLifespan.get(entity)) |index| {
+            self.lifespans.items[index] = lifespan;
+            self.markFlowersDirty();
+            return;
+        }
+        try self.entityToLifespan.ensureUnusedCapacity(1);
+        // Reserve the free stack before growing storage: removing a component
+        // must never allocate, and surviving render-cache slots never move.
+        const index = if (self.freeLifespan.pop()) |slot| blk: {
+            self.lifespans.items[slot] = lifespan;
+            break :blk slot;
+        } else blk: {
+            try self.freeLifespan.ensureTotalCapacity(self.allocator, self.lifespans.items.len + 1);
+            const slot = self.lifespans.items.len;
+            try self.lifespans.append(self.allocator, lifespan);
+            break :blk slot;
+        };
+        self.entityToLifespan.putAssumeCapacity(entity, index);
     }
 
     pub fn getLifespan(self: *@This(), entity: Entity) ?*components.Lifespan {
@@ -198,13 +300,31 @@ pub const World = struct {
     }
 
     pub fn removeLifespan(self: *@This(), entity: Entity) void {
-        _ = self.entityToLifespan.remove(entity);
+        if (self.entityToLifespan.fetchRemove(entity)) |entry| {
+            self.freeLifespan.appendAssumeCapacity(entry.value);
+            self.markFlowersDirty();
+        }
     }
 
     pub fn addBeehive(self: *@This(), entity: Entity, beehive: components.Beehive) !void {
-        const index = self.beehives.items.len;
-        try self.beehives.append(self.allocator, beehive);
-        try self.entityToBeehive.put(entity, index);
+        if (self.entityToBeehive.get(entity)) |index| {
+            self.beehives.items[index] = beehive;
+            self.markFlowersDirty();
+            return;
+        }
+        try self.entityToBeehive.ensureUnusedCapacity(1);
+        // Reserve the free stack before growing storage: removing a component
+        // must never allocate, and surviving render-cache slots never move.
+        const index = if (self.freeBeehive.pop()) |slot| blk: {
+            self.beehives.items[slot] = beehive;
+            break :blk slot;
+        } else blk: {
+            try self.freeBeehive.ensureTotalCapacity(self.allocator, self.beehives.items.len + 1);
+            const slot = self.beehives.items.len;
+            try self.beehives.append(self.allocator, beehive);
+            break :blk slot;
+        };
+        self.entityToBeehive.putAssumeCapacity(entity, index);
     }
 
     pub fn getBeehive(self: *@This(), entity: Entity) ?*components.Beehive {
@@ -213,7 +333,10 @@ pub const World = struct {
     }
 
     pub fn removeBeehive(self: *@This(), entity: Entity) void {
-        _ = self.entityToBeehive.remove(entity);
+        if (self.entityToBeehive.fetchRemove(entity)) |entry| {
+            self.freeBeehive.appendAssumeCapacity(entry.value);
+            self.markFlowersDirty();
+        }
     }
 
     // Direct iterator for flowers - no allocation
@@ -299,6 +422,7 @@ pub const World = struct {
     /// the registry's integer keys would otherwise go stale. SUPER flowers
     /// re-claim their whole 2x2 block.
     pub fn rebuildFlowerRegistry(self: *@This()) void {
+        self.markFlowersDirty();
         self.gridPosToFlower.clearRetainingCapacity();
         var iter = self.iterateFlowers();
         while (iter.next()) |entity| {
@@ -316,3 +440,30 @@ pub const World = struct {
         }
     }
 };
+
+test "flower turnover reuses component slots without moving surviving flowers" {
+    var world = World.init(std.testing.allocator);
+    defer world.deinit();
+    const survivor = try world.createEntity();
+    try world.addGridPosition(survivor, components.GridPosition.init(2, 3));
+    try world.addFlowerGrowth(survivor, components.FlowerGrowth.init(.rose));
+    const slot = world.entityToFlowerGrowth.get(survivor).?;
+    const dummy = rl.Texture{ .id = 0, .width = 32, .height = 32, .mipmaps = 1, .format = .uncompressed_r8g8b8a8 };
+    for (0..200) |_| {
+        const e = try world.createEntity();
+        try world.addGridPosition(e, components.GridPosition.init(4, 5));
+        try world.addSprite(e, components.Sprite.init(dummy, 32, 32, 2));
+        try world.addFlowerGrowth(e, components.FlowerGrowth.init(.tulip));
+        try world.addLifespan(e, components.Lifespan.init(30));
+        const before = world.flowerGen;
+        try world.destroyEntity(e);
+        try world.processDestroyQueue();
+        try std.testing.expect(world.flowerGen != before);
+        try std.testing.expectEqual(slot, world.entityToFlowerGrowth.get(survivor).?);
+        try std.testing.expectEqual(components.FlowerType.rose, world.flowerGrowths.items[slot].flowerType);
+    }
+    try std.testing.expect(world.gridPositions.items.len <= 2);
+    try std.testing.expect(world.flowerGrowths.items.len <= 2);
+    try std.testing.expect(world.sprites.items.len <= 1);
+    try std.testing.expect(world.lifespans.items.len <= 1);
+}

@@ -1,18 +1,13 @@
-//! Shared UI font. Loads a rounded, legible TTF (Baloo 2) once and exposes
-//! `draw`/`measure` helpers that are signature-compatible with rl.drawText /
-//! rl.measureText, so the rest of the UI reads the same but renders in a much
-//! more readable typeface than raylib's tiny pixel default. Also feeds the font
-//! to raygui so buttons/menus match.
+//! Shared BoldPixels UI font by YukiPixels (CC BY-SA 4.0).
+//! Uses a point-filtered atlas and matching draw/measure spacing.
 
 const rl = @import("raylib");
 const rg = @import("raygui");
 const assets = @import("assets.zig");
 
-// Atlas is rasterized at a high base size and scaled down with mipmapped
-// trilinear filtering, so it stays crisp across the whole UI-scale range
-// (the global ui_scale camera can blow text up well past its nominal size).
-// Include Latin-1 so Portuguese accents render correctly.
-const BASE_SIZE: i32 = 128;
+// Rasterize at a multiple of the font’s 16px design size.
+// Latin-1 includes Brazilian Portuguese accents.
+const BASE_SIZE: i32 = 64;
 const FONT_CHARS = blk: {
     var chars: [191]i32 = undefined;
     var index: usize = 0;
@@ -32,12 +27,11 @@ var ready = false;
 
 /// Create the font atlas. Must be called after the window/GL context exists.
 pub fn load() void {
-    font = rl.loadFontFromMemory(".ttf", assets.baloo2_ttf, BASE_SIZE, &FONT_CHARS) catch {
+    font = rl.loadFontFromMemory(".ttf", assets.boldpixels_ttf, BASE_SIZE, &FONT_CHARS) catch {
         ready = false;
         return;
     };
-    rl.genTextureMipmaps(&font.texture);
-    rl.setTextureFilter(font.texture, .trilinear);
+    rl.setTextureFilter(font.texture, .point);
     ready = true;
 }
 
@@ -52,8 +46,8 @@ pub fn unload() void {
     if (ready) rl.unloadFont(font);
 }
 
-fn spacing(size: i32) f32 {
-    return @max(1.0, @as(f32, @floatFromInt(size)) * 0.06);
+fn spacing(_: i32) f32 {
+    return 0;
 }
 
 /// Drop-in for rl.drawText.

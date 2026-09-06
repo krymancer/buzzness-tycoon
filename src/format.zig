@@ -49,3 +49,37 @@ test "formatShort covers the whole f32 range without running out of suffixes" {
     try std.testing.expectEqualStrings("-inf", formatShort(-std.math.inf(f32), &buf));
     try std.testing.expectEqualStrings("?", formatShort(std.math.nan(f32), &buf));
 }
+
+/// Compact wait time for "affordable in ..." hints: "12s", "3m", "2h",
+/// "5d"; anything past 99 days is just ">99d". Null when it will never
+/// happen (no income) so callers can hide the hint.
+pub fn formatEta(seconds: f64, buf: []u8) ?[:0]const u8 {
+    if (!std.math.isFinite(seconds) or seconds < 0) return null;
+    if (seconds < 60) return std.fmt.bufPrintZ(buf, "{d:.0}s", .{@ceil(seconds)}) catch null;
+    if (seconds < 3600) return std.fmt.bufPrintZ(buf, "{d:.0}m", .{@ceil(seconds / 60)}) catch null;
+    if (seconds < 86400) return std.fmt.bufPrintZ(buf, "{d:.0}h", .{@ceil(seconds / 3600)}) catch null;
+    if (seconds < 99 * 86400) return std.fmt.bufPrintZ(buf, "{d:.0}d", .{@ceil(seconds / 86400)}) catch null;
+    return ">99d";
+}
+
+/// Seconds until `cost` is reachable from `have` at `perSec`; null when
+/// there's no income. Zero when it's already affordable.
+pub fn secondsUntil(cost: f64, have: f64, perSec: f64) ?f64 {
+    if (have >= cost) return 0;
+    if (!(perSec > 0)) return null;
+    return (cost - have) / perSec;
+}
+
+test "formatEta picks the coarsest readable unit" {
+    var buf: [16]u8 = undefined;
+    try std.testing.expectEqualStrings("12s", formatEta(11.2, &buf).?);
+    try std.testing.expectEqualStrings("1m", formatEta(60, &buf).?);
+    try std.testing.expectEqualStrings("3m", formatEta(150, &buf).?);
+    try std.testing.expectEqualStrings("2h", formatEta(7000, &buf).?);
+    try std.testing.expectEqualStrings("5d", formatEta(5 * 86400 - 1, &buf).?);
+    try std.testing.expectEqualStrings(">99d", formatEta(1e9, &buf).?);
+    try std.testing.expect(formatEta(std.math.inf(f64), &buf) == null);
+    try std.testing.expectEqual(@as(?f64, 0), secondsUntil(10, 10, 0));
+    try std.testing.expectEqual(@as(?f64, null), secondsUntil(10, 5, 0));
+    try std.testing.expectEqual(@as(?f64, 5), secondsUntil(10, 5, 1));
+}

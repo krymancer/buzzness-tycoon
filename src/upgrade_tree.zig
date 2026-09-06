@@ -45,6 +45,10 @@ pub const EffectKind = enum {
 /// a good many prestiges to get there.
 pub const Repeat = struct {
     cost_growth: f32,
+    /// Explicit per-level prices. While the level index falls inside this
+    /// table it wins over the geometric curve, so a merged one-shot chain
+    /// keeps the exact price points players already know.
+    costs: []const f32 = &.{},
     /// Levels available on a fresh profile.
     max_level: u16,
     /// Extra cap levels granted per ascension (stats.prestigeCount). 0 for
@@ -58,11 +62,18 @@ pub const Repeat = struct {
     }
 };
 
+/// A dependency on another node: owned at all (level 1) or at a minimum
+/// level for repeatables ("Honey Doubler Lv3").
+pub const Prereq = struct {
+    id: NodeId,
+    level: u16 = 1,
+};
+
 pub const Node = struct {
     id: NodeId,
     name: []const u8,
     cost: f32,
-    prereqs: []const NodeId,
+    prereqs: []const Prereq,
     effect: EffectKind,
     value: f32 = 0,
     col: i8,
@@ -76,6 +87,7 @@ pub const Node = struct {
     /// Cost to buy the node when it's currently at `level` (0 = not owned).
     pub fn costAtLevel(self: *const @This(), level: u16) f32 {
         const r = self.repeat orelse return self.cost;
+        if (level < r.costs.len) return r.costs[level];
         return self.cost * std.math.pow(f32, r.cost_growth, @floatFromInt(level));
     }
 
@@ -85,104 +97,124 @@ pub const Node = struct {
     }
 };
 
-const no_prereqs = &[_]NodeId{};
-const r_worker = &[_]NodeId{0};
+const no_prereqs = &[_]Prereq{};
+const r_worker = &[_]Prereq{.{ .id = 0 }};
+fn after(comptime id: NodeId) []const Prereq {
+    return &[_]Prereq{.{ .id = id }};
+}
 
 // Root node id 0 is Worker (auto-owned at game start).
 // Tiers branch outward from root. Labs gate behind cross-branch t3 nodes.
+// Layout (col, row): row = dependency depth, col = branch. The tree view
+// draws prerequisites as orthogonal elbows (down, across, down), and this
+// placement is chosen so no connector ever passes behind an unrelated node
+// and no two connectors cross. Keep that property when adding nodes:
+//   col -4  drills (one per bee)   col  0  root / growth / prestige
+//   col -3  bees chain             col  1  super flowers
+//   col -2  honey                  col  2  meadow (grid, bulk)
+//   col -1  labs (aura)            col  3  storage trunk (root children)
+//                                  col  4  colony trunk (root children)
 pub const NODES = [_]Node{
     // id 0 — root (free, auto-owned). Unlocks the Worker bee only; Swift is
     // gated behind node 4 so it stays locked until purchased.
     .{ .id = 0, .name = "Worker Bee", .cost = 0, .prereqs = no_prereqs, .effect = .bee_unlock_worker, .value = 0, .col = 0, .row = 0 },
 
-    // Honey branch (col -2)
-    .{ .id = 1, .name = "Honey x2", .cost = 50, .prereqs = r_worker, .effect = .honey_factor_mul, .value = 2.0, .col = -2, .row = 1 },
-    .{ .id = 2, .name = "Honey x4", .cost = 250, .prereqs = &[_]NodeId{1}, .effect = .honey_factor_mul, .value = 2.0, .col = -2, .row = 2 },
-    .{ .id = 3, .name = "Honey x8", .cost = 1500, .prereqs = &[_]NodeId{2}, .effect = .honey_factor_mul, .value = 2.0, .col = -2, .row = 3 },
-    .{ .id = 22, .name = "Honey x16", .cost = 3500, .prereqs = &[_]NodeId{3}, .effect = .honey_factor_mul, .value = 2.0, .col = -2, .row = 4 },
-    .{ .id = 23, .name = "Honey x32", .cost = 10000, .prereqs = &[_]NodeId{22}, .effect = .honey_factor_mul, .value = 2.0, .col = -2, .row = 5 },
+    // Honey branch (col -2). The old Honey x2 -> x32 chain of one-shots is
+    // one five-level repeatable with the same price points (ids 2, 3, 22, 23
+    // fold into its level on load, see LEGACY_LEVEL_MAP).
+    .{ .id = 1, .name = "Honey Doubler", .cost = 50, .prereqs = r_worker, .effect = .honey_factor_mul, .value = 2.0, .col = -2, .row = 1, .repeat = .{ .cost_growth = 1.0, .max_level = HONEY_DOUBLER_LEVELS, .costs = &HONEY_DOUBLER_COSTS } },
     // Repeatable: +25% honey per level, cost x1.5 per level; the per-run
     // cap grows with every ascension.
-    .{ .id = 24, .name = "Honey Boost", .cost = 8000, .prereqs = &[_]NodeId{23}, .effect = .honey_factor_mul, .value = 1.25, .col = -2, .row = 6, .repeat = .{ .cost_growth = 1.5, .max_level = 10, .per_ascension = 5 } },
+    .{ .id = 24, .name = "Honey Boost", .cost = 8000, .prereqs = &[_]Prereq{.{ .id = 1, .level = HONEY_DOUBLER_LEVELS }}, .effect = .honey_factor_mul, .value = 1.25, .col = -2, .row = 2, .repeat = .{ .cost_growth = 1.5, .max_level = 10, .per_ascension = 5 } },
 
-    // Bees branch (col -1)
-    .{ .id = 4, .name = "Swift Bee", .cost = 80, .prereqs = r_worker, .effect = .bee_unlock_swift, .col = -1, .row = 1 },
-    .{ .id = 5, .name = "Efficient Bee", .cost = 400, .prereqs = &[_]NodeId{4}, .effect = .bee_unlock_efficient, .col = -1, .row = 2 },
-    .{ .id = 6, .name = "Gardener Bee", .cost = 2000, .prereqs = &[_]NodeId{5}, .effect = .bee_unlock_gardener, .col = -1, .row = 3 },
+    // Bees branch (col -3)
+    .{ .id = 4, .name = "Swift Bee", .cost = 80, .prereqs = r_worker, .effect = .bee_unlock_swift, .col = -3, .row = 1 },
+    .{ .id = 5, .name = "Efficient Bee", .cost = 400, .prereqs = after(4), .effect = .bee_unlock_efficient, .col = -3, .row = 2 },
+    .{ .id = 6, .name = "Gardener Bee", .cost = 2000, .prereqs = after(5), .effect = .bee_unlock_gardener, .col = -3, .row = 3 },
     // Repeatable: gardener plant chance 20% -> +10%/level (caps at 100%).
-    .{ .id = 26, .name = "Green Thumb", .cost = 2500, .prereqs = &[_]NodeId{6}, .effect = .gardener_chance, .col = -1, .row = 4, .repeat = .{ .cost_growth = 1.5, .max_level = 8 } },
+    .{ .id = 26, .name = "Green Thumb", .cost = 2500, .prereqs = after(6), .effect = .gardener_chance, .col = -3, .row = 4, .repeat = .{ .cost_growth = 1.5, .max_level = 8 } },
     // Gardeners clear rotten flowers they fly over (then may replant there).
-    .{ .id = 27, .name = "Composting", .cost = 6000, .prereqs = &[_]NodeId{26}, .effect = .gardener_compost, .col = -1, .row = 5 },
+    .{ .id = 27, .name = "Composting", .cost = 6000, .prereqs = after(26), .effect = .gardener_compost, .col = -3, .row = 5 },
     // Gardeners actively seek out rotten flowers and fly there to clear them.
-    .{ .id = 28, .name = "Seed Scouts", .cost = 15000, .prereqs = &[_]NodeId{27}, .effect = .gardener_sow, .col = -1, .row = 6 },
+    .{ .id = 28, .name = "Seed Scouts", .cost = 15000, .prereqs = after(27), .effect = .gardener_sow, .col = -3, .row = 6 },
+
+    // Drills (col -4): per-type training, one repeatable per bee type,
+    // each beside the node that unlocks its type. Bee prices stay flat
+    // (#66), so this is what makes a type worth investing in beyond "buy
+    // more".
+    .{ .id = 36, .name = "Worker Drills", .cost = 200, .prereqs = r_worker, .effect = .bee_training, .value = 1.1, .col = -4, .row = 1, .repeat = .{ .cost_growth = 1.6, .max_level = 5, .per_ascension = 2 } },
+    .{ .id = 37, .name = "Swift Drills", .cost = 600, .prereqs = after(4), .effect = .bee_training, .value = 1.1, .col = -4, .row = 2, .repeat = .{ .cost_growth = 1.6, .max_level = 5, .per_ascension = 2 } },
+    .{ .id = 38, .name = "Efficient Drills", .cost = 1500, .prereqs = after(5), .effect = .bee_training, .value = 1.1, .col = -4, .row = 3, .repeat = .{ .cost_growth = 1.6, .max_level = 5, .per_ascension = 2 } },
+    .{ .id = 39, .name = "Gardener Drills", .cost = 4000, .prereqs = after(6), .effect = .bee_training, .value = 1.1, .col = -4, .row = 4, .repeat = .{ .cost_growth = 1.6, .max_level = 5, .per_ascension = 2 } },
 
     // Growth (col 0, below Instant Grow which gates it). Repeatable: each
     // level shaves `value` seconds off the Instant Grow cooldown (floor 2s).
-    .{ .id = 7, .name = "Grow Speed", .cost = 60, .prereqs = &[_]NodeId{20}, .effect = .growth_cd_sub, .value = 1.0, .col = 0, .row = 2, .repeat = .{ .cost_growth = 1.7, .max_level = 8 } },
+    .{ .id = 7, .name = "Grow Speed", .cost = 60, .prereqs = after(20), .effect = .growth_cd_sub, .value = 1.0, .col = 0, .row = 2, .repeat = .{ .cost_growth = 1.7, .max_level = 8 } },
     // (ids 8/9 were Grow CD -3s/-6s — folded into 7's levels on load.)
 
-    // Grid (col 1). Repeatable: +1 ring per level.
-    .{ .id = 10, .name = "Grid Ring", .cost = 150, .prereqs = r_worker, .effect = .grid_expand, .value = 1, .col = 1, .row = 1, .repeat = .{ .cost_growth = 3.0, .max_level = 10, .per_ascension = 2 } },
+    // Meadow (col 2). Repeatable: +1 ring per level.
+    .{ .id = 10, .name = "Grid Ring", .cost = 150, .prereqs = r_worker, .effect = .grid_expand, .value = 1, .col = 2, .row = 1, .repeat = .{ .cost_growth = 3.0, .max_level = 10, .per_ascension = 2 } },
     // (ids 11/12 were Grid +2/+3 ring — folded into 10's levels on load.)
     // Each level adds one step to the bee buy-quantity cycle: x50, x100,
     // x500, x1000 (see action_hud.BUY_QTYS).
-    // Saddlebags: +1 flower per trip per level before the bee flies home.
-    // Past a handful the round trip outgrows the gain, so the cap is short
-    // and grows slowly with ascension (#68).
-    .{ .id = 35, .name = "Saddlebags", .cost = 10000, .prereqs = r_worker, .effect = .bee_carry_add, .value = 1, .col = 1, .row = 3, .repeat = .{ .cost_growth = 2.0, .max_level = 4, .per_ascension = 1 } },
-    .{ .id = 32, .name = "Bulk Order", .cost = 3000, .prereqs = &[_]NodeId{10}, .effect = .bulk_buy_tier, .col = 1, .row = 2, .repeat = .{ .cost_growth = 4.0, .max_level = 4 } },
+    .{ .id = 32, .name = "Bulk Order", .cost = 3000, .prereqs = after(10), .effect = .bulk_buy_tier, .col = 2, .row = 2, .repeat = .{ .cost_growth = 4.0, .max_level = 4 } },
 
-    // Drills (col 3): per-type training, one repeatable per bee type. Bee
-    // prices stay flat (#66), so this is what makes a type worth investing
-    // in beyond "buy more". Each gates on its type's unlock node.
-    .{ .id = 36, .name = "Worker Drills", .cost = 200, .prereqs = r_worker, .effect = .bee_training, .value = 1.1, .col = 3, .row = 1, .repeat = .{ .cost_growth = 1.6, .max_level = 5, .per_ascension = 2 } },
-    .{ .id = 37, .name = "Swift Drills", .cost = 600, .prereqs = &[_]NodeId{4}, .effect = .bee_training, .value = 1.1, .col = 3, .row = 2, .repeat = .{ .cost_growth = 1.6, .max_level = 5, .per_ascension = 2 } },
-    .{ .id = 38, .name = "Efficient Drills", .cost = 1500, .prereqs = &[_]NodeId{5}, .effect = .bee_training, .value = 1.1, .col = 3, .row = 3, .repeat = .{ .cost_growth = 1.6, .max_level = 5, .per_ascension = 2 } },
-    .{ .id = 39, .name = "Gardener Drills", .cost = 4000, .prereqs = &[_]NodeId{6}, .effect = .bee_training, .value = 1.1, .col = 3, .row = 4, .repeat = .{ .cost_growth = 1.6, .max_level = 5, .per_ascension = 2 } },
-
-    // Storage (col 2). Repeatable: adds value * STORAGE_CAPACITY_GROWTH^level
+    // Storage trunk (col 3). Repeatable: adds value * STORAGE_CAPACITY_GROWTH^level
     // capacity per level. cost_growth must never exceed the capacity growth:
     // honey is capped at the current capacity, so a faster-growing cost
     // eventually becomes unreachable and softlocks progression. This cap
     // paces the whole economy: honey can never exceed the capacity this
     // node builds, so its per-ascension growth is what decides how many
     // prestiges it takes before a run can reach f32 infinity (~11).
-    .{ .id = 13, .name = "Storage", .cost = 40, .prereqs = r_worker, .effect = .storage_add, .value = 500, .col = 2, .row = 1, .repeat = .{ .cost_growth = STORAGE_CAPACITY_GROWTH, .max_level = 30, .per_ascension = 10 } },
+    .{ .id = 13, .name = "Storage", .cost = 40, .prereqs = r_worker, .effect = .storage_add, .value = 500, .col = 3, .row = 1, .repeat = .{ .cost_growth = STORAGE_CAPACITY_GROWTH, .max_level = 30, .per_ascension = 10 } },
     // (ids 14/15 were Storage +1K/+2K — folded into 13's levels on load.)
+    // Flowers mature/re-pollen faster (x1.2/level); dying flowers rot less
+    // (-10%/level, gone at 6: a semantic cap like Night Shift, so ascending
+    // adds nothing).
+    .{ .id = 29, .name = "Fertile Soil", .cost = 300, .prereqs = r_worker, .effect = .flower_growth_mul, .value = 1.2, .col = 3, .row = 2, .repeat = .{ .cost_growth = 1.6, .max_level = 15, .per_ascension = 5 } },
+    .{ .id = 31, .name = "Hardy Blooms", .cost = 2500, .prereqs = r_worker, .effect = .rot_chance_sub, .value = 10, .col = 3, .row = 3, .repeat = .{ .cost_growth = 1.8, .max_level = lifespan_system.HARDY_BLOOMS_MAX_LEVEL } },
 
-    // Colony vitality (col 2, under Storage). Available from the start;
-    // flowers mature/re-pollen faster (x1.2/level), bees live longer
-    // (x1.2/level), dying flowers rot less (-10%/level, gone at 6: a
-    // semantic cap like Night Shift, so ascending adds nothing).
-    .{ .id = 29, .name = "Fertile Soil", .cost = 300, .prereqs = r_worker, .effect = .flower_growth_mul, .value = 1.2, .col = 2, .row = 2, .repeat = .{ .cost_growth = 1.6, .max_level = 15, .per_ascension = 5 } },
+    // Colony trunk (col 4), all available from the start.
     // Bee Vitality: x1.2 lifespan per level; 10 levels is x6.2, a bee that
     // lives most of an hour, so the cap is a real ceiling the player feels.
-    .{ .id = 30, .name = "Bee Vitality", .cost = 800, .prereqs = r_worker, .effect = .bee_lifespan_mul, .value = 1.2, .col = 2, .row = 3, .repeat = .{ .cost_growth = 1.7, .max_level = 10, .per_ascension = 2 } },
-    .{ .id = 31, .name = "Hardy Blooms", .cost = 2500, .prereqs = r_worker, .effect = .rot_chance_sub, .value = 10, .col = 2, .row = 4, .repeat = .{ .cost_growth = 1.8, .max_level = lifespan_system.HARDY_BLOOMS_MAX_LEVEL } },
+    .{ .id = 30, .name = "Bee Vitality", .cost = 800, .prereqs = r_worker, .effect = .bee_lifespan_mul, .value = 1.2, .col = 4, .row = 1, .repeat = .{ .cost_growth = 1.7, .max_level = 10, .per_ascension = 2 } },
     // Bees produce half honey and fly slower at night (see bee_ai_system);
     // each level removes a quarter of the penalty, all of it at level 4.
-    .{ .id = 33, .name = "Night Shift", .cost = 2000, .prereqs = r_worker, .effect = .night_penalty_sub, .col = 2, .row = 5, .repeat = .{ .cost_growth = 1.8, .max_level = 4 } },
+    .{ .id = 33, .name = "Night Shift", .cost = 2000, .prereqs = r_worker, .effect = .night_penalty_sub, .col = 4, .row = 2, .repeat = .{ .cost_growth = 1.8, .max_level = 4 } },
     // Tailwind: all bees fly x1.15 faster per level (multiplies Swift's x2
     // and the night debuff). A direct throughput lever, so the cap grows
     // with ascension like the honey line (#67).
-    .{ .id = 34, .name = "Tailwind", .cost = 1500, .prereqs = r_worker, .effect = .bee_speed_mul, .value = 1.15, .col = 2, .row = 6, .repeat = .{ .cost_growth = 1.7, .max_level = 5, .per_ascension = 2 } },
+    .{ .id = 34, .name = "Tailwind", .cost = 1500, .prereqs = r_worker, .effect = .bee_speed_mul, .value = 1.15, .col = 4, .row = 3, .repeat = .{ .cost_growth = 1.7, .max_level = 5, .per_ascension = 2 } },
+    // Saddlebags: +1 flower per trip per level before the bee flies home.
+    // Past a handful the round trip outgrows the gain, so the cap is short
+    // and grows slowly with ascension (#68).
+    .{ .id = 35, .name = "Saddlebags", .cost = 10000, .prereqs = r_worker, .effect = .bee_carry_add, .value = 1, .col = 4, .row = 4, .repeat = .{ .cost_growth = 2.0, .max_level = 4, .per_ascension = 1 } },
 
-    // Labs branch (col 0, rows 4-6) — gated behind cross-branch t3 nodes
+    // Labs branch (col -1) — gated behind cross-branch nodes: three honey
+    // doublings (the old Honey x8) and the Gardener bee.
     // Aura: flowers inside the rings around the hive yield more pollen.
     // Lab: Aura levels the factor (+25%/level); Aura Reach widens the rings
     // (+1 tile/level). Both repeatable.
-    .{ .id = 16, .name = "Lab: Aura", .cost = 8000, .prereqs = &[_]NodeId{ 3, 6 }, .effect = .lab_aura, .col = 0, .row = 4, .repeat = .{ .cost_growth = 1.8, .max_level = 15, .per_ascension = 5 } },
+    .{ .id = 16, .name = "Lab: Aura", .cost = 8000, .prereqs = &[_]Prereq{ .{ .id = 1, .level = 3 }, .{ .id = 6 } }, .effect = .lab_aura, .col = -1, .row = 4, .repeat = .{ .cost_growth = 1.8, .max_level = 15, .per_ascension = 5 } },
     // Reach past the meadow is dead levels, so its cap tracks Grid Ring's
     // (10 base, +2 per ascension) rather than a fixed ceiling.
-    .{ .id = 25, .name = "Aura Reach", .cost = 5000, .prereqs = &[_]NodeId{16}, .effect = .aura_reach, .col = 0, .row = 5, .repeat = .{ .cost_growth = 1.6, .max_level = 10, .per_ascension = 2 } },
+    .{ .id = 25, .name = "Aura Reach", .cost = 5000, .prereqs = after(16), .effect = .aura_reach, .col = -1, .row = 5, .repeat = .{ .cost_growth = 1.6, .max_level = 10, .per_ascension = 2 } },
     // (ids 17/18 were Lab: Burst / Lab: Bloom — removed; stale save entries are ignored.)
-    .{ .id = 19, .name = "Prestige", .cost = 100000, .prereqs = &[_]NodeId{ 25, 21 }, .effect = .prestige_unlock, .col = 0, .row = 6 },
+    .{ .id = 19, .name = "Prestige", .cost = 100000, .prereqs = &[_]Prereq{ .{ .id = 25 }, .{ .id = 21 } }, .effect = .prestige_unlock, .col = 0, .row = 6 },
 
     // Instant Grow: unlocks the click-a-flower growth boost (was always-on).
     .{ .id = 20, .name = "Instant Grow", .cost = 30, .prereqs = r_worker, .effect = .growth_boost_unlock, .col = 0, .row = 1 },
     // Super Flowers: 2x2 same-type blocks merge into an 8x SUPER flower.
-    .{ .id = 21, .name = "Super Flowers", .cost = 3500, .prereqs = &[_]NodeId{ 7, 10 }, .effect = .super_flower_unlock, .col = 1, .row = 4 },
+    .{ .id = 21, .name = "Super Flowers", .cost = 3500, .prereqs = &[_]Prereq{ .{ .id = 7 }, .{ .id = 10 } }, .effect = .super_flower_unlock, .col = 1, .row = 3 },
 };
+
+/// Honey Doubler: five doublings (x32 total) at the price points the old
+/// Honey x2 -> x32 chain charged.
+pub const HONEY_DOUBLER_ID: NodeId = 1;
+pub const HONEY_DOUBLER_LEVELS: u16 = 5;
+pub const HONEY_DOUBLER_COSTS = [HONEY_DOUBLER_LEVELS]f32{ 50, 250, 1500, 3500, 10000 };
+/// Purchasable nodes (the root is granted, not bought).
+pub const NODE_COUNT: usize = NODES.len - 1;
 
 pub const ROOT_ID: NodeId = 0;
 pub const STORAGE_ID: NodeId = 13;
@@ -216,6 +248,10 @@ pub const NIGHT_SHIFT_ID: NodeId = 33;
 /// Old one-shot chains that are now single repeatable nodes. Each legacy id
 /// purchased in an old save counts as +1 level on its target.
 pub const LEGACY_LEVEL_MAP = [_]struct { legacy: NodeId, target: NodeId }{
+    .{ .legacy = 2, .target = HONEY_DOUBLER_ID },
+    .{ .legacy = 3, .target = HONEY_DOUBLER_ID },
+    .{ .legacy = 22, .target = HONEY_DOUBLER_ID },
+    .{ .legacy = 23, .target = HONEY_DOUBLER_ID },
     .{ .legacy = 8, .target = 7 },
     .{ .legacy = 9, .target = 7 },
     .{ .legacy = 11, .target = 10 },
@@ -253,11 +289,50 @@ pub const State = struct {
         return self.level(id) > 0;
     }
 
+    pub fn prereqMet(self: *const @This(), p: Prereq) bool {
+        return self.level(p.id) >= p.level;
+    }
+
     pub fn isUnlocked(self: *const @This(), node: *const Node) bool {
-        for (node.prereqs) |pid| {
-            if (!self.isPurchased(pid)) return false;
+        for (node.prereqs) |p| {
+            if (!self.prereqMet(p)) return false;
         }
         return true;
+    }
+
+    /// Nodes owned at any level, root excluded ("14/27" in the tree header).
+    pub fn ownedCount(self: *const @This()) usize {
+        var n: usize = 0;
+        for (&NODES) |*node| {
+            if (node.id != ROOT_ID and self.isPurchased(node.id)) n += 1;
+        }
+        return n;
+    }
+
+    /// Buyable nodes whose next level costs at most `honey` — the tree
+    /// button's badge count.
+    pub fn affordableCount(self: *const @This(), honey: f32, prestigeCostMul: f32, ascensions: u32) usize {
+        var n: usize = 0;
+        for (&NODES) |*node| {
+            if (self.canBuy(node, ascensions) and self.nextCost(node, prestigeCostMul) <= honey) n += 1;
+        }
+        return n;
+    }
+
+    /// The cheapest node that can be bought right now (affordable or not):
+    /// the natural "what next" pointer.
+    pub fn cheapestBuyable(self: *const @This(), prestigeCostMul: f32, ascensions: u32) ?NodeId {
+        var best: ?NodeId = null;
+        var bestCost: f32 = std.math.inf(f32);
+        for (&NODES) |*node| {
+            if (!self.canBuy(node, ascensions)) continue;
+            const c = self.nextCost(node, prestigeCostMul);
+            if (c < bestCost) {
+                bestCost = c;
+                best = node.id;
+            }
+        }
+        return best;
     }
 
     /// True when the node can be bought (first purchase) or leveled up
@@ -331,10 +406,86 @@ test "repeatable node cost grows geometrically and one-shot nodes max at level 1
     try std.testing.expect(!boost.isMaxed(9, 0));
     try std.testing.expect(boost.isMaxed(10, 0));
 
-    const honey2 = findNode(1).?;
-    try std.testing.expectEqual(@as(f32, 50), honey2.costAtLevel(0));
-    try std.testing.expect(!honey2.isMaxed(0, 0));
-    try std.testing.expect(honey2.isMaxed(1, 0));
+    const swift = findNode(4).?;
+    try std.testing.expectEqual(@as(f32, 80), swift.costAtLevel(0));
+    try std.testing.expect(!swift.isMaxed(0, 0));
+    try std.testing.expect(swift.isMaxed(1, 0));
+}
+
+test "honey doubler keeps the old chain's price points and caps at x32" {
+    const doubler = findNode(HONEY_DOUBLER_ID).?;
+    try std.testing.expectEqual(@as(f32, 50), doubler.costAtLevel(0));
+    try std.testing.expectEqual(@as(f32, 250), doubler.costAtLevel(1));
+    try std.testing.expectEqual(@as(f32, 1500), doubler.costAtLevel(2));
+    try std.testing.expectEqual(@as(f32, 3500), doubler.costAtLevel(3));
+    try std.testing.expectEqual(@as(f32, 10000), doubler.costAtLevel(4));
+    try std.testing.expect(!doubler.isMaxed(4, 0));
+    try std.testing.expect(doubler.isMaxed(5, 0));
+    try std.testing.expect(doubler.isMaxed(5, 100)); // ascending adds nothing
+    // Every legacy honey node folds into the doubler's level on load.
+    var folded: usize = 0;
+    for (LEGACY_LEVEL_MAP) |m| {
+        if (m.target == HONEY_DOUBLER_ID) folded += 1;
+    }
+    try std.testing.expectEqual(@as(usize, HONEY_DOUBLER_LEVELS - 1), folded);
+}
+
+test "level-gated prerequisites: Lab Aura needs three doublings, Boost needs all five" {
+    var s = State.init(std.testing.allocator);
+    defer s.deinit();
+    const aura = findNode(AURA_ID).?;
+    const boost = findNode(24).?;
+    try s.setLevel(6, 1);
+    try s.setLevel(HONEY_DOUBLER_ID, 2);
+    try std.testing.expect(!s.isUnlocked(aura));
+    try s.setLevel(HONEY_DOUBLER_ID, 3);
+    try std.testing.expect(s.isUnlocked(aura));
+    try std.testing.expect(!s.isUnlocked(boost));
+    try s.setLevel(HONEY_DOUBLER_ID, 5);
+    try std.testing.expect(s.isUnlocked(boost));
+}
+
+test "owned / affordable / cheapest summaries" {
+    var s = State.init(std.testing.allocator);
+    defer s.deinit();
+    try std.testing.expectEqual(@as(usize, 0), s.ownedCount());
+    // Instant Grow (30) is the cheapest opening buy.
+    try std.testing.expectEqual(@as(?NodeId, 20), s.cheapestBuyable(1.0, 0));
+    try std.testing.expectEqual(@as(usize, 0), s.affordableCount(29, 1.0, 0));
+    try std.testing.expectEqual(@as(usize, 1), s.affordableCount(30, 1.0, 0));
+    try s.markPurchased(20);
+    try std.testing.expectEqual(@as(usize, 1), s.ownedCount());
+    try std.testing.expectEqual(@as(?NodeId, 13), s.cheapestBuyable(1.0, 0)); // Storage at 40
+}
+
+test "tree layout: no elbow connector passes behind an unrelated node" {
+    // Connectors run down out of the parent, across the gap under the
+    // parent's row, then down into the child. The vertical drop under the
+    // child's column must not cross any node that isn't the child's own
+    // ancestor along that column (a root trunk may pass behind other root
+    // children — that's the intended "trunk" reading).
+    for (&NODES) |*child| {
+        for (child.prereqs) |p| {
+            const parent = findNode(p.id).?;
+            try std.testing.expect(child.row > parent.row);
+            var r: i8 = parent.row + 1;
+            while (r < child.row) : (r += 1) {
+                for (&NODES) |*other| {
+                    if (other.col != child.col or other.row != r) continue;
+                    // Something sits between: only fine when it hangs off
+                    // the same parent (shared trunk).
+                    var sameParent = false;
+                    for (other.prereqs) |op| {
+                        if (op.id == p.id) sameParent = true;
+                    }
+                    if (!sameParent) {
+                        std.debug.print("{s} -> {s} passes behind {s}\n", .{ parent.name, child.name, other.name });
+                        return error.ConnectorPassesBehindNode;
+                    }
+                }
+            }
+        }
+    }
 }
 
 test "every repeatable is capped per run and ascending keeps raising the cap (#64)" {
@@ -380,7 +531,7 @@ test "a fresh profile stays finite; reaching inf takes many ascensions (#64)" {
     while (std.math.isFinite(storageCapacityAt(r.capAt(ascensions)))) : (ascensions += 1) {}
     try std.testing.expect(ascensions >= 10);
 
-    // The hive factor with the x2..x32 chain and Honey Boost at its fresh
+    // The hive factor with the x32 doubler and Honey Boost at its fresh
     // cap, and every repeatable's last fresh-profile price, stay finite.
     const boost = findNode(24).?;
     const factor = 32.0 * std.math.pow(f32, boost.value, @floatFromInt(boost.repeat.?.max_level));
@@ -526,15 +677,15 @@ test "bulk order has one level per unlockable buy step" {
 test "state tracks levels and gates buying" {
     var s = State.init(std.testing.allocator);
     defer s.deinit();
-    const honey2 = findNode(1).?;
-    try std.testing.expect(s.canBuy(honey2, 0));
-    try s.markPurchased(1);
-    try std.testing.expect(!s.canBuy(honey2, 0));
-    try std.testing.expectEqual(@as(u16, 1), s.level(1));
+    const swift = findNode(4).?;
+    try std.testing.expect(s.canBuy(swift, 0));
+    try s.markPurchased(4);
+    try std.testing.expect(!s.canBuy(swift, 0));
+    try std.testing.expectEqual(@as(u16, 1), s.level(4));
 
     const boost = findNode(24).?;
     try std.testing.expect(!s.canBuy(boost, 0)); // prereqs missing
-    try s.setLevel(23, 1);
+    try s.setLevel(HONEY_DOUBLER_ID, HONEY_DOUBLER_LEVELS);
     try std.testing.expect(s.canBuy(boost, 0));
     try s.markPurchased(24);
     try s.markPurchased(24);
@@ -547,8 +698,8 @@ test "prestige multiplier scales node prices but never storage" {
     var s = State.init(std.testing.allocator);
     defer s.deinit();
 
-    const honey2 = findNode(1).?;
-    try std.testing.expectApproxEqRel(@as(f32, 50 * 1.3), s.nextCost(honey2, 1.3), 1e-5);
+    const swift = findNode(4).?;
+    try std.testing.expectApproxEqRel(@as(f32, 80 * 1.3), s.nextCost(swift, 1.3), 1e-5);
 
     const storage = findNode(STORAGE_ID).?;
     try std.testing.expectEqual(storage.cost, s.nextCost(storage, 1.3));

@@ -101,6 +101,13 @@ pub const FlowerType = enum {
     rose,
     tulip,
     dandelion,
+    pink_tulip,
+    poppy,
+    hyacinth,
+    red_tulip,
+    iris,
+
+    pub const count = @typeInfo(@This()).@"enum".fields.len;
 
     /// What sets the types apart (#71). Dandelion is the cheap, quick,
     /// short-lived filler; tulip the slow, rich, lasting investment; rose
@@ -122,6 +129,11 @@ pub const FlowerType = enum {
             .dandelion => .{ .plantCost = 5, .pollenMul = 0.7, .growthMul = 1.3, .lifespanMul = 0.7 },
             .rose => .{ .plantCost = 10, .pollenMul = 1.0, .growthMul = 1.0, .lifespanMul = 1.0 },
             .tulip => .{ .plantCost = 25, .pollenMul = 1.6, .growthMul = 0.75, .lifespanMul = 1.4 },
+            .pink_tulip => .{ .plantCost = 12, .pollenMul = 0.9, .growthMul = 1.2, .lifespanMul = 0.9 },
+            .poppy => .{ .plantCost = 8, .pollenMul = 1.2, .growthMul = 0.9, .lifespanMul = 0.6 },
+            .hyacinth => .{ .plantCost = 20, .pollenMul = 1.3, .growthMul = 0.85, .lifespanMul = 1.5 },
+            .red_tulip => .{ .plantCost = 35, .pollenMul = 1.8, .growthMul = 0.65, .lifespanMul = 1.2 },
+            .iris => .{ .plantCost = 45, .pollenMul = 2.0, .growthMul = 0.55, .lifespanMul = 1.8 },
         };
     }
 };

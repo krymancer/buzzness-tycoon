@@ -39,3 +39,6 @@ config.vdf
 
 # Steamworks dev-run marker (the redistributables live in steam/redist/)
 steam_appid.txt
+
+# Local artwork comparisons, playtest captures, and scratch saves
+/output/

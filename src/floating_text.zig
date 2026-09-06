@@ -29,6 +29,10 @@ pub const ScreenText = struct {
     y: f32,
     amount: f32, // sign decides look: spends are negative and red, gains green
     elapsed: f32,
+    /// When set, drawn instead of the amount (event callouts like "Dawn").
+    label: [32]u8 = undefined,
+    labelLen: u8 = 0,
+    color: rl.Color = theme.CatppuccinMocha.Color.teal,
 };
 
 pub const Manager = struct {
@@ -70,6 +74,16 @@ pub const Manager = struct {
             .amount = amount,
             .elapsed = 0,
         });
+    }
+
+    /// A word instead of a number, in `color`, floating up from (x, y).
+    pub fn spawnScreenLabel(self: *@This(), x: f32, y: f32, label: []const u8, color: rl.Color) !void {
+        var item = ScreenText{ .x = x, .y = y, .amount = 0, .elapsed = 0, .color = color };
+        const n = @min(label.len, item.label.len - 1);
+        @memcpy(item.label[0..n], label[0..n]);
+        item.label[n] = 0;
+        item.labelLen = @intCast(n);
+        try self.screenItems.append(self.allocator, item);
     }
 
     pub fn update(self: *@This(), deltaTime: f32) void {
@@ -131,13 +145,15 @@ pub const Manager = struct {
             const numStr = format.formatShort(@abs(ft.amount), buf[1..]);
             const labelLen = 1 + numStr.len;
             buf[labelLen] = 0;
-            const label: [:0]const u8 = buf[0..labelLen :0];
+            const label: [:0]const u8 = if (ft.labelLen > 0) ft.label[0..ft.labelLen :0] else buf[0..labelLen :0];
 
             const textWidth = text.measure(label, SCREEN_FONT_SIZE);
             const textX = @as(i32, @intFromFloat(ft.x)) - @divFloor(textWidth, 2);
             const textY = @as(i32, @intFromFloat(ft.y - yOffset));
 
-            var color = if (ft.amount < 0)
+            var color = if (ft.labelLen > 0)
+                ft.color
+            else if (ft.amount < 0)
                 theme.CatppuccinMocha.Color.red
             else
                 theme.CatppuccinMocha.Color.green;

@@ -39,6 +39,13 @@ pub const Context = struct {
     prestige: *const prestige_mod.PrestigeState,
     labs: *const labs_mod.LabState,
     textures: *const Textures,
+    /// stats.prestigeCount and PrestigeState.costMul(): what the tree needs
+    /// to price nodes, for the tree button's "N affordable" badge.
+    ascensions: u32,
+    prestigeCostMul: f32,
+    /// Unlocked / total achievements, for the Discoveries row.
+    discoveries: usize,
+    discoveriesTotal: usize,
     // False while a modal (tree, pause, prestige) covers the HUD: it still
     // draws underneath, but must not react to clicks aimed at the modal —
     // the tree's Close button sits on the same corner as the tree button.
@@ -48,7 +55,9 @@ pub const Context = struct {
 pub const Action = union(enum) {
     none,
     open_tree,
+    open_storage,
     open_prestige,
+    open_discoveries,
     buy: struct { action: actions.BuyAction, qty: u32 },
 };
 
@@ -202,6 +211,10 @@ fn drawBeeCross(ctx: Context, mouse: rl.Vector2, out: *Action) void {
         drawBeeSlot(ctx, spec, pos, mouse, out);
     }
 
+    for (specs, positions) |spec, pos| {
+        if (rl.checkCollisionPointRec(mouse, rl.Rectangle.init(pos.x, pos.y, SLOT, SLOT))) drawBeeDetails(ctx, spec, ox, oy - 150, out);
+    }
+
     // Center: buy quantity, with its prompt as a phone-notification-style
     // badge overlapping the number's top-right corner (the badge's left edge
     // starts at the number's center). Click (or Tab / LB / RB) cycles.
@@ -338,6 +351,20 @@ fn drawBeeSlot(ctx: Context, spec: SlotSpec, pos: rl.Vector2, mouse: rl.Vector2,
     const prompt: prompt_icons.Icon = if (input.gamepadActive()) spec.dpad else prompt_icons.numberKey(spec.beeIndex);
     prompt_icons.draw(prompt, rect.x - 9, rect.y - 9, PROMPT);
 
+    // Not affordable yet: how long until it is, top-right corner (under
+    // the Queen's Count hint when that's showing). Turns "can't" into
+    // "soon".
+    if (!afford) {
+        if (ctx.resources.purchaseWait(totalCost)) |secs| {
+            var ebuf: [16]u8 = undefined;
+            if (format.formatEta(secs, &ebuf)) |eta| {
+                const ew = text.measure(eta, 13);
+                const ey: f32 = if (bee_ai_system.milestonesUnlocked) 16 else 2;
+                text.drawOutline(eta, @as(i32, @intFromFloat(rect.x + SLOT - 2)) - ew, @intFromFloat(rect.y + ey), 13, C.peach, OUTLINE);
+            }
+        }
+    }
+
     if (ctx.inputEnabled and hovered and afford and input.confirmPressed()) {
         input.consumeConfirm();
         flashSlot(spec.beeIndex);
@@ -353,7 +380,7 @@ fn drawTreeButton(ctx: Context, mouse: rl.Vector2, out: *Action) void {
     input.registerHotspot(rect);
     const hovered = rl.checkCollisionPointRec(mouse, rect);
     const cxf = rect.x + size / 2;
-    const cyf = rect.y + size / 2 + 4;
+    const cyf = rect.y + size / 2 + 8;
 
     // Mini upgrade-tree glyph: a root node branching into two child nodes,
     // with a drop shadow; it grows a little on hover.
@@ -374,6 +401,23 @@ fn drawTreeButton(ctx: Context, mouse: rl.Vector2, out: *Action) void {
     }
 
     prompt_icons.draw(if (input.gamepadActive()) .pad_y else .key_t, rect.x - 9, rect.y - 9, PROMPT);
+
+    // "N upgrades affordable" badge, top-right: the player never
+    // has to open the tree to find out something is buyable.
+    const affordable = ctx.treeState.affordableCount(ctx.resources.honey, ctx.prestigeCostMul, ctx.ascensions);
+    if (affordable > 0) {
+        // Stable pixel badge: exact count, no shrinking "9+" label,
+        // no moving circle/glow behind the digits.
+        const label = rl.textFormat("%d", .{@as(c_int, @intCast(affordable))});
+        const labelSize = 16;
+        const lw = text.measure(label, labelSize);
+        const bw = @max(32, lw + 14);
+        const bx: i32 = @intFromFloat(rect.x + size - @as(f32, @floatFromInt(bw)));
+        const by: i32 = @intFromFloat(rect.y);
+        rl.drawRectangle(bx - 2, by - 2, bw + 4, 28, C.crust);
+        rl.drawRectangle(bx, by, bw, 24, C.yellow);
+        text.draw(label, bx + @divFloor(bw - lw, 2), by + 4, labelSize, C.crust);
+    }
 
     if (ctx.inputEnabled and hovered and input.confirmPressed()) {
         input.consumeConfirm();
@@ -468,7 +512,10 @@ fn drawPassives(ctx: Context, mouse: rl.Vector2, out: *Action) void {
     }
 
     if (ctx.treeState.hasEffect(.lab_aura)) {
-        drawPassiveRow(x, y, w, h, .aura, rl.textFormat("Aura x%.2f", .{ctx.labs.auraMul}), true, 1.0, C.lavender);
+        // Multiplier and reach; no fill meter — it never moved and read as
+        // a cooldown that was stuck full.
+        const label = rl.textFormat("Aura x%.2f · %.0f %s", .{ ctx.labs.auraMul, ctx.labs.auraReach, locale.tr("tiles", "células").ptr });
+        drawPassiveRow(x, y, w, h, .aura, label, true, 0, C.lavender);
         y += h + 6;
     }
 
@@ -498,6 +545,30 @@ fn drawPassives(ctx: Context, mouse: rl.Vector2, out: *Action) void {
             input.consumeConfirm();
             out.* = .open_prestige;
         }
+        y += h + 6;
+    }
+
+    // Discoveries: the achievement book (also on B).
+    {
+        const rect = rl.Rectangle.init(x, y, w, h);
+        input.registerBlock(rect);
+        input.registerHotspot(rect);
+        const hovered = rl.checkCollisionPointRec(mouse, rect);
+        rl.drawRectangleRounded(rect, 0.4, 6, withAlpha(if (hovered) C.surface1 else C.surface0, 225));
+        rl.drawRectangleRoundedLinesEx(rect, 0.4, 6, if (hovered) 2 else 1, if (hovered) C.yellow else C.surface1);
+        // Little book: two pages and a spine.
+        const bx = x + 16;
+        const by = y + h / 2;
+        const page = if (hovered) C.yellow else C.subtext0;
+        rl.drawRectangleRounded(rl.Rectangle.init(bx - 8, by - 6, 7, 12), 0.3, 4, page);
+        rl.drawRectangleRounded(rl.Rectangle.init(bx + 1, by - 6, 7, 12), 0.3, 4, page);
+        rl.drawRectangleRec(rl.Rectangle.init(bx - 1, by - 7, 2, 14), C.mantle);
+        const label = rl.textFormat(locale.tr("Discoveries  %d/%d", "Descobertas  %d/%d"), .{ @as(c_int, @intCast(ctx.discoveries)), @as(c_int, @intCast(ctx.discoveriesTotal)) });
+        text.draw(label, @intFromFloat(x + 32), @intFromFloat(y + 8), 16, if (hovered) C.yellow else C.subtext1);
+        if (ctx.inputEnabled and hovered and input.confirmPressed()) {
+            input.consumeConfirm();
+            out.* = .open_discoveries;
+        }
     }
 }
 
@@ -525,5 +596,50 @@ fn withAlpha(c: rl.Color, a: u8) rl.Color {
     return rl.Color.init(c.r, c.g, c.b, a);
 }
 
-/// Outline color for HUD text floating over the meadow (matches hud.zig).
-const OUTLINE = rl.Color.init(24, 24, 37, 235);
+/// Outline color for HUD text floating over the meadow.
+const OUTLINE = @import("hud.zig").OUTLINE;
+
+fn drawBeeDetails(ctx: Context, spec: SlotSpec, x: f32, y: f32, out: *Action) void {
+    const C = theme.CatppuccinMocha.Color;
+    const names = [_][:0]const u8{ locale.tr("Worker", "Operária"), locale.tr("Swift", "Veloz"), locale.tr("Efficient", "Eficiente"), locale.tr("Gardener", "Jardineira") };
+    const roles = [_][:0]const u8{ locale.tr("Collects pollen", "Coleta pólen"), locale.tr("Flies twice as fast", "Voa duas vezes mais rápido"), locale.tr("Collects twice as fast", "Coleta duas vezes mais rápido"), locale.tr("Collects and plants flowers", "Coleta e planta flores") };
+    const rect = rl.Rectangle.init(x, @max(110, y), 290, 138);
+    input.registerBlock(rect);
+    rl.drawRectangleRounded(rect, 0.12, 6, withAlpha(C.mantle, 245));
+    rl.drawRectangleRoundedLinesEx(rect, 0.12, 6, 1, spec.accent);
+    const ix: i32 = @intFromFloat(rect.x + 12);
+    const iy: i32 = @intFromFloat(rect.y + 10);
+    text.draw(names[spec.beeIndex], ix, iy, 22, spec.accent);
+    text.draw(roles[spec.beeIndex], ix, iy + 26, 16, C.subtext1);
+    if (!spec.unlocked) {
+        text.draw(locale.tr("Unlock in the Upgrade Tree", "Desbloqueie na árvore"), ix, iy + 55, 16, C.peach);
+        return;
+    }
+    const cost = spec.cost * @as(f32, @floatFromInt(effectiveBuyQty()));
+    var costBuf: [32]u8 = undefined;
+    const costText = format.formatShort(cost, &costBuf);
+    text.draw(rl.textFormat(locale.tr("Buy x%d · %s honey", "Comprar x%d · %s mel"), .{ @as(c_int, @intCast(effectiveBuyQty())), costText.ptr }), ix, iy + 49, 17, C.yellow);
+    var ownedBuf: [32]u8 = undefined;
+    var nextBuf: [32]u8 = undefined;
+    const owned = ctx.beeTypeCounts[spec.beeIndex];
+    const own = format.formatShort(@floatFromInt(owned), &ownedBuf);
+    const next = format.formatShort(@floatFromInt(bee_ai_system.nextMilestone(owned)), &nextBuf);
+    const label = if (bee_ai_system.milestonesUnlocked)
+        rl.textFormat(locale.tr("Owned %s · next milestone %s", "Possui %s · próxima meta %s"), .{ own.ptr, next.ptr })
+    else
+        rl.textFormat(locale.tr("Owned %s", "Possui %s"), .{own.ptr});
+    text.draw(label, ix, iy + 72, 15, C.subtext0);
+    if (ctx.resources.needsStorage(cost)) {
+        text.draw(locale.tr("Increase storage · open tree [T/Y]", "Aumente o armazém · árvore [T/Y]"), ix, iy + 100, 15, C.peach);
+        // Clicking a blocked slot takes the player to the actual prerequisite.
+        if (ctx.inputEnabled and input.confirmPressed()) {
+            input.consumeConfirm();
+            out.* = .open_storage;
+        }
+    } else if (ctx.resources.purchaseWait(cost)) |secs| {
+        if (secs > 0) {
+            var b: [16]u8 = undefined;
+            if (format.formatEta(secs, &b)) |eta| text.draw(rl.textFormat(locale.tr("About %s at current production", "Cerca de %s na produção atual"), .{eta.ptr}), ix, iy + 100, 15, C.peach);
+        }
+    }
+}

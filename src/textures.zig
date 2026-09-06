@@ -5,14 +5,10 @@ const assets = @import("assets.zig");
 
 const components = @import("ecs/components.zig");
 
-pub const Flowers = enum { rose, tulip, dandelion };
+pub const Flowers = components.FlowerType;
 
 pub fn flowersToFlowerType(flower: Flowers) components.FlowerType {
-    return switch (flower) {
-        .rose => .rose,
-        .tulip => .tulip,
-        .dandelion => .dandelion,
-    };
+    return flower;
 }
 
 pub const Textures = struct {
@@ -21,6 +17,17 @@ pub const Textures = struct {
     dandelion: rl.Texture,
     tulip: rl.Texture,
     beehive: rl.Texture,
+    /// Grayscale copies of the flower sheets for rotten flowers. Baked once
+    /// at load so withered flowers draw as plain textured quads: the old
+    /// per-flower grayscale shader forced a render-batch flush for every
+    /// rotten flower on screen.
+    roseGray: rl.Texture,
+    dandelionGray: rl.Texture,
+    tulipGray: rl.Texture,
+    extra: [5]rl.Texture = @splat(dummy),
+    extraGray: [5]rl.Texture = @splat(dummy),
+    const dummy: rl.Texture = .{ .id = 0, .width = 160, .height = 32, .mipmaps = 1, .format = .uncompressed_r8g8b8a8 };
+
     pub fn init() !@This() {
         return .{
             .rose = try assets.loadTextureFromMemory(assets.rose_png),
@@ -28,7 +35,29 @@ pub const Textures = struct {
             .dandelion = try assets.loadTextureFromMemory(assets.dandelion_png),
             .bee = try assets.loadTextureFromMemory(assets.bee_png),
             .beehive = try assets.loadTextureFromMemory(assets.beehive_png),
+            .roseGray = try loadGrayscale(assets.rose_png),
+            .tulipGray = try loadGrayscale(assets.tulip_png),
+            .extra = .{ try assets.loadTextureFromMemory(assets.pink_tulip_png), try assets.loadTextureFromMemory(assets.poppy_png), try assets.loadTextureFromMemory(assets.hyacinth_png), try assets.loadTextureFromMemory(assets.red_tulip_png), try assets.loadTextureFromMemory(assets.iris_png) },
+            .extraGray = .{ try loadGrayscale(assets.pink_tulip_png), try loadGrayscale(assets.poppy_png), try loadGrayscale(assets.hyacinth_png), try loadGrayscale(assets.red_tulip_png), try loadGrayscale(assets.iris_png) },
+            .dandelionGray = try loadGrayscale(assets.dandelion_png),
         };
+    }
+
+    fn loadGrayscale(fileData: []const u8) !rl.Texture {
+        var image = try assets.loadImageFromMemory(fileData);
+        defer rl.unloadImage(image);
+        // Not rl.imageColorGrayscale: that converts the image to a single
+        // grey channel and drops the alpha, so withered flowers drew on
+        // black squares. Desaturate each pixel and keep its alpha instead.
+        const colors = try rl.loadImageColors(image);
+        defer rl.unloadImageColors(colors);
+        const width: usize = @intCast(image.width);
+        for (colors, 0..) |c, i| {
+            const lum: u32 = (@as(u32, c.r) * 299 + @as(u32, c.g) * 587 + @as(u32, c.b) * 114) / 1000;
+            const g: u8 = @intCast(lum);
+            rl.imageDrawPixel(&image, @intCast(i % width), @intCast(i / width), rl.Color.init(g, g, g, c.a));
+        }
+        return rl.loadTextureFromImage(image);
     }
 
     pub fn deinit(self: @This()) void {
@@ -37,12 +66,28 @@ pub const Textures = struct {
         rl.unloadTexture(self.tulip);
         rl.unloadTexture(self.bee);
         rl.unloadTexture(self.beehive);
+        rl.unloadTexture(self.roseGray);
+        rl.unloadTexture(self.dandelionGray);
+        rl.unloadTexture(self.tulipGray);
+        for (self.extra) |t| rl.unloadTexture(t);
+        for (self.extraGray) |t| rl.unloadTexture(t);
+    }
+
+    /// Withered look-up for a flower type (same sheet layout as the colour one).
+    pub fn grayFor(self: @This(), flower: components.FlowerType) rl.Texture {
+        return switch (flower) {
+            .rose => self.roseGray,
+            .tulip => self.tulipGray,
+            else => self.extraGray[@intFromEnum(flower) - 3],
+            .dandelion => self.dandelionGray,
+        };
     }
 
     pub fn getFlowerTexture(self: @This(), flower: Flowers) rl.Texture {
         return switch (flower) {
             .rose => self.rose,
             .tulip => self.tulip,
+            else => self.extra[@intFromEnum(flower) - 3],
             .dandelion => self.dandelion,
         };
     }

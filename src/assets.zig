@@ -8,6 +8,7 @@ pub const dandelion_png = sprites.dandelion_png;
 pub const tulip_png = sprites.tulip_png;
 pub const grass_cube_png = sprites.grass_cube_png;
 pub const beehive_png = sprites.beehive_png;
+pub const boldpixels_ttf = sprites.boldpixels_ttf;
 pub const baloo2_ttf = sprites.baloo2_ttf;
 
 pub const ui_cursor_png = sprites.ui_cursor_png;
@@ -39,3 +40,9 @@ pub fn loadTextureFromMemory(fileData: []const u8) !rl.Texture {
     defer rl.unloadImage(image);
     return rl.loadTextureFromImage(image);
 }
+
+pub const pink_tulip_png = sprites.pink_tulip_png;
+pub const poppy_png = sprites.poppy_png;
+pub const hyacinth_png = sprites.hyacinth_png;
+pub const red_tulip_png = sprites.red_tulip_png;
+pub const iris_png = sprites.iris_png;

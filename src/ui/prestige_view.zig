@@ -1,5 +1,6 @@
-//! Prestige panel: the "Ascend" card (what this run converts into) next to
-//! the Royal Shop, where lifetime Royal Jelly buys permanent perks.
+//! Full-screen prestige view: the "Ascend" card (what this run converts
+//! into) next to the Royal Shop, where lifetime Royal Jelly buys permanent
+//! perks. Replaces the meadow while open instead of floating over it.
 //!
 //! Spending never lowers the income multiplier (that comes from lifetime
 //! jelly), so the shop is pure upside and the panel says so.
@@ -39,7 +40,10 @@ pub const Context = struct {
 
 const ITEMS = [_]prestige_mod.ShopItem{ .queens_blessing, .jelly_refinery, .royal_meadow, .busy_bees, .royal_retinue, .wholesale_contract, .queens_count };
 
-const ROW_H: f32 = 72;
+/// Tallest a shop row grows into spare height.
+const ROW_H: f32 = 84;
+/// Widest the content block gets; past that it centres on the screen.
+const MAX_CONTENT_W: f32 = 1160;
 const FLASH_TIME: f32 = 0.45;
 
 /// Per-row purchase glow, plus a hover "wiggle" seed so rows animate
@@ -70,30 +74,29 @@ pub fn draw(ctx: Context) Action {
     const dt = rl.getFrameTime();
     for (&rowFlash) |*f| f.* = @max(0, f.* - dt);
 
-    rl.drawRectangle(0, 0, @intFromFloat(ctx.screenWidth), @intFromFloat(ctx.screenHeight), C.modalOverlay);
+    const panelW: f32 = ctx.screenWidth;
+    const panelH: f32 = ctx.screenHeight;
+    const panelX: f32 = 0;
+    const panelY: f32 = 0;
+    input.registerBlock(rl.Rectangle.init(panelX, panelY, panelW, panelH));
 
-    const panelW: f32 = @min(ctx.screenWidth - 40, 1000);
-    const panelH: f32 = @min(ctx.screenHeight - 40, 580);
-    const panelX: f32 = (ctx.screenWidth - panelW) / 2;
-    const panelY: f32 = (ctx.screenHeight - panelH) / 2;
-    const panel = rl.Rectangle.init(panelX, panelY, panelW, panelH);
-    input.registerBlock(panel);
-
-    // Panel with a slowly breathing mauve/pink border.
-    rl.drawRectangleRounded(panel, 0.03, 10, C.mantle);
+    // Solid bg with a slowly breathing mauve/pink strip along the top.
+    rl.drawRectangle(0, 0, @intFromFloat(panelW), @intFromFloat(panelH), C.mantle);
     const breathe = 0.5 + 0.5 * @sin(now * 1.6);
-    const border = lerpColor(C.mauve, C.pink, breathe);
-    rl.drawRectangleRoundedLinesEx(panel, 0.03, 10, 2, border);
+    rl.drawRectangle(0, 0, @intFromFloat(panelW), 3, lerpColor(C.mauve, C.pink, breathe));
 
     drawHeader(ctx, panelX, panelY, panelW, now);
 
     var action: Action = .none;
+    // Cards fill the height and centre horizontally up to MAX_CONTENT_W.
     const contentY = panelY + 64;
     const contentH = panelH - 64 - 66;
+    const contentW: f32 = @min(panelW - 40, MAX_CONTENT_W);
+    const contentX = panelX + (panelW - contentW) / 2;
     const gap: f32 = 18;
-    const leftW: f32 = @max(300, (panelW - 40 - gap) * 0.34);
-    const rightW = panelW - 40 - gap - leftW;
-    const leftX = panelX + 20;
+    const leftW: f32 = @max(300, (contentW - gap) * 0.34);
+    const rightW = contentW - gap - leftW;
+    const leftX = contentX;
     const rightX = leftX + leftW + gap;
 
     drawAscendCard(ctx, leftX, contentY, leftW, contentH, now, &action);

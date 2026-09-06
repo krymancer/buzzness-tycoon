@@ -12,6 +12,8 @@ const labs_mod = @import("../../labs.zig");
 const lifespan_system = @import("lifespan_system.zig");
 const prestige_mod = @import("../../prestige.zig");
 const spawners = @import("../../spawners.zig");
+const meadow_plan = @import("../../meadow_plan.zig");
+const adjacency = @import("../../adjacency.zig");
 const grid_mod = @import("../../grid.zig");
 const config = @import("../../config.zig");
 
@@ -349,7 +351,9 @@ pub fn update(ctx: UpdateCtx) !void {
                 const collectionMultiplier = beeAI.beeType.getCollectionMultiplier() * trainingMul(beeAI.beeType) * frameMilestoneMul[@intFromEnum(beeAI.beeType)];
                 // Lab: Aura boosts flowers inside its rings around the hive.
                 const auraMul = ctx.labs.pollenMultiplierAt(beeAI.targetGridX, beeAI.targetGridY, cachedBeehiveGridX, cachedBeehiveGridY);
-                collectors[beeIndex].collect(1.0 * targetFlower.?.pollenMultiplier * collectionMultiplier * auraMul);
+                // Layout: clusters, pairs, meadow tiles and the hive gradient.
+                const layoutMul = adjacency.multiplierAt(@intFromFloat(@floor(beeAI.targetGridX)), @intFromFloat(@floor(beeAI.targetGridY)));
+                collectors[beeIndex].collect(1.0 * targetFlower.?.pollenMultiplier * collectionMultiplier * auraMul * layoutMul);
 
                 // Short dawdle after collecting, then head to the hive — long
                 // scatter here was the main throttle on honey throughput.
@@ -525,8 +529,11 @@ fn findEmptyCell(beePosition: rl.Vector2) ?CellHit {
     const cols: i32 = @intCast(cellStride);
     const rows: i32 = @intCast(cellRows);
 
+    // Planned gaps first (the player's layout), then any gap.
     var best: i32 = std.math.maxInt(i32);
     var bestCell: ?usize = null;
+    var bestPlanned: i32 = std.math.maxInt(i32);
+    var bestPlannedCell: ?usize = null;
     var dy: i32 = -LOCAL_SEARCH_RADIUS;
     while (dy <= LOCAL_SEARCH_RADIUS) : (dy += 1) {
         const row = cy + dy;
@@ -538,12 +545,17 @@ fn findEmptyCell(beePosition: rl.Vector2) ?CellHit {
             const cell = @as(usize, @intCast(row)) * cellStride + @as(usize, @intCast(col));
             if (!cellIsGap(cell)) continue;
             const d = dx * dx + dy * dy;
+            if (meadow_plan.get(col, row) != null and d < bestPlanned) {
+                bestPlanned = d;
+                bestPlannedCell = cell;
+            }
             if (d < best) {
                 best = d;
                 bestCell = cell;
             }
         }
     }
+    if (bestPlannedCell != null) bestCell = bestPlannedCell;
     if (bestCell == null) {
         const cells = cellStride * cellRows;
         for (0..SOW_FALLBACK_PROBES) |_| {
@@ -592,12 +604,11 @@ fn handleSowTrip(ctx: UpdateCtx, beeAI: *components.BeeAI, position: *components
 /// Plant a random flower on an empty cell (Seed Scouts trips and gardener
 /// crossings both end here).
 fn plantFlower(world: *World, gridX: i32, gridY: i32, texturesRef: Textures) !void {
-    const flowerType = switch (rl.getRandomValue(1, 3)) {
-        1 => Flowers.rose,
-        2 => Flowers.dandelion,
-        3 => Flowers.tulip,
-        else => Flowers.rose,
-    };
+    // A planned cell gets what the player laid out; anything else is luck.
+    const flowerType: Flowers = if (meadow_plan.get(gridX, gridY)) |planned|
+        spawners.flowerTypeToFlowers(planned)
+    else
+        @enumFromInt(rl.getRandomValue(0, Flowers.count - 1));
 
     const flowerTexture = texturesRef.getFlowerTexture(flowerType);
     const gridXf: f32 = @floatFromInt(gridX);
@@ -1001,7 +1012,8 @@ fn handlePollination(world: *World, beeAI: *components.BeeAI, position: *compone
     if (gridX == centerX and gridY == centerY) return;
 
     if (!world.hasFlowerAtGrid(gridX, gridY)) {
-        if (rl.getRandomValue(1, 100) <= framePlantChance) {
+        // Planned gaps are always filled: gardeners are the plan's crew.
+        if (meadow_plan.get(gridX, gridY) != null or rl.getRandomValue(1, 100) <= framePlantChance) {
             try plantFlower(world, gridX, gridY, texturesRef);
         }
     }

@@ -10,6 +10,9 @@ const clock = @import("clock.zig");
 /// the game reads as calm and AFK-friendly rather than a strobing disco.
 pub const Sky = struct {
     pub const DAY_LENGTH: f32 = 300.0; // seconds for a full dawn→night→dawn loop
+    /// Phase of the sunrise keyframe (the dawn burst fires when the day
+    /// crosses it).
+    pub const SUNRISE: f32 = 0.25;
     const STAR_COUNT = 140;
     const CLOUD_COUNT = 7;
 

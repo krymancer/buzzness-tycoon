@@ -7,42 +7,26 @@ const clock = @import("../../clock.zig");
 const ui_scale = @import("../../ui_scale.zig");
 const input = @import("../../input.zig");
 const grid_mod = @import("../../grid.zig");
+const Textures = @import("../../textures.zig").Textures;
 const bees_mod = @import("../../bees.zig");
+const meadow_plan = @import("../../meadow_plan.zig");
+const golden_flower = @import("../../golden_flower.zig");
 
 const FlowerRenderData = struct {
     entity: u32,
     gridX: f32,
     gridY: f32,
     sortKey: f32,
-    isRotten: bool,
     isSuper: bool,
+    /// Component slots, resolved once per rebuild. World component arrays
+    /// reuse freed slots without moving live components, so a
+    /// slot stays valid for as long as the entity lives — and any spawn or
+    /// removal bumps the world's flower generation, which rebuilds the list.
+    growthIdx: usize,
+    spriteIdx: usize,
 };
 
-// Grayscale post-tint for rotten flowers (lazily compiled; GLSL 330 on
-// desktop which is what raylib targets on macOS/Linux/Windows here).
-var grayShader: ?rl.Shader = null;
-const GRAY_FS: [:0]const u8 =
-    \\#version 330
-    \\in vec2 fragTexCoord;
-    \\in vec4 fragColor;
-    \\out vec4 finalColor;
-    \\uniform sampler2D texture0;
-    \\uniform vec4 colDiffuse;
-    \\void main() {
-    \\    vec4 t = texture(texture0, fragTexCoord);
-    \\    float g = dot(t.rgb, vec3(0.299, 0.587, 0.114));
-    \\    finalColor = vec4(vec3(g), t.a) * colDiffuse * fragColor;
-    \\}
-;
-
-fn grayscaleShader() ?rl.Shader {
-    if (grayShader == null) grayShader = rl.loadShaderFromMemory(null, GRAY_FS) catch null;
-    return grayShader;
-}
-
 pub fn deinit() void {
-    if (grayShader) |sh| rl.unloadShader(sh);
-    grayShader = null;
     if (shadowDiscTex) |tex| rl.unloadTexture(tex);
     shadowDiscTex = null;
     if (glowDiscTex) |tex| rl.unloadTexture(tex);
@@ -68,9 +52,66 @@ var beeRenderList: [MAX_BEES]BeeRenderData = undefined;
 var beeRenderCount: usize = 0;
 
 // Flower draw list, sized for the largest meadow so nothing past the first
-// few hundred flowers silently goes undrawn on big grids.
+// few hundred flowers silently goes undrawn on big grids. Culled and
+// depth-sorted once, then reused until the flower set or the camera changes
+// (see flowerListValid) — the old per-frame rebuild spent five hash lookups
+// and a sort per flower every frame on a meadow that barely changes.
 const MAX_FLOWERS: usize = grid_mod.MAX_WIDTH * grid_mod.MAX_WIDTH;
 var flowerList: [MAX_FLOWERS]FlowerRenderData = undefined;
+var flowerCount: usize = 0;
+var flowerListGen: u64 = 0;
+var flowerListOffset: rl.Vector2 = .{ .x = 0, .y = 0 };
+var flowerListScale: f32 = 0;
+var flowerListW: f32 = 0;
+var flowerListH: f32 = 0;
+
+fn flowerListValid(world: *World, gridOffset: rl.Vector2, gridScale: f32) bool {
+    return flowerListGen == world.flowerGen and
+        flowerListOffset.x == gridOffset.x and flowerListOffset.y == gridOffset.y and
+        flowerListScale == gridScale and
+        flowerListW == cachedScreenWidth and flowerListH == cachedScreenHeight;
+}
+
+fn rebuildFlowerList(world: *World, gridOffset: rl.Vector2, gridScale: f32) void {
+    flowerCount = 0;
+    // Frustum margin generous enough for a swaying SUPER flower's sprite.
+    const flowerMargin: f32 = 96.0 * gridScale;
+
+    var flowerIter = world.iterateFlowers();
+    while (flowerIter.next()) |entity| {
+        const gridPos = world.getGridPosition(entity) orelse continue;
+        const growthIdx = world.entityToFlowerGrowth.get(entity) orelse continue;
+        const spriteIdx = world.entityToSprite.get(entity) orelse continue;
+        const tilePos = utils.isoToXY(gridPos.x, gridPos.y, 32, 32, gridOffset.x, gridOffset.y, gridScale);
+        if (tilePos.x < -flowerMargin or tilePos.x > cachedScreenWidth + flowerMargin or
+            tilePos.y < -flowerMargin or tilePos.y > cachedScreenHeight + flowerMargin)
+        {
+            continue;
+        }
+        // A SUPER flower anchors at the block's top-left cell but is drawn
+        // at the 2x2 block's centre, sorted with the block's front edge.
+        const isSuper = world.flowerGrowths.items[growthIdx].isSuper;
+        const superOffset: f32 = if (isSuper) 0.5 else 0.0;
+        if (flowerCount >= flowerList.len) break;
+        flowerList[flowerCount] = .{
+            .entity = entity,
+            .gridX = gridPos.x + superOffset,
+            .gridY = gridPos.y + superOffset,
+            .sortKey = gridPos.x + gridPos.y + superOffset * 2,
+            .isSuper = isSuper,
+            .growthIdx = growthIdx,
+            .spriteIdx = spriteIdx,
+        };
+        flowerCount += 1;
+    }
+    std.mem.sort(FlowerRenderData, flowerList[0..flowerCount], {}, compareFlowers);
+
+    flowerListGen = world.flowerGen;
+    flowerListOffset = gridOffset;
+    flowerListScale = gridScale;
+    flowerListW = cachedScreenWidth;
+    flowerListH = cachedScreenHeight;
+}
 
 var cachedScreenWidth: f32 = 0;
 var cachedScreenHeight: f32 = 0;
@@ -115,9 +156,12 @@ fn discTexture(slot: *?rl.Texture, density: f32) ?rl.Texture {
 pub fn resetCaches() void {
     cachedBeehive = null;
     beeRenderCount = 0;
+    flowerCount = 0;
+    flowerListGen = 0;
 }
 
-pub fn draw(world: *World, gridOffset: rl.Vector2, gridScale: f32, worldTint: rl.Color, auraLevel: u16, auraReach: f32, beeTexture: rl.Texture) !void {
+pub fn draw(world: *World, gridOffset: rl.Vector2, gridScale: f32, worldTint: rl.Color, auraLevel: u16, auraReach: f32, textures: *const Textures) !void {
+    const beeTexture = textures.bee;
     cachedScreenWidth = ui_scale.width();
     cachedScreenHeight = ui_scale.height();
 
@@ -151,107 +195,107 @@ pub fn draw(world: *World, gridOffset: rl.Vector2, gridScale: f32, worldTint: rl
         drawBeehiveAtGridPosition(bh.texture, bh.gridX, bh.gridY, bh.width, bh.height, pulse, gridOffset, gridScale, worldTint);
     }
 
-    var flowerCount: usize = 0;
-    // Frustum margin generous enough for a swaying SUPER flower's sprite.
-    const flowerMargin: f32 = 96.0 * gridScale;
-
-    var flowerIter = world.iterateFlowers();
-    while (flowerIter.next()) |entity| {
-        if (world.getGridPosition(entity)) |gridPos| {
-            if (world.getLifespan(entity)) |lifespan| {
-                if (lifespan.isDead()) continue;
-            }
-            const tilePos = utils.isoToXY(gridPos.x, gridPos.y, 32, 32, gridOffset.x, gridOffset.y, gridScale);
-            if (tilePos.x < -flowerMargin or tilePos.x > cachedScreenWidth + flowerMargin or
-                tilePos.y < -flowerMargin or tilePos.y > cachedScreenHeight + flowerMargin)
-            {
-                continue;
-            }
-            // A SUPER flower anchors at the block's top-left cell but is drawn
-            // at the 2x2 block's centre, sorted with the block's front edge.
-            var isSuper = false;
-            var isRotten = false;
-            if (world.getFlowerGrowth(entity)) |growth| {
-                isSuper = growth.isSuper;
-                isRotten = growth.isRotten;
-            }
-            const superOffset: f32 = if (isSuper) 0.5 else 0.0;
-            if (flowerCount < flowerList.len) {
-                flowerList[flowerCount] = .{
-                    .entity = entity,
-                    .gridX = gridPos.x + superOffset,
-                    .gridY = gridPos.y + superOffset,
-                    .sortKey = gridPos.x + gridPos.y + superOffset * 2,
-                    .isRotten = isRotten,
-                    .isSuper = isSuper,
-                };
-                flowerCount += 1;
-            }
-        }
-    }
-
-    std.mem.sort(FlowerRenderData, flowerList[0..flowerCount], {}, compareFlowers);
+    if (!flowerListValid(world, gridOffset, gridScale)) rebuildFlowerList(world, gridOffset, gridScale);
+    const growths = world.flowerGrowths.items;
+    const sprites = world.sprites.items;
 
     // Cell under the mouse, for the rotten-flower hover hint.
     const mouseIso = utils.xyToIso(input.pointerPos().x, input.pointerPos().y, 32, 32, gridOffset.x, gridOffset.y, gridScale);
     const hoverX: f32 = @floor(mouseIso.x);
     const hoverY: f32 = @floor(mouseIso.y);
 
+    // Plan ghosts: the planned type, translucent, on every empty planned
+    // cell — the blueprint the meadow is growing into.
+    if (meadow_plan.count() > 0) {
+        const ghostMargin: f32 = 64.0 * gridScale;
+        var ghost = worldTint;
+        ghost.a = 105;
+        for (0..@min(meadow_plan.height, meadow_plan.MAX)) |j| {
+            for (0..@min(meadow_plan.width, meadow_plan.MAX)) |i| {
+                const planned = meadow_plan.get(@intCast(i), @intCast(j)) orelse continue;
+                if (world.hasFlowerAtGrid(@intCast(i), @intCast(j))) continue;
+                const gx: f32 = @floatFromInt(i);
+                const gy: f32 = @floatFromInt(j);
+                const tilePos = utils.isoToXY(gx, gy, 32, 32, gridOffset.x, gridOffset.y, gridScale);
+                if (tilePos.x < -ghostMargin or tilePos.x > cachedScreenWidth + ghostMargin or
+                    tilePos.y < -ghostMargin or tilePos.y > cachedScreenHeight + ghostMargin) continue;
+                const tex = textures.getFlowerTexture(planned);
+                drawSpriteAtGridPosition(tex, gx, gy, rl.Rectangle.init(128, 0, 32, 32), 1.8, ghost, gridOffset, gridScale, 0);
+            }
+        }
+    }
+
     // Ground shadows first as one same-texture pass (scaled with how grown the
     // flower is, and with the whole block for SUPER flowers). Keeping them out
     // of the sprite loop avoids a texture switch per flower.
     for (flowerList[0..flowerCount]) |flowerData| {
-        if (world.getFlowerGrowth(flowerData.entity)) |growth| {
-            const growthFrac = growth.state / 4.0;
-            const shadowMul: f32 = if (flowerData.isSuper) 2.0 else 1.0;
-            drawGroundShadow(flowerData.gridX, flowerData.gridY, gridOffset, gridScale, (0.34 + 0.14 * growthFrac) * shadowMul, 0.22);
-        }
+        const growth = growths[flowerData.growthIdx];
+        const growthFrac = growth.state / 4.0;
+        const shadowMul: f32 = if (flowerData.isSuper) 2.0 else 1.0;
+        drawGroundShadow(flowerData.gridX, flowerData.gridY, gridOffset, gridScale, (0.34 + 0.14 * growthFrac) * shadowMul, 0.22);
     }
 
     for (flowerList[0..flowerCount]) |flowerData| {
-        if (world.getFlowerGrowth(flowerData.entity)) |growth| {
-            if (world.getSprite(flowerData.entity)) |sprite| {
-                const source = rl.Rectangle.init(growth.state * sprite.width, 0, sprite.width, sprite.height);
+        const growth = growths[flowerData.growthIdx];
+        const sprite = sprites[flowerData.spriteIdx];
+        const source = rl.Rectangle.init(growth.state * sprite.width, 0, sprite.width, sprite.height);
 
-                // Grown flowers are taller → they sway more. Per-flower phase from
-                // grid position keeps the meadow from swaying in lockstep.
-                const growthFrac = growth.state / 4.0;
-                const phase = flowerData.gridX * 1.7 + flowerData.gridY * 0.9;
-                const sway = @sin(time * 0.9 + phase) * 2.6 * growthFrac;
+        // Grown flowers are taller → they sway more. Per-flower phase from
+        // grid position keeps the meadow from swaying in lockstep.
+        const growthFrac = growth.state / 4.0;
+        const phase = flowerData.gridX * 1.7 + flowerData.gridY * 0.9;
+        const sway = @sin(time * 0.9 + phase) * 2.6 * growthFrac;
 
-                if (flowerData.isRotten) {
-                    // Withered: grayscale, a touch darker and slumped, no sway.
-                    // Hovering brightens it and shows a clear-me ring so the
-                    // player learns it's clickable.
-                    const anchorX = flowerData.gridX - (if (flowerData.isSuper) @as(f32, 0.5) else 0.0);
-                    const anchorY = flowerData.gridY - (if (flowerData.isSuper) @as(f32, 0.5) else 0.0);
-                    const span: f32 = if (flowerData.isSuper) 2 else 1;
-                    const hovered = hoverX >= anchorX and hoverX < anchorX + span and hoverY >= anchorY and hoverY < anchorY + span;
-                    const dim: f32 = if (hovered) 1.0 else 0.7;
-                    const tint = rl.Color.init(
-                        @intFromFloat(@as(f32, @floatFromInt(worldTint.r)) * dim),
-                        @intFromFloat(@as(f32, @floatFromInt(worldTint.g)) * dim),
-                        @intFromFloat(@as(f32, @floatFromInt(worldTint.b)) * dim),
-                        worldTint.a,
-                    );
-                    if (hovered) drawClearHint(flowerData.gridX, flowerData.gridY, gridOffset, gridScale, time);
-                    const sh = grayscaleShader();
-                    if (sh) |shader| rl.beginShaderMode(shader);
-                    drawSpriteAtGridPosition(sprite.texture, flowerData.gridX, flowerData.gridY, source, sprite.scale * 0.92, tint, gridOffset, gridScale, 0);
-                    if (sh != null) rl.endShaderMode();
-                    continue;
-                }
-
-                if (growth.state == 4 and growth.hasPollen) {
-                    // Pollen glow breathes and stays bright (untinted) so ready
-                    // flowers pop, even at night.
-                    const glowPulse = 0.1 + 0.05 * @sin(time * 3.0 + phase);
-                    drawSpriteAtGridPosition(sprite.texture, flowerData.gridX, flowerData.gridY, source, sprite.scale + glowPulse, theme.CatppuccinMocha.Color.pollenGlow, gridOffset, gridScale, sway);
-                }
-
-                drawSpriteAtGridPosition(sprite.texture, flowerData.gridX, flowerData.gridY, source, sprite.scale, worldTint, gridOffset, gridScale, sway);
-            }
+        if (growth.isRotten) {
+            // Withered: the pre-baked grayscale sheet, a touch darker and
+            // slumped, no sway. Hovering brightens it and shows a clear-me
+            // ring so the player learns it's clickable.
+            const anchorX = flowerData.gridX - (if (flowerData.isSuper) @as(f32, 0.5) else 0.0);
+            const anchorY = flowerData.gridY - (if (flowerData.isSuper) @as(f32, 0.5) else 0.0);
+            const span: f32 = if (flowerData.isSuper) 2 else 1;
+            const hovered = hoverX >= anchorX and hoverX < anchorX + span and hoverY >= anchorY and hoverY < anchorY + span;
+            const dim: f32 = if (hovered) 1.0 else 0.7;
+            const tint = rl.Color.init(
+                @intFromFloat(@as(f32, @floatFromInt(worldTint.r)) * dim),
+                @intFromFloat(@as(f32, @floatFromInt(worldTint.g)) * dim),
+                @intFromFloat(@as(f32, @floatFromInt(worldTint.b)) * dim),
+                worldTint.a,
+            );
+            if (hovered) drawClearHint(flowerData.gridX, flowerData.gridY, gridOffset, gridScale, time);
+            drawSpriteAtGridPosition(textures.grayFor(growth.flowerType), flowerData.gridX, flowerData.gridY, source, sprite.scale * 0.92, tint, gridOffset, gridScale, 0);
+            continue;
         }
+
+        if (growth.state == 4 and growth.hasPollen) {
+            // Pollen glow breathes and stays bright (untinted) so ready
+            // flowers pop, even at night.
+            const glowPulse = 0.1 + 0.05 * @sin(time * 3.0 + phase);
+            drawSpriteAtGridPosition(sprite.texture, flowerData.gridX, flowerData.gridY, source, sprite.scale + glowPulse, theme.CatppuccinMocha.Color.pollenGlow, gridOffset, gridScale, sway);
+        }
+
+        drawSpriteAtGridPosition(sprite.texture, flowerData.gridX, flowerData.gridY, source, sprite.scale, worldTint, gridOffset, gridScale, sway);
+    }
+
+    // The golden flower: a glowing gold rose that pulses while its timer
+    // ring runs down, drawn over the flowers so it can't hide behind one.
+    if (golden_flower.active) {
+        const gx: f32 = @floatFromInt(golden_flower.x);
+        const gy: f32 = @floatFromInt(golden_flower.y);
+        const tilePos = utils.isoToXY(gx, gy, 32, 32, gridOffset.x, gridOffset.y, gridScale);
+        const cx = tilePos.x + 16 * gridScale;
+        const cy = tilePos.y + 8 * gridScale;
+        const pulse = 0.5 + 0.5 * @sin(time * 5.0);
+        if (discTexture(&glowDiscTex, GLOW_DENSITY)) |disc| {
+            const r = (26 + 8 * pulse) * gridScale / 3.0 * 2.0;
+            drawDisc(disc, cx, cy - 10 * gridScale / 3.0, r, r * 0.7, rl.Color.init(255, 226, 120, @intFromFloat(120 + 80 * pulse)));
+        }
+        const bob = @sin(time * 4.0) * 3.0 * gridScale / 3.0;
+        const gold = rl.Color.init(255, 222, 96, 255);
+        drawSpriteAtGridPosition(textures.rose, gx, gy, rl.Rectangle.init(128, 0, 32, 32), 2.4 + 0.2 * pulse, gold, gridOffset, gridScale, bob);
+        // Timer ring.
+        const frac = std.math.clamp(golden_flower.lifeLeft / golden_flower.LIFETIME, 0, 1);
+        const rr = 22 * gridScale / 3.0 * 2.0;
+        rl.drawRing(rl.Vector2.init(cx, cy - 20 * gridScale / 3.0), rr - 2.5, rr, -90, -90 + 360 * frac, 40, rl.Color.init(255, 240, 180, 230));
     }
 
     buildBeeRenderList(world);
