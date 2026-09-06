@@ -133,6 +133,8 @@ pub const Game = struct {
     allocator: std.mem.Allocator,
     io: std.Io,
     env: *std.process.Environ.Map,
+    /// BT_SHOW_DEBUG / -Dshow_debug, resolved once (was an env lookup per frame).
+    showDebug: bool,
     savePath: []u8,
     /// True when a save was loaded at startup (title shows Continue/New Game).
     hasSavedGame: bool,
@@ -294,6 +296,7 @@ pub const Game = struct {
 
             .state = if (env.get("BT_AUTOPLAY") != null) .playing else .title_screen,
             .env = env,
+            .showDebug = env.get("BT_SHOW_DEBUG") != null or build_options.show_debug,
             .savePath = savePath,
             .hasSavedGame = false,
             .autosaveTimer = 0,
@@ -964,69 +967,78 @@ pub const Game = struct {
 
         rl.clearBackground(theme.CatppuccinMocha.Color.base);
 
-        // Cozy animated sky behind everything.
-        self.sky.drawBackground(self.width, self.height);
+        // The tree and prestige views cover the whole window, so the meadow
+        // and HUD underneath would be drawn for nothing (the meadow keeps
+        // simulating in update() regardless).
+        const fullScreenView = self.showTree or self.showPrestigeDialog;
+        if (!fullScreenView) {
+            // Cozy animated sky behind everything.
+            self.sky.drawBackground(self.width, self.height);
 
-        self.grid.draw(self.sky.worldTint());
+            self.grid.draw(self.sky.worldTint());
 
-        try render_system.draw(&self.world, self.grid.offset, self.grid.scale, self.sky.worldTint(), self.upgradeTree.level(upgrade_tree.AURA_ID), self.labs.auraReach, self.textures.bee);
+            try render_system.draw(&self.world, self.grid.offset, self.grid.scale, self.sky.worldTint(), self.upgradeTree.level(upgrade_tree.AURA_ID), self.labs.auraReach, &self.textures);
 
-        self.floatingTexts.draw(self.grid.offset, self.grid.scale);
+            self.floatingTexts.draw(self.grid.offset, self.grid.scale);
 
-        // Ambient day/night light wash + vignette over the whole meadow.
-        self.sky.drawAmbientOverlay(self.width, self.height);
+            // Ambient day/night light wash + vignette over the whole meadow.
+            self.sky.drawAmbientOverlay(self.width, self.height);
 
-        // Sun/moon on top of the wash so they stay bright and crisp.
-        self.sky.drawCelestial(self.width, self.height);
+            // Sun/moon on top of the wash so they stay bright and crisp.
+            self.sky.drawCelestial(self.width, self.height);
 
-        // Floating pollen dust / fireflies over the light wash so they glow.
-        self.ambient.draw(self.sky.nightFactor());
+            // Floating pollen dust / fireflies over the light wash so they glow.
+            self.ambient.draw(self.sky.nightFactor());
 
-        // Draw HUD (reuses this frame's cached factor)
-        const honeyFactor = self.cachedHoneyFactor;
-        self.hud.draw(&self.resources, honeyFactor);
+            // Draw HUD (reuses this frame's cached factor)
+            const honeyFactor = self.cachedHoneyFactor;
+            const night = self.sky.nightFactor();
+            self.hud.draw(&self.resources, honeyFactor, night, bee_ai_system.nightHoneyMul(night));
 
-        // Draw the floating action HUD (bee cross, tree button, passives)
-        const sideCtx = ui.ActionHudContext{
-            .screenWidth = self.width,
-            .screenHeight = self.height,
-            .resources = &self.resources,
-            .beeTypeCounts = self.cachedBeeTypeCounts,
-            .treeState = &self.upgradeTree,
-            .prestige = &self.prestige,
-            .labs = &self.labs,
-            .textures = &self.textures,
-            .inputEnabled = !self.showPauseMenu and !self.showTree and !self.showPrestigeDialog,
-        };
-        const sideAction = ui.action_hud.draw(sideCtx);
-        switch (sideAction) {
-            .none => {},
-            .open_tree => {
-                self.showTree = true;
-                ui.tree_view.resetScroll();
-            },
-            .open_prestige => self.showPrestigeDialog = true,
-            .buy => |b| {
-                var handler = self.createActionHandler();
-                const honeyBefore = self.resources.honey;
-                const milestoneBefore = self.milestoneMulFor(b.action);
-                var delta: i32 = 0;
-                // Bulk buy: repeat until the quantity is met or honey runs out.
-                var n: u32 = 0;
-                while (n < b.qty) : (n += 1) {
-                    const result = try handler.handleBuy(b.action);
-                    if (result.beeCountDelta == 0) break;
-                    delta += result.beeCountDelta;
-                }
-                try self.spawnSpendFeedback(honeyBefore);
-                if (delta != 0) {
-                    self.cachedBeeCount = @intCast(@as(i64, @intCast(self.cachedBeeCount)) + delta);
-                }
-                if (delta > 0) {
-                    self.largestPurchase = @max(self.largestPurchase, @as(u32, @intCast(delta)));
-                    self.celebrateMilestone(b.action, milestoneBefore);
-                }
-            },
+            // Draw the floating action HUD (bee cross, tree button, passives)
+            const sideCtx = ui.ActionHudContext{
+                .screenWidth = self.width,
+                .screenHeight = self.height,
+                .resources = &self.resources,
+                .beeTypeCounts = self.cachedBeeTypeCounts,
+                .treeState = &self.upgradeTree,
+                .prestige = &self.prestige,
+                .labs = &self.labs,
+                .textures = &self.textures,
+                .ascensions = self.stats.prestigeCount,
+                .prestigeCostMul = self.prestige.costMul(),
+                .inputEnabled = !self.showPauseMenu and !self.showTree and !self.showPrestigeDialog,
+            };
+            const sideAction = ui.action_hud.draw(sideCtx);
+            switch (sideAction) {
+                .none => {},
+                .open_tree => {
+                    self.showTree = true;
+                    ui.tree_view.resetScroll();
+                },
+                .open_prestige => self.showPrestigeDialog = true,
+                .buy => |b| {
+                    var handler = self.createActionHandler();
+                    const honeyBefore = self.resources.honey;
+                    const milestoneBefore = self.milestoneMulFor(b.action);
+                    var delta: i32 = 0;
+                    // Bulk buy: repeat until the quantity is met or honey runs out.
+                    var n: u32 = 0;
+                    while (n < b.qty) : (n += 1) {
+                        const result = try handler.handleBuy(b.action);
+                        if (result.beeCountDelta == 0) break;
+                        delta += result.beeCountDelta;
+                    }
+                    try self.spawnSpendFeedback(honeyBefore);
+                    if (delta != 0) {
+                        self.cachedBeeCount = @intCast(@as(i64, @intCast(self.cachedBeeCount)) + delta);
+                    }
+                    if (delta > 0) {
+                        self.largestPurchase = @max(self.largestPurchase, @as(u32, @intCast(delta)));
+                        self.celebrateMilestone(b.action, milestoneBefore);
+                    }
+                },
+            }
         }
 
         if (self.showPrestigeDialog) {
@@ -1058,7 +1070,7 @@ pub const Game = struct {
         // Dev FPS/frametime/entity readout, hidden by default. BT_SHOW_DEBUG
         // or a -Dshow_debug build enables it. (frameTime is still computed
         // below for metrics.)
-        if (self.env.get("BT_SHOW_DEBUG") != null or build_options.show_debug) {
+        if (self.showDebug) {
             const fpsX = @as(i32, @intFromFloat(self.width - 190));
             rl.drawFPS(fpsX, 10);
             text.draw(rl.textFormat("%.2f ms", .{rl.getFrameTime() * 1000.0}), fpsX, 30, 20, rl.Color.white);

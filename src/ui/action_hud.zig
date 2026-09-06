@@ -39,6 +39,10 @@ pub const Context = struct {
     prestige: *const prestige_mod.PrestigeState,
     labs: *const labs_mod.LabState,
     textures: *const Textures,
+    /// stats.prestigeCount and PrestigeState.costMul(): what the tree needs
+    /// to price nodes, for the tree button's "N affordable" badge.
+    ascensions: u32,
+    prestigeCostMul: f32,
     // False while a modal (tree, pause, prestige) covers the HUD: it still
     // draws underneath, but must not react to clicks aimed at the modal —
     // the tree's Close button sits on the same corner as the tree button.
@@ -338,6 +342,20 @@ fn drawBeeSlot(ctx: Context, spec: SlotSpec, pos: rl.Vector2, mouse: rl.Vector2,
     const prompt: prompt_icons.Icon = if (input.gamepadActive()) spec.dpad else prompt_icons.numberKey(spec.beeIndex);
     prompt_icons.draw(prompt, rect.x - 9, rect.y - 9, PROMPT);
 
+    // Not affordable yet: how long until it is, top-right corner (under
+    // the Queen's Count hint when that's showing). Turns "can't" into
+    // "soon".
+    if (!afford) {
+        if (format.secondsUntil(totalCost, ctx.resources.honey, ctx.resources.honeyPerSec)) |secs| {
+            var ebuf: [16]u8 = undefined;
+            if (format.formatEta(secs, &ebuf)) |eta| {
+                const ew = text.measure(eta, 13);
+                const ey: f32 = if (bee_ai_system.milestonesUnlocked) 16 else 2;
+                text.drawOutline(eta, @as(i32, @intFromFloat(rect.x + SLOT - 2)) - ew, @intFromFloat(rect.y + ey), 13, C.peach, OUTLINE);
+            }
+        }
+    }
+
     if (ctx.inputEnabled and hovered and afford and input.confirmPressed()) {
         input.consumeConfirm();
         flashSlot(spec.beeIndex);
@@ -374,6 +392,23 @@ fn drawTreeButton(ctx: Context, mouse: rl.Vector2, out: *Action) void {
     }
 
     prompt_icons.draw(if (input.gamepadActive()) .pad_y else .key_t, rect.x - 9, rect.y - 9, PROMPT);
+
+    // "N upgrades affordable" badge, top-right, pulsing: the player never
+    // has to open the tree to find out something is buyable.
+    const affordable = ctx.treeState.affordableCount(ctx.resources.honey, ctx.prestigeCostMul, ctx.ascensions);
+    if (affordable > 0) {
+        const t: f32 = @floatCast(rl.getTime());
+        const pulse = 0.5 + 0.5 * @sin(t * 4.0);
+        const bx = rect.x + size - 4;
+        const by = rect.y + 4;
+        const r: f32 = 11 + 1.5 * pulse;
+        rl.drawCircleV(rl.Vector2.init(bx, by), r + 5, rl.Color.init(C.yellow.r, C.yellow.g, C.yellow.b, @intFromFloat(40 + 50 * pulse)));
+        rl.drawCircleV(rl.Vector2.init(bx, by), r + 2, OUTLINE);
+        rl.drawCircleV(rl.Vector2.init(bx, by), r, C.yellow);
+        const label = if (affordable > 9) "9+" else rl.textFormat("%d", .{@as(c_int, @intCast(affordable))});
+        const lw = text.measure(label, 15);
+        text.draw(label, @as(i32, @intFromFloat(bx)) - @divFloor(lw, 2), @as(i32, @intFromFloat(by)) - 9, 15, C.base);
+    }
 
     if (ctx.inputEnabled and hovered and input.confirmPressed()) {
         input.consumeConfirm();
@@ -468,7 +503,10 @@ fn drawPassives(ctx: Context, mouse: rl.Vector2, out: *Action) void {
     }
 
     if (ctx.treeState.hasEffect(.lab_aura)) {
-        drawPassiveRow(x, y, w, h, .aura, rl.textFormat("Aura x%.2f", .{ctx.labs.auraMul}), true, 1.0, C.lavender);
+        // Multiplier and reach; no fill meter — it never moved and read as
+        // a cooldown that was stuck full.
+        const label = rl.textFormat("Aura x%.2f · %.0f %s", .{ ctx.labs.auraMul, ctx.labs.auraReach, locale.tr("tiles", "células").ptr });
+        drawPassiveRow(x, y, w, h, .aura, label, true, 0, C.lavender);
         y += h + 6;
     }
 
@@ -525,5 +563,5 @@ fn withAlpha(c: rl.Color, a: u8) rl.Color {
     return rl.Color.init(c.r, c.g, c.b, a);
 }
 
-/// Outline color for HUD text floating over the meadow (matches hud.zig).
-const OUTLINE = rl.Color.init(24, 24, 37, 235);
+/// Outline color for HUD text floating over the meadow.
+const OUTLINE = @import("hud.zig").OUTLINE;

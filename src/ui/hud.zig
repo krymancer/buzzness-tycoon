@@ -8,8 +8,11 @@ const Resources = @import("../resources.zig").Resources;
 const locale = @import("../localization.zig");
 const icons = @import("icons.zig");
 
-/// HUD system for displaying game information.
-/// Shows honey count with storage bar, bee count, beehive factor, and growth boost cooldown.
+/// Outline colour for HUD text floating over the meadow (action_hud matches).
+pub const OUTLINE = rl.Color.init(24, 24, 37, 235);
+
+/// HUD system for displaying game information: the honey stat block in the
+/// top-left corner.
 pub const Hud = struct {
     pub fn init() @This() {
         // Apply the Catppuccin Mocha theme
@@ -22,13 +25,20 @@ pub const Hud = struct {
         _ = self;
     }
 
-    /// One condensed, outlined stat line: `🍯 1250 x4 (+12/s)` — amount,
-    /// beehive factor, rate. Outlined glyphs read over any background, so no
-    /// backing panel is needed.
-    pub fn draw(self: @This(), resources: *const Resources, beehiveFactor: f32) void {
+    /// Two outlined stat lines over the meadow, no backing panel:
+    ///
+    ///   🍯 1250 / 5K            amount (big) and storage cap
+    ///   ▬▬▬▬▬▬▬▬▬▬▬▬            storage meter
+    ///   +12.3/s  hive x4.0  🌙 night x0.50
+    ///
+    /// Honey per second is the number players watch, so it leads the second
+    /// line at the same weight as the cap; the hive multiplier is labelled,
+    /// and while it's night a moon chip shows the current night multiplier
+    /// so the dip in income has a visible cause.
+    pub fn draw(self: @This(), resources: *const Resources, beehiveFactor: f32, nightFactor: f32, nightMul: f32) void {
         _ = self;
         const C = theme.CatppuccinMocha.Color;
-        const outline = rl.Color.init(24, 24, 37, 235);
+        const outline = OUTLINE;
 
         const x0: f32 = 12;
         const y0: f32 = 10;
@@ -44,20 +54,22 @@ pub const Hud = struct {
         // Same short treatment as honey; small values keep one decimal so
         // early-game x2.5 factors and sub-1/s rates still read exactly.
         const factorText = if (beehiveFactor < 1000.0)
-            rl.textFormat("x%.1f", .{beehiveFactor})
+            rl.textFormat("%s x%.1f", .{ locale.tr("hive", "colmeia").ptr, beehiveFactor })
         else
-            rl.textFormat("x%s", .{format.formatShort(beehiveFactor, &fbuf).ptr});
+            rl.textFormat("%s x%s", .{ locale.tr("hive", "colmeia").ptr, format.formatShort(beehiveFactor, &fbuf).ptr });
         const rateText = if (resources.honeyPerSec < 1000.0)
-            rl.textFormat("(+%.1f/s)", .{resources.honeyPerSec})
+            rl.textFormat("+%.1f/s", .{resources.honeyPerSec})
         else
-            rl.textFormat("(+%s/s)", .{format.formatShort(resources.honeyPerSec, &rbuf).ptr});
+            rl.textFormat("+%s/s", .{format.formatShort(resources.honeyPerSec, &rbuf).ptr});
 
         const bigSize: i32 = 40;
-        const smallSize: i32 = 24;
+        const capSize: i32 = 24;
+        const rateSize: i32 = 26;
+        const chipSize: i32 = 20;
         // Digits at size 40 have their optical middle around y0+20; centre
-        // the icon and the small segments on that line.
+        // the icon and the cap on that line.
         const midY: f32 = y0 + 20;
-        const smallY: i32 = @as(i32, @intFromFloat(midY)) - @divFloor(smallSize, 2) - 1;
+        const capY: i32 = @as(i32, @intFromFloat(midY)) - @divFloor(capSize, 2) - 1;
 
         // Drop height is ~2.8r; r=8 keeps it at digit height (~22px) rather
         // than towering over the number.
@@ -73,19 +85,17 @@ pub const Hud = struct {
         text.drawOutline(honeyText, tx, @intFromFloat(y0), bigSize, if (full) C.red else C.yellow, outline);
         tx += text.measure(honeyText, bigSize) + 8;
         if (config.honey_cap_enabled) {
-            text.drawOutline(capText, tx, smallY, smallSize, if (full) C.red else C.subtext0, outline);
-            tx += text.measure(capText, smallSize) + 12;
+            text.drawOutline(capText, tx, capY, capSize, if (full) C.red else C.subtext0, outline);
+            tx += text.measure(capText, capSize) + 12;
         }
-        text.drawOutline(factorText, tx, smallY, smallSize, C.peach, outline);
-        tx += text.measure(factorText, smallSize) + 10;
-        text.drawOutline(rateText, tx, smallY, smallSize, C.green, outline);
-        const lineEndX = tx + text.measure(rateText, smallSize);
+        const line1EndX = tx;
 
-        // Storage meter: a thin bar under the whole stat line. Turns red and
-        // pulses at the cap so wasted honey is impossible to miss.
+        // Storage meter: a thin bar under the amount. Turns red and pulses
+        // at the cap so wasted honey is impossible to miss.
+        var line2Y: f32 = y0 + @as(f32, @floatFromInt(bigSize)) + 4;
         if (config.honey_cap_enabled) {
             const barX: f32 = @floatFromInt(textStartX);
-            const barW: f32 = @floatFromInt(lineEndX - textStartX);
+            const barW: f32 = @max(120, @as(f32, @floatFromInt(line1EndX - textStartX)) - 12);
             const barY: f32 = y0 + @as(f32, @floatFromInt(bigSize)) + 2;
             const barH: f32 = 6;
             rl.drawRectangleRounded(rl.Rectangle.init(barX - 1, barY - 1, barW + 2, barH + 2), 0.5, 4, outline);
@@ -100,10 +110,36 @@ pub const Hud = struct {
                 }
                 rl.drawRectangleRounded(rl.Rectangle.init(barX, barY, fillW, barH), 0.5, 4, fillColor);
             }
-            if (full) {
-                const fullText = locale.tr("STORAGE FULL", "ARMAZÉM CHEIO");
-                text.drawOutline(fullText, lineEndX + 14, smallY, smallSize, C.red, outline);
-            }
+            line2Y = barY + barH + 6;
+        }
+
+        // Second line: rate, labelled hive factor, night chip, full warning.
+        const ly: i32 = @intFromFloat(line2Y);
+        const chipY: i32 = ly + @divFloor(rateSize - chipSize, 2);
+        tx = textStartX;
+        text.drawOutline(rateText, tx, ly, rateSize, C.green, outline);
+        tx += text.measure(rateText, rateSize) + 14;
+        text.drawOutline(factorText, tx, chipY, chipSize, C.peach, outline);
+        tx += text.measure(factorText, chipSize) + 14;
+
+        if (nightFactor > 0.01) {
+            // Moon disc with craters (same motif as the Night Shift node).
+            const mcx: f32 = @as(f32, @floatFromInt(tx)) + 8;
+            const mcy: f32 = @as(f32, @floatFromInt(chipY)) + @as(f32, @floatFromInt(chipSize)) / 2 + 1;
+            rl.drawCircleV(rl.Vector2.init(mcx, mcy), 8.5, outline);
+            rl.drawCircleV(rl.Vector2.init(mcx, mcy), 7, C.lavender);
+            rl.drawCircleV(rl.Vector2.init(mcx - 2, mcy - 1.5), 1.5, C.overlay1);
+            rl.drawCircleV(rl.Vector2.init(mcx + 2, mcy + 1.5), 2, C.overlay1);
+            rl.drawCircleV(rl.Vector2.init(mcx + 0.5, mcy - 4), 1.2, C.overlay1);
+            tx += 20;
+            const nightText = rl.textFormat("%s x%.2f", .{ locale.tr("night", "noite").ptr, nightMul });
+            text.drawOutline(nightText, tx, chipY, chipSize, if (nightMul >= 0.995) C.green else C.lavender, outline);
+            tx += text.measure(nightText, chipSize) + 14;
+        }
+
+        if (config.honey_cap_enabled and full) {
+            const fullText = locale.tr("STORAGE FULL", "ARMAZÉM CHEIO");
+            text.drawOutline(fullText, tx, chipY, chipSize, C.red, outline);
         }
     }
 };

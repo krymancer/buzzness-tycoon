@@ -20,6 +20,14 @@ pub const GridKey = struct {
 
 /// Entity/component storage for the meadow (flowers, the hive) plus the
 /// dense bee store. Bees are not entities — see bees.zig.
+var nextFlowerGen: u64 = 1;
+
+fn takeFlowerGen() u64 {
+    const g = nextFlowerGen;
+    nextFlowerGen += 1;
+    return g;
+}
+
 pub const World = struct {
     entityManager: EntityManager,
     allocator: std.mem.Allocator,
@@ -45,6 +53,13 @@ pub const World = struct {
     gridPosToFlower: std.AutoHashMap(GridKey, Entity),
 
     entitiesToDestroy: std.ArrayList(Entity),
+
+    /// Bumped whenever the set of flowers (or a flower's footprint) changes,
+    /// so the render system can keep its culled, depth-sorted draw list
+    /// across frames instead of rebuilding and sorting it every frame.
+    /// Globally unique across World instances (a fresh run must not reuse
+    /// a value the renderer cached from the previous one).
+    flowerGen: u64,
 
     pub fn init(allocator: std.mem.Allocator) @This() {
         var entityToGridPosition = std.AutoHashMap(Entity, ComponentIndex).init(allocator);
@@ -86,7 +101,14 @@ pub const World = struct {
             .gridPosToFlower = gridPosToFlower_,
 
             .entitiesToDestroy = .empty,
+            .flowerGen = takeFlowerGen(),
         };
+    }
+
+    /// Invalidate cached flower draw order (spawn, removal, SUPER merge,
+    /// registry rebuild after a grid shift).
+    pub fn markFlowersDirty(self: *@This()) void {
+        self.flowerGen = takeFlowerGen();
     }
 
     pub fn deinit(self: *@This()) void {
@@ -175,6 +197,7 @@ pub const World = struct {
         const index = self.flowerGrowths.items.len;
         try self.flowerGrowths.append(self.allocator, flowerGrowth);
         try self.entityToFlowerGrowth.put(entity, index);
+        self.markFlowersDirty();
     }
 
     pub fn getFlowerGrowth(self: *@This(), entity: Entity) ?*components.FlowerGrowth {
@@ -183,7 +206,7 @@ pub const World = struct {
     }
 
     pub fn removeFlowerGrowth(self: *@This(), entity: Entity) void {
-        _ = self.entityToFlowerGrowth.remove(entity);
+        if (self.entityToFlowerGrowth.remove(entity)) self.markFlowersDirty();
     }
 
     pub fn addLifespan(self: *@This(), entity: Entity, lifespan: components.Lifespan) !void {
@@ -299,6 +322,7 @@ pub const World = struct {
     /// the registry's integer keys would otherwise go stale. SUPER flowers
     /// re-claim their whole 2x2 block.
     pub fn rebuildFlowerRegistry(self: *@This()) void {
+        self.markFlowersDirty();
         self.gridPosToFlower.clearRetainingCapacity();
         var iter = self.iterateFlowers();
         while (iter.next()) |entity| {

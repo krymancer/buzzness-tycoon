@@ -289,6 +289,8 @@ pub fn takeSuperMerges() u32 {
 pub fn applySuperForm(world: *World, entity: u32, anchorX: i32, anchorY: i32) void {
     if (world.getFlowerGrowth(entity)) |growth| growth.isSuper = true;
     if (world.getSprite(entity)) |sprite| sprite.scale = SUPER_SPRITE_SCALE;
+    // The block now draws from its centre with a new depth key.
+    world.markFlowersDirty();
     world.registerFlowerAtGrid(anchorX, anchorY, entity);
     world.registerFlowerAtGrid(anchorX + 1, anchorY, entity);
     world.registerFlowerAtGrid(anchorX, anchorY + 1, entity);

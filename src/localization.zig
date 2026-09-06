@@ -57,7 +57,7 @@ pub fn languageButton() [:0]const u8 {
 pub fn nodeDesc(id: u16) [:0]const u8 {
     return switch (id) {
         0 => tr("The baseline bee: collects pollen and hauls it to the hive.", "A abelha básica: coleta pólen e leva até a colmeia."),
-        1, 2, 3, 22, 23 => tr("Doubles the honey earned per pollen delivery.", "Dobra o mel ganho por entrega de pólen."),
+        1 => tr("Doubles the honey earned per pollen delivery, every level (x32 at Lv 5).", "Dobra o mel ganho por entrega de pólen, a cada nível (x32 no Nv 5)."),
         24 => tr("+25% honey per delivery, every level.", "+25% de mel por entrega, a cada nível."),
         4 => tr("Unlocks the Swift bee: flies twice as fast.", "Libera a abelha Veloz: voa duas vezes mais rápido."),
         5 => tr("Unlocks the Efficient bee: collects double pollen.", "Libera a abelha Eficiente: coleta o dobro de pólen."),
@@ -92,9 +92,7 @@ pub fn nodeName(id: u16, english: []const u8) []const u8 {
     if (current_language == .english) return english;
     return switch (id) {
         0 => "Abelha Operária",
-        1 => "Mel x2",
-        2 => "Mel x4",
-        3 => "Mel x8",
+        1 => "Duplicador de Mel",
         4 => "Abelha Veloz",
         5 => "Abelha Eficiente",
         6 => "Abelha Jardineira",
@@ -105,8 +103,6 @@ pub fn nodeName(id: u16, english: []const u8) []const u8 {
         19 => "Prestígio",
         20 => "Crescer Instantâneo",
         21 => "Superflores",
-        22 => "Mel x16",
-        23 => "Mel x32",
         24 => "Impulso de Mel",
         25 => "Alcance da Aura",
         26 => "Dedo Verde",
