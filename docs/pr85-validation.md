@@ -14,7 +14,7 @@ This pass extends `072220c` (the existing UI polish PR) with flowers and the fol
 
 ## Artwork
 
-The original three strips are unchanged. The five additional 160x32 strips use the source's five living frames, reversed and enlarged 2x without interpolation. The script checks exact alpha preservation and membership in the Mocha palette. Dark source shades map to dark Mocha shades so flowers remain distinguishable on the grass during daylight.
+All eight 160x32 strips now match: at the user’s request, Rose, Tulip and Dandelion were also regenerated from the purchased source. The strips use the source's five living frames, reversed and enlarged 2x without interpolation. The script checks exact alpha preservation and membership in the Mocha palette. Dark source shades map to dark Mocha shades so flowers remain distinguishable on the grass during daylight.
 
 Catppify (Mocha noise 0/4) and Catppuccin Factory (stock/current Mocha; ImageGoNord 1.2.0) comparisons are attached to the PR. The imagegen concept was rejected and is not shipped.
 
@@ -23,3 +23,7 @@ Catppify (Mocha noise 0/4) and Catppuccin Factory (stock/current Mocha; ImageGoN
 - New flower niche values are an initial balance pass; extended economy playtesting is still needed.
 - Large-meadow GPU performance needs hardware profiling. This pass fixes unbounded component growth and takes autosave disk I/O off the frame path; it does not claim a rendering FPS improvement.
 - The supplied Steam marketing/upload files and unrelated worktrees are outside this PR.
+
+## Review follow-up
+
+Rose, Tulip and Dandelion now use the same source-preserving Mocha conversion as the added species. The honey HUD shrank from 124–153 to 48 logical pixels in height; secondary multipliers are shown on hover. Existing upgrade-tree behavior stays intact. Build/tests and the eight-species desktop smoke test were repeated after these changes.

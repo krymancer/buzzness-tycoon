@@ -2,10 +2,10 @@
 
 ## 0.4.0 — unreleased
 
-- Five additional Mocha flowers: Pink Tulip, Poppy, Hyacinth, Red Tulip, and Iris. Existing flower artwork and save IDs are preserved.
+- Five additional Mocha flowers: Pink Tulip, Poppy, Hyacinth, Red Tulip, and Iris. Rose, Tulip and Dandelion now share the same Mocha sprite treatment; existing save IDs and gameplay values are preserved.
 - Readable upgrade cards, branch shortcuts, remembered map view, and a fixed inspector with explicit purchase controls.
 - Upgrade levels remain visible; storage-blocked prices explain the blocker instead of showing impossible countdowns.
-- A stable honey card distinguishes overflowing production; its warning links to Storage.
+- A slim honey strip keeps the meadow visible; hover shows income and multipliers, and selecting it opens Storage.
 - Bee purchase details explain type, role, bulk price, ownership, and milestones. Affordable-upgrade notifications animate briefly instead of continuously.
 - Discoveries is connected to the HUD and scrolls on smaller screens.
 - Flower component slots are reused across turnover, bounding long-session component storage.
