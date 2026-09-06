@@ -2,7 +2,7 @@
 """Pixel-preserving Mocha flower adaptation. Requires Pillow.
 
 Usage: python tools/remap_flowers.py '/path/to/8flowers by Brysiaa.png'
-The purchased source stays external; existing game sprites are never overwritten.
+The purchased source stays external; all eight game strips are regenerated from the same palette ramps.
 Five growing frames are reversed into seed -> mature order, scaled 2x with
 nearest-neighbor sampling, with alpha and silhouettes preserved exactly.
 """
@@ -17,8 +17,8 @@ ROOT = Path(__file__).resolve().parents[1]
 COLORS = dict(re.findall(r'pub const (\w+): u32 = 0x([0-9a-f]{6})ff;', (ROOT / 'src/theme.zig').read_text()))
 MOCHA = {name: tuple(bytes.fromhex(value)) for name, value in COLORS.items()}
 # Rows 0, 1 and 6 underlie the game's existing Rose, Tulip and Dandelion
-# redraws. Keep those save IDs and artwork; append the other five species.
-NEW = [(2, 'pink_tulip'), (3, 'poppy'), (4, 'hyacinth'), (5, 'red_tulip'), (7, 'iris')]
+# redraws. Preserve their save IDs; the user now prefers a matching remap.
+FLOWERS = [(0, 'rose'), (1, 'tulip'), (6, 'dandelion')] + [(2, 'pink_tulip'), (3, 'poppy'), (4, 'hyacinth'), (5, 'red_tulip'), (7, 'iris')]
 
 
 def family(rgb):
@@ -71,7 +71,7 @@ def remap(source):
 
 
 def strips(sheet):
-    for row, name in NEW:
+    for row, name in FLOWERS:
         strip = Image.new('RGBA', (160, 32))
         for frame, col in enumerate([4,3,2,1,0]):
             src = sheet.crop((col*16,row*16,(col+1)*16,(row+1)*16))
@@ -108,6 +108,6 @@ def main():
     for label,name in [('Catppify: Mocha / 0','catppify-mocha-0.png'),('Catppify: Mocha / 4','catppify-mocha-4.png'),('Factory: current Mocha','factory-mocha.png'),('Factory: stock palette','factory-stock.png')]:
         if (out/name).exists(): variants.append((label,Image.open(out/name).convert('RGBA')))
     comparison(source,variants,out/'comparison.png')
-    print('Wrote five new sprite strips; original artwork unchanged; alpha and Mocha palette verified.')
+    print('Wrote all eight matching sprite strips; source shapes preserved; alpha and Mocha palette verified.')
 
 if __name__=='__main__': main()
