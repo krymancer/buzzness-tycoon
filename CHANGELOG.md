@@ -2,14 +2,20 @@
 
 ## 0.4.0 — unreleased
 
+- Removed the persistent garden instructions panel. A 250-honey Removal Brush upgrade unlocks drag-to-remove flowers and plans, including whole Super flowers.
+
+- Double-click a tech-tree card to buy it; storage-blocked purchases can upgrade capacity without changing the selected card.
+- Bee purchases use a vertical stack of boxed rows, with a matching tech-tree button and the existing keyboard/gamepad shortcuts.
+- Paint and erase garden plans, with brush previews and live layout bonuses. Plans survive save/load, shift with meadow expansion, and reset on a new run. Fast brush strokes fill gaps between pointer samples; erasing preserves living flowers.
+
 - BoldPixels UI font with attribution; a stable tech-tree badge shows the full affordable-upgrade count.
 
 - Five additional Mocha flowers: Pink Tulip, Poppy, Hyacinth, Red Tulip, and Iris. Rose, Tulip and Dandelion now share the same Mocha sprite treatment; existing save IDs and gameplay values are preserved.
 - Readable upgrade cards, branch shortcuts, remembered map view, and a fixed inspector with explicit purchase controls.
 - Upgrade levels remain visible; storage-blocked prices explain the blocker instead of showing impossible countdowns.
-- A slim honey strip keeps the meadow visible; hover shows income and multipliers, and selecting it opens Storage.
+- A slim honey strip keeps the meadow visible; hover shows income, multipliers, and the price to upgrade Storage directly.
 - Bee purchase details explain type, role, bulk price, ownership, and milestones. Affordable-upgrade counts use a stable badge.
-- Discoveries is connected to the HUD and scrolls on smaller screens.
+- Discoveries opens from the HUD or an achievement notification and scrolls on smaller screens.
 - Flower component slots are reused across turnover, bounding long-session component storage.
 - Autosave disk writes run in the background; explicit saves drain older writes first.
 - Headless benchmark texture initialization fixed; documentation refreshed.

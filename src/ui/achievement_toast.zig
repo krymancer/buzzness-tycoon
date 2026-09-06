@@ -8,6 +8,7 @@ const std = @import("std");
 const text = @import("../text.zig");
 const theme = @import("../theme.zig");
 const icons = @import("icons.zig");
+const input = @import("../input.zig");
 const achievements = @import("../achievements.zig");
 
 const MAX_QUEUE = 8;
@@ -46,6 +47,21 @@ pub const Manager = struct {
         }
     }
 
+    fn bounds(self: *const Manager, screenWidth: f32) rl.Rectangle {
+        const slide = std.math.clamp(self.elapsed / SLIDE, 0, 1);
+        const eased = 1 - (1 - slide) * (1 - slide);
+        return rl.Rectangle.init(@round((screenWidth - PANEL_W) / 2), @round(-PANEL_H + (TOP_MARGIN + PANEL_H) * eased), PANEL_W, PANEL_H);
+    }
+
+    pub fn clicked(self: *const Manager, screenWidth: f32) bool {
+        if (!self.active()) return false;
+        if (rl.checkCollisionPointRec(input.pointerPos(), self.bounds(screenWidth)) and input.confirmPressed()) {
+            input.consumeConfirm();
+            return true;
+        }
+        return false;
+    }
+
     pub fn draw(self: *const Manager, screenWidth: f32) void {
         if (self.count == 0) return;
         const C = theme.CatppuccinMocha.Color;
@@ -53,14 +69,14 @@ pub const Manager = struct {
         const t = self.elapsed;
 
         // Ease in from above, hold, then fade out.
-        const slide = std.math.clamp(t / SLIDE, 0, 1);
-        const eased = 1 - (1 - slide) * (1 - slide);
         const alpha: f32 = if (t > SLIDE + HOLD) std.math.clamp(1 - (t - SLIDE - HOLD) / FADE, 0, 1) else 1;
         const a: u8 = @intFromFloat(255 * alpha);
 
-        const x = @round((screenWidth - PANEL_W) / 2);
-        const y = @round(-PANEL_H + (TOP_MARGIN + PANEL_H) * eased);
-        const rect = rl.Rectangle.init(x, y, PANEL_W, PANEL_H);
+        const rect = self.bounds(screenWidth);
+        const x = rect.x;
+        const y = rect.y;
+        input.registerBlock(rect);
+        input.registerHotspot(rect);
 
         rl.drawRectangleRounded(rect, 0.25, 8, withAlpha(C.mantle, @intFromFloat(235 * alpha)));
         rl.drawRectangleRoundedLinesEx(rect, 0.25, 8, 2, withAlpha(C.yellow, a));

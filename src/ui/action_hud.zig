@@ -1,10 +1,10 @@
 //! Overlay action HUD that replaced the shop side panel: the meadow gets the
 //! full window, and the controls float over it, cursor-first.
 //!
-//! - Bottom-left: quick-buy bee cross (Elden-Ring-style item cross). Each
-//!   slot is one bee type on its d-pad direction; the center button shows and
+//! - Bottom-left: boxed vertical bee purchases. Each
+//!   row preserves its d-pad direction; the quantity button shows and
 //!   cycles the buy quantity (x1/x10/x25, also LB/RB).
-//! - Bottom-right: upgrade-tree button (Y / T).
+//! - Below the bees: boxed upgrade-tree button (Y / T).
 //! - Top-left, under the honey readout: passive status rows (Instant Grow,
 //!   Aura) and the Prestige card.
 //!
@@ -55,13 +55,13 @@ pub const Context = struct {
 pub const Action = union(enum) {
     none,
     open_tree,
-    open_storage,
+    buy_storage,
     open_prestige,
     open_discoveries,
     buy: struct { action: actions.BuyAction, qty: u32 },
 };
 
-/// Bee buy quantity, cycled by the cross's center button or LB/RB (persists
+/// Bee buy quantity, cycled by the quantity button or LB/RB (persists
 /// for the session). Holding Shift while buying still bulk-buys x10+.
 /// The x50/x100/x500/x1000 steps unlock via the Bulk Order tree node, one
 /// per level; the Royal Shop's Wholesale Contract adds one more step per
@@ -105,7 +105,7 @@ pub fn topQtyWithShopLevel(shop: u16) u32 {
 }
 
 /// Quantity label: "x1000", "x10K", "x100K" — keeps the biggest steps
-/// readable on the cross's center button.
+/// readable on the quantity button.
 pub fn qtyLabel(qty: u32, buf: []u8) [:0]const u8 {
     if (qty >= 10_000) return std.fmt.bufPrintZ(buf, "x{d}K", .{qty / 1000}) catch "x?";
     return std.fmt.bufPrintZ(buf, "x{d}", .{qty}) catch "x?";
@@ -128,7 +128,7 @@ pub fn buyQty() u32 {
 }
 
 /// Quantity a purchase should use right now: the selected qty, with Shift
-/// held forcing at least x10. Shared by the cross slots and the d-pad /
+/// held forcing at least x10. Shared by the bee rows and the d-pad /
 /// number-key quick buys so every buy path honors the selector.
 pub fn effectiveBuyQty() u32 {
     const shift = rl.isKeyDown(rl.KeyboardKey.left_shift) or rl.isKeyDown(rl.KeyboardKey.right_shift);
@@ -142,8 +142,6 @@ pub fn cycleBuyQty(delta: i32) void {
 }
 
 const MARGIN: f32 = 14;
-const SLOT: f32 = 60;
-const GAP: f32 = 8;
 /// Prompt icons draw at 32px (2x the 16px tiles) — crisp and readable.
 const PROMPT: f32 = 32;
 /// Successful-buy glow duration per slot.
@@ -159,7 +157,7 @@ pub fn flashMilestone(index: usize) void {
     if (index < milestoneFlash.len) milestoneFlash[index] = MILESTONE_FLASH_TIME;
 }
 
-/// Trigger the buy glow on a cross slot (0 worker, 1 swift, 2 efficient,
+/// Trigger the buy glow on a bee row (0 worker, 1 swift, 2 efficient,
 /// 3 gardener). Also called from game.zig for d-pad/number quick buys.
 pub fn flashSlot(index: usize) void {
     if (index < slotFlash.len) slotFlash[index] = FLASH_TIME;
@@ -180,18 +178,21 @@ pub fn draw(ctx: Context) Action {
     const dt = rl.getFrameTime();
     for (&slotFlash) |*f| f.* = @max(0, f.* - dt);
     for (&milestoneFlash) |*f| f.* = @max(0, f.* - dt);
-    drawBeeCross(ctx, mouse, &action);
+    drawBeeColumn(ctx, mouse, &action);
     drawTreeButton(ctx, mouse, &action);
     drawPassives(ctx, mouse, &action);
     return action;
 }
 
-fn drawBeeCross(ctx: Context, mouse: rl.Vector2, out: *Action) void {
+fn drawBeeColumn(ctx: Context, mouse: rl.Vector2, out: *Action) void {
     const C = theme.CatppuccinMocha.Color;
-    const crossW = SLOT * 3 + GAP * 2;
     const ox = MARGIN;
-    const oy = ctx.screenHeight - MARGIN - crossW;
-    input.registerBlock(rl.Rectangle.init(ox, oy, crossW, crossW));
+    const oy = ctx.screenHeight - MARGIN - 382;
+    const panel = rl.Rectangle.init(ox, oy, 228, 320);
+    input.registerBlock(panel);
+    rl.drawRectangleRounded(panel, 0.08, 6, withAlpha(C.mantle, 235));
+    rl.drawRectangleRoundedLinesEx(panel, 0.08, 6, 1, C.surface1);
+    text.draw(locale.tr("Buy bees", "Comprar abelhas"), @intFromFloat(ox + 12), @intFromFloat(oy + 12), 22, C.yellow);
 
     const specs = [_]SlotSpec{
         .{ .beeIndex = 0, .buyAction = .buy_worker_bee, .cost = spawners.BEE_TYPE_COSTS.get(.worker), .accent = C.text, .dpad = .dpad_up, .unlocked = true },
@@ -199,227 +200,66 @@ fn drawBeeCross(ctx: Context, mouse: rl.Vector2, out: *Action) void {
         .{ .beeIndex = 2, .buyAction = .buy_efficient_bee, .cost = spawners.BEE_TYPE_COSTS.get(.efficient), .accent = C.green, .dpad = .dpad_right, .unlocked = ctx.treeState.hasEffect(.bee_unlock_efficient) },
         .{ .beeIndex = 3, .buyAction = .buy_gardener_bee, .cost = spawners.BEE_TYPE_COSTS.get(.gardener), .accent = C.pink, .dpad = .dpad_down, .unlocked = ctx.treeState.hasEffect(.bee_unlock_gardener) },
     };
-    // Slot positions on the cross: up, left, right, down (matches the
-    // quick-buy d-pad mapping).
-    const positions = [_]rl.Vector2{
-        rl.Vector2.init(ox + SLOT + GAP, oy),
-        rl.Vector2.init(ox, oy + SLOT + GAP),
-        rl.Vector2.init(ox + 2 * (SLOT + GAP), oy + SLOT + GAP),
-        rl.Vector2.init(ox + SLOT + GAP, oy + 2 * (SLOT + GAP)),
-    };
-    for (specs, positions) |spec, pos| {
-        drawBeeSlot(ctx, spec, pos, mouse, out);
+    const names = [_][:0]const u8{ locale.tr("Worker", "Operária"), locale.tr("Swift", "Veloz"), locale.tr("Efficient", "Eficiente"), locale.tr("Gardener", "Jardineira") };
+    var hoveredSpec: ?SlotSpec = null;
+    for (specs, 0..) |spec, i| {
+        const rect = rl.Rectangle.init(ox + 8, oy + 44 + @as(f32, @floatFromInt(i)) * 56, 212, 50);
+        input.registerHotspot(rect);
+        const hovered = ctx.inputEnabled and rl.checkCollisionPointRec(mouse, rect);
+        const qty = effectiveBuyQty();
+        const cost = spec.cost * @as(f32, @floatFromInt(qty));
+        const afford = spec.unlocked and ctx.resources.honey >= cost;
+        rl.drawRectangleRounded(rect, 0.12, 6, if (hovered) C.surface1 else C.surface0);
+        if (slotFlash[i] > 0 or milestoneFlash[i] > 0) rl.drawRectangleRoundedLinesEx(rect, 0.12, 6, 2, C.yellow);
+        rl.drawTexturePro(ctx.textures.bee, rl.Rectangle.init(0, 0, 32, 32), rl.Rectangle.init(rect.x + 2, rect.y + 2, 46, 46), rl.Vector2.init(0, 0), 0, if (spec.unlocked) spec.accent else C.overlay0);
+        text.draw(names[i], @intFromFloat(rect.x + 48), @intFromFloat(rect.y + 6), 18, if (spec.unlocked) spec.accent else C.overlay0);
+        var cb: [32]u8 = undefined;
+        const label = if (!spec.unlocked) locale.tr("Locked", "Bloqueado") else rl.textFormat("%s", .{format.formatShort(cost, &cb).ptr});
+        icons.drawHoneyDrop(rect.x + 53, rect.y + 37, 4, if (afford) C.yellow else C.overlay0);
+        text.draw(label, @intFromFloat(rect.x + 62), @intFromFloat(rect.y + 28), 16, if (afford) C.yellow else C.subtext0);
+        prompt_icons.draw(if (input.gamepadActive()) spec.dpad else prompt_icons.numberKey(i), rect.x + rect.width - 30, rect.y + 8, 24);
+        if (hovered) hoveredSpec = spec;
+        if (hovered and afford and input.confirmPressed()) {
+            input.consumeConfirm();
+            flashSlot(i);
+            out.* = .{ .buy = .{ .action = spec.buyAction, .qty = qty } };
+        }
     }
-
-    for (specs, positions) |spec, pos| {
-        if (rl.checkCollisionPointRec(mouse, rl.Rectangle.init(pos.x, pos.y, SLOT, SLOT))) drawBeeDetails(ctx, spec, ox, oy - 150, out);
-    }
-
-    // Center: buy quantity, with its prompt as a phone-notification-style
-    // badge overlapping the number's top-right corner (the badge's left edge
-    // starts at the number's center). Click (or Tab / LB / RB) cycles.
-    const center = rl.Rectangle.init(ox + SLOT + GAP, oy + SLOT + GAP, SLOT, SLOT);
-    input.registerBlock(center);
-    const hovered = rl.checkCollisionPointRec(mouse, center);
-    const ccx = center.x + SLOT / 2;
-    const ccy = center.y + SLOT / 2;
-    // Number on top, prompt below, both centered and sized to match the
-    // bee icons.
-    // The label shrinks until it fits the center slot, so x100/x1000 never
-    // spill over the bee slots on either side.
+    const qtyRect = rl.Rectangle.init(ox + 8, oy + 272, 212, 38);
+    input.registerHotspot(qtyRect);
+    const hovered = ctx.inputEnabled and rl.checkCollisionPointRec(mouse, qtyRect);
+    rl.drawRectangleRounded(qtyRect, 0.16, 6, if (hovered) C.surface1 else C.base);
     var qbuf: [16]u8 = undefined;
-    const qtyText = qtyLabel(buyQty(), &qbuf);
-    const maxLabelW: i32 = @intFromFloat(SLOT + 4);
-    var qtySize: i32 = 42;
-    var qw = text.measure(qtyText, qtySize);
-    while (qw > maxLabelW and qtySize > 22) {
-        qtySize -= 2;
-        qw = text.measure(qtyText, qtySize);
-    }
-    // Keep the number's optical center where the 42px version sat.
-    const numY = ccy - 15 - @as(f32, @floatFromInt(qtySize)) / 2;
-    text.drawOutline(qtyText, @as(i32, @intFromFloat(ccx)) - @divFloor(qw, 2), @intFromFloat(numY), qtySize, if (hovered) C.peach else C.yellow, OUTLINE);
-    const iconY = ccy - 2;
+    text.draw(qtyLabel(buyQty(), &qbuf), @intFromFloat(qtyRect.x + 12), @intFromFloat(qtyRect.y + 9), 20, C.yellow);
     if (input.gamepadActive()) {
-        prompt_icons.draw(.pad_lb, ccx - PROMPT - 1, iconY, PROMPT);
-        prompt_icons.draw(.pad_rb, ccx + 1, iconY, PROMPT);
-    } else {
-        // The 32x16 TAB tile in a 2x box renders 64x32, centered on the slot.
-        prompt_icons.draw(.key_tab, ccx - PROMPT / 2, iconY, PROMPT);
-    }
-    if (ctx.inputEnabled and hovered and input.confirmPressed()) {
+        prompt_icons.draw(.pad_lb, qtyRect.x + 150, qtyRect.y + 6, 24);
+        prompt_icons.draw(.pad_rb, qtyRect.x + 180, qtyRect.y + 6, 24);
+    } else prompt_icons.draw(.key_tab, qtyRect.x + 178, qtyRect.y + 6, 24);
+    if (hovered and input.confirmPressed()) {
         input.consumeConfirm();
         cycleBuyQty(1);
     }
-}
-
-fn drawBeeSlot(ctx: Context, spec: SlotSpec, pos: rl.Vector2, mouse: rl.Vector2, out: *Action) void {
-    const C = theme.CatppuccinMocha.Color;
-    const rect = rl.Rectangle.init(pos.x, pos.y, SLOT, SLOT);
-    const cx = rect.x + SLOT / 2;
-    const cy = rect.y + SLOT / 2;
-
-    if (!spec.unlocked) {
-        // Locked: dark bee silhouette keeps the cross shape and teases the
-        // upcoming type.
-        rl.drawTexturePro(
-            ctx.textures.bee,
-            rl.Rectangle.init(0, 0, 32, 32),
-            rl.Rectangle.init(cx - 27, cy - 27, 54, 54),
-            rl.Vector2.init(0, 0),
-            0,
-            rl.Color.init(30, 30, 46, 200),
-        );
-        return;
-    }
-
-    const qty = effectiveBuyQty();
-    const totalCost = spec.cost * @as(f32, @floatFromInt(qty));
-    const afford = ctx.resources.honey >= totalCost;
-    const hovered = rl.checkCollisionPointRec(mouse, rect);
-    const pressed = hovered and afford and input.confirmDown();
-
-    // Bee sprite, tinted with the type accent (dim when unaffordable), over
-    // a soft drop shadow; hovering scales it up as the hover cue.
-    // The bee sprite carries generous transparent margins, so it draws well
-    // past the slot box to land at a readable visual size.
-    const iconSize: f32 = if (pressed) 56 else if (hovered and afford) 66 else 60;
-    const tint = if (afford) spec.accent else rl.Color.init(spec.accent.r, spec.accent.g, spec.accent.b, 110);
-    const beeDst = rl.Rectangle.init(cx - iconSize / 2, cy - iconSize / 2 - 3, iconSize, iconSize);
-    rl.drawTexturePro(
-        ctx.textures.bee,
-        rl.Rectangle.init(0, 0, 32, 32),
-        rl.Rectangle.init(beeDst.x + 2, beeDst.y + 2, iconSize, iconSize),
-        rl.Vector2.init(0, 0),
-        0,
-        rl.Color.init(17, 17, 27, 140),
-    );
-    rl.drawTexturePro(
-        ctx.textures.bee,
-        rl.Rectangle.init(0, 0, 32, 32),
-        beeDst,
-        rl.Vector2.init(0, 0),
-        0,
-        tint,
-    );
-
-    // Successful-buy glow: a bright overlay of the bee that swells and fades.
-    const flash = slotFlash[spec.beeIndex];
-    if (flash > 0) {
-        const t = flash / FLASH_TIME;
-        const fs = iconSize * (1 + 0.4 * (1 - t));
-        rl.drawTexturePro(
-            ctx.textures.bee,
-            rl.Rectangle.init(0, 0, 32, 32),
-            rl.Rectangle.init(cx - fs / 2, cy - fs / 2 - 3, fs, fs),
-            rl.Vector2.init(0, 0),
-            0,
-            rl.Color.init(255, 246, 190, @intFromFloat(220 * t)),
-        );
-    }
-
-    // Queen's Count: "owned/next milestone" in the top-right corner, and a
-    // ring + "x2!" burst when a purchase just crossed one.
-    if (bee_ai_system.milestonesUnlocked) {
-        const owned: u64 = ctx.beeTypeCounts[spec.beeIndex];
-        var mbuf: [48]u8 = undefined;
-        const hint = std.fmt.bufPrintZ(&mbuf, "{d}/{d}", .{ owned, bee_ai_system.nextMilestone(owned) }) catch "";
-        const hw = text.measure(hint, 12);
-        text.drawOutline(hint, @as(i32, @intFromFloat(rect.x + SLOT)) - hw - 2, @intFromFloat(rect.y + 2), 12, C.teal, OUTLINE);
-        const mf = milestoneFlash[spec.beeIndex];
-        if (mf > 0) {
-            const t = 1 - mf / MILESTONE_FLASH_TIME;
-            const r = SLOT * (0.5 + 0.6 * t);
-            const fade: u8 = @intFromFloat(230 * (1 - t));
-            rl.drawRing(rl.Vector2.init(cx, cy), r - 3, r, 0, 360, 32, withAlpha(C.teal, fade));
-            var xb: [24]u8 = undefined;
-            const mul: u64 = @intFromFloat(bee_ai_system.milestoneMul(owned));
-            const label = std.fmt.bufPrintZ(&xb, "x{d}!", .{mul}) catch "";
-            const lw = text.measure(label, 20);
-            text.drawOutline(label, @as(i32, @intFromFloat(cx)) - @divFloor(lw, 2), @intFromFloat(cy - 14 - 22 * t), 20, withAlpha(C.teal, fade), OUTLINE);
-        }
-    }
-
-    // Cost along the slot's bottom edge.
-    var cbuf: [32]u8 = undefined;
-    const cstr = format.formatShort(totalCost, &cbuf);
-    const costLabel = rl.textFormat("%s", .{cstr.ptr});
-    const cw = text.measure(costLabel, 16);
-    text.drawOutline(costLabel, @as(i32, @intFromFloat(cx)) - @divFloor(cw, 2), @intFromFloat(rect.y + SLOT - 15), 16, if (afford) C.yellow else C.overlay0, OUTLINE);
-
-    // Input prompt, top-left corner: d-pad direction or number key.
-    const prompt: prompt_icons.Icon = if (input.gamepadActive()) spec.dpad else prompt_icons.numberKey(spec.beeIndex);
-    prompt_icons.draw(prompt, rect.x - 9, rect.y - 9, PROMPT);
-
-    // Not affordable yet: how long until it is, top-right corner (under
-    // the Queen's Count hint when that's showing). Turns "can't" into
-    // "soon".
-    if (!afford) {
-        if (ctx.resources.purchaseWait(totalCost)) |secs| {
-            var ebuf: [16]u8 = undefined;
-            if (format.formatEta(secs, &ebuf)) |eta| {
-                const ew = text.measure(eta, 13);
-                const ey: f32 = if (bee_ai_system.milestonesUnlocked) 16 else 2;
-                text.drawOutline(eta, @as(i32, @intFromFloat(rect.x + SLOT - 2)) - ew, @intFromFloat(rect.y + ey), 13, C.peach, OUTLINE);
-            }
-        }
-    }
-
-    if (ctx.inputEnabled and hovered and afford and input.confirmPressed()) {
-        input.consumeConfirm();
-        flashSlot(spec.beeIndex);
-        out.* = .{ .buy = .{ .action = spec.buyAction, .qty = qty } };
-    }
+    if (hoveredSpec) |spec| drawBeeDetails(ctx, spec, ox + 236, @min(oy + 44, ctx.screenHeight - 154), out);
 }
 
 fn drawTreeButton(ctx: Context, mouse: rl.Vector2, out: *Action) void {
     const C = theme.CatppuccinMocha.Color;
-    const size: f32 = 62;
-    const rect = rl.Rectangle.init(ctx.screenWidth - MARGIN - size, ctx.screenHeight - MARGIN - size, size, size);
+    const rect = rl.Rectangle.init(MARGIN, ctx.screenHeight - MARGIN - 52, 228, 52);
     input.registerBlock(rect);
     input.registerHotspot(rect);
-    const hovered = rl.checkCollisionPointRec(mouse, rect);
-    const cxf = rect.x + size / 2;
-    const cyf = rect.y + size / 2 + 8;
-
-    // Mini upgrade-tree glyph: a root node branching into two child nodes,
-    // with a drop shadow; it grows a little on hover.
-    const k: f32 = if (hovered) 1.15 else 1.0;
-    const top = rl.Vector2.init(cxf, cyf - 11 * k);
-    const bl = rl.Vector2.init(cxf - 11 * k, cyf + 9 * k);
-    const br = rl.Vector2.init(cxf + 11 * k, cyf + 9 * k);
-    const sh = rl.Color.init(17, 17, 27, 140);
-    for ([_]rl.Vector2{ rl.Vector2.init(2, 2), rl.Vector2.init(0, 0) }, 0..) |o, pass| {
-        const branch = if (pass == 0) sh else C.overlay1;
-        const nodeTop = if (pass == 0) sh else if (hovered) C.pink else C.mauve;
-        const nodeKid = if (pass == 0) sh else C.pink;
-        rl.drawLineEx(rl.Vector2.init(top.x + o.x, top.y + o.y), rl.Vector2.init(bl.x + o.x, bl.y + o.y), 3, branch);
-        rl.drawLineEx(rl.Vector2.init(top.x + o.x, top.y + o.y), rl.Vector2.init(br.x + o.x, br.y + o.y), 3, branch);
-        rl.drawCircleV(rl.Vector2.init(top.x + o.x, top.y + o.y), 7 * k, nodeTop);
-        rl.drawCircleV(rl.Vector2.init(bl.x + o.x, bl.y + o.y), 5.5 * k, nodeKid);
-        rl.drawCircleV(rl.Vector2.init(br.x + o.x, br.y + o.y), 5.5 * k, nodeKid);
-    }
-
-    prompt_icons.draw(if (input.gamepadActive()) .pad_y else .key_t, rect.x - 9, rect.y - 9, PROMPT);
-
-    // "N upgrades affordable" badge, top-right: the player never
-    // has to open the tree to find out something is buyable.
+    const hovered = ctx.inputEnabled and rl.checkCollisionPointRec(mouse, rect);
+    rl.drawRectangleRounded(rect, 0.12, 6, if (hovered) C.surface1 else withAlpha(C.mantle, 235));
+    rl.drawRectangleRoundedLinesEx(rect, 0.12, 6, 1, if (hovered) C.mauve else C.surface1);
+    prompt_icons.draw(if (input.gamepadActive()) .pad_y else .key_t, rect.x + 8, rect.y + 12, 28);
+    text.draw(locale.tr("Tech tree", "Tecnologias"), @intFromFloat(rect.x + 42), @intFromFloat(rect.y + 17), 20, C.mauve);
     const affordable = ctx.treeState.affordableCount(ctx.resources.honey, ctx.prestigeCostMul, ctx.ascensions);
     if (affordable > 0) {
-        // Stable pixel badge: exact count, no shrinking "9+" label,
-        // no moving circle/glow behind the digits.
+        const badge = rl.Rectangle.init(rect.x + rect.width - 38, rect.y + 14, 30, 24);
+        rl.drawRectangleRec(badge, C.yellow);
         const label = rl.textFormat("%d", .{@as(c_int, @intCast(affordable))});
-        const labelSize = 16;
-        const lw = text.measure(label, labelSize);
-        const bw = @max(32, lw + 14);
-        const bx: i32 = @intFromFloat(rect.x + size - @as(f32, @floatFromInt(bw)));
-        const by: i32 = @intFromFloat(rect.y);
-        rl.drawRectangle(bx - 2, by - 2, bw + 4, 28, C.crust);
-        rl.drawRectangle(bx, by, bw, 24, C.yellow);
-        text.draw(label, bx + @divFloor(bw - lw, 2), by + 4, labelSize, C.crust);
+        text.draw(label, @intFromFloat(badge.x + (30 - @as(f32, @floatFromInt(text.measure(label, 16)))) / 2), @intFromFloat(badge.y + 4), 16, C.crust);
     }
-
-    if (ctx.inputEnabled and hovered and input.confirmPressed()) {
+    if (hovered and input.confirmPressed()) {
         input.consumeConfirm();
         out.* = .open_tree;
     }
@@ -450,7 +290,7 @@ fn censusWidth(ctx: Context) f32 {
 }
 
 /// Bee census row: one icon + owned count per type; locked types show the
-/// dark silhouette (same treatment as the cross). Cells are laid out
+/// dark silhouette (same treatment as the purchase rows). Cells are laid out
 /// left-to-right by content width, then the whole set is centered in the row.
 fn drawBeeCensus(ctx: Context, x: f32, y: f32, w: f32, h: f32) void {
     const C = theme.CatppuccinMocha.Color;
@@ -630,11 +470,14 @@ fn drawBeeDetails(ctx: Context, spec: SlotSpec, x: f32, y: f32, out: *Action) vo
         rl.textFormat(locale.tr("Owned %s", "Possui %s"), .{own.ptr});
     text.draw(label, ix, iy + 72, 15, C.subtext0);
     if (ctx.resources.needsStorage(cost)) {
-        text.draw(locale.tr("Increase storage · open tree [T/Y]", "Aumente o armazém · árvore [T/Y]"), ix, iy + 100, 15, C.peach);
-        // Clicking a blocked slot takes the player to the actual prerequisite.
+        const storage = upgrade_tree.findNode(upgrade_tree.STORAGE_ID).?;
+        var sb: [32]u8 = undefined;
+        const storageCost = ctx.treeState.nextCost(storage, ctx.prestigeCostMul);
+        text.draw(rl.textFormat(locale.tr("Click: storage + · %s honey", "Clique: armazém + · %s mel"), .{format.formatShort(storageCost, &sb).ptr}), ix, iy + 100, 15, C.peach);
+        // Upgrade capacity without leaving the meadow.
         if (ctx.inputEnabled and input.confirmPressed()) {
             input.consumeConfirm();
-            out.* = .open_storage;
+            out.* = .buy_storage;
         }
     } else if (ctx.resources.purchaseWait(cost)) |secs| {
         if (secs > 0) {

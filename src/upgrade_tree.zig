@@ -34,6 +34,7 @@ pub const EffectKind = enum {
     /// Drills: one bee type flies and collects x1.1 better per level. The
     /// type comes from the node id (see TRAINING_IDS).
     bee_training,
+    flower_removal_unlock,
 };
 
 /// Marks a node as re-buyable. Each purchase raises its level and re-applies
@@ -204,6 +205,7 @@ pub const NODES = [_]Node{
 
     // Instant Grow: unlocks the click-a-flower growth boost (was always-on).
     .{ .id = 20, .name = "Instant Grow", .cost = 30, .prereqs = r_worker, .effect = .growth_boost_unlock, .col = 0, .row = 1 },
+    .{ .id = 40, .name = "Removal Brush", .cost = 250, .prereqs = r_worker, .effect = .flower_removal_unlock, .col = 1, .row = 1 },
     // Super Flowers: 2x2 same-type blocks merge into an 8x SUPER flower.
     .{ .id = 21, .name = "Super Flowers", .cost = 3500, .prereqs = &[_]Prereq{ .{ .id = 7 }, .{ .id = 10 } }, .effect = .super_flower_unlock, .col = 1, .row = 3 },
 };
@@ -218,6 +220,7 @@ pub const NODE_COUNT: usize = NODES.len - 1;
 
 pub const ROOT_ID: NodeId = 0;
 pub const STORAGE_ID: NodeId = 13;
+pub const REMOVAL_BRUSH_ID: NodeId = 40;
 pub const AURA_ID: NodeId = 16;
 pub const PRESTIGE_ID: NodeId = 19;
 
@@ -703,4 +706,16 @@ test "prestige multiplier scales node prices but never storage" {
 
     const storage = findNode(STORAGE_ID).?;
     try std.testing.expectEqual(storage.cost, s.nextCost(storage, 1.3));
+}
+
+test "removal brush is a one-time early unlock and survives tree level restoration" {
+    var state = State.init(std.testing.allocator);
+    defer state.deinit();
+    const node = findNode(REMOVAL_BRUSH_ID).?;
+    try std.testing.expect(!state.hasEffect(.flower_removal_unlock));
+    try std.testing.expect(state.canBuy(node, 0));
+    try std.testing.expectEqual(@as(f32, 250), state.nextCost(node, 1));
+    try state.setLevel(REMOVAL_BRUSH_ID, 1);
+    try std.testing.expect(state.hasEffect(.flower_removal_unlock));
+    try std.testing.expect(!state.canBuy(node, 0));
 }

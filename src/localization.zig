@@ -83,6 +83,7 @@ pub fn nodeDesc(id: u16) [:0]const u8 {
         36 => tr("Worker bees fly and collect 10% better per level.", "Abelhas operárias voam e coletam 10% melhor por nível."),
         37 => tr("Swift bees fly and collect 10% better per level.", "Abelhas velozes voam e coletam 10% melhor por nível."),
         38 => tr("Efficient bees fly and collect 10% better per level.", "Abelhas eficientes voam e coletam 10% melhor por nível."),
+        40 => tr("Unlocks the Removal Brush in the flower picker. Drag to remove flowers and their plans, at no honey cost or refund. Super flowers are removed as a whole.", "Libera o Pincel de Remoção no seletor de flores. Arraste para remover flores e planos, sem custo ou reembolso de mel. Super flores são removidas por inteiro."),
         39 => tr("Gardener bees fly and collect 10% better per level.", "Abelhas jardineiras voam e coletam 10% melhor por nível."),
         else => "",
     };
@@ -118,6 +119,7 @@ pub fn nodeName(id: u16, english: []const u8) []const u8 {
         36 => "Treino: Operária",
         37 => "Treino: Veloz",
         38 => "Treino: Eficiente",
+        40 => "Pincel de Remoção",
         39 => "Treino: Jardineira",
         else => english,
     };

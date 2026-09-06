@@ -91,3 +91,64 @@ test "set / get / count / shift" {
     reset();
     try std.testing.expectEqual(@as(usize, 0), count());
 }
+
+/// Integer line traversal: a brush stroke never skips cells between frames.
+pub const Stroke = struct {
+    x: i32,
+    y: i32,
+    end_x: i32,
+    end_y: i32,
+    dx: i32,
+    dy: i32,
+    sx: i32,
+    sy: i32,
+    err: i32,
+    done: bool = false,
+
+    pub fn init(from_x: i32, from_y: i32, x: i32, y: i32) Stroke {
+        const start_x = if (from_x < 0 or from_y < 0) x else from_x;
+        const start_y = if (from_x < 0 or from_y < 0) y else from_y;
+        const dx: i32 = @intCast(@abs(x - start_x));
+        const dy = -@as(i32, @intCast(@abs(y - start_y)));
+        return .{ .x = start_x, .y = start_y, .end_x = x, .end_y = y, .dx = dx, .dy = dy, .sx = if (start_x < x) 1 else -1, .sy = if (start_y < y) 1 else -1, .err = dx + dy };
+    }
+
+    pub fn next(self: *Stroke) ?[2]i32 {
+        if (self.done) return null;
+        const cell = [2]i32{ self.x, self.y };
+        if (self.x == self.end_x and self.y == self.end_y) {
+            self.done = true;
+            return cell;
+        }
+        const e = 2 * self.err;
+        if (e >= self.dy) {
+            self.err += self.dy;
+            self.x += self.sx;
+        }
+        if (e <= self.dx) {
+            self.err += self.dx;
+            self.y += self.sy;
+        }
+        return cell;
+    }
+};
+
+test "fast brush stroke fills gaps in either direction and starts fresh after release" {
+    var stroke = Stroke.init(2, 3, 8, 3);
+    var x: i32 = 2;
+    while (stroke.next()) |cell| {
+        try std.testing.expectEqual([2]i32{ x, 3 }, cell);
+        x += 1;
+    }
+    try std.testing.expectEqual(@as(i32, 9), x);
+    stroke = Stroke.init(8, 8, 2, 2);
+    x = 8;
+    while (stroke.next()) |cell| {
+        try std.testing.expectEqual([2]i32{ x, x }, cell);
+        x -= 1;
+    }
+    try std.testing.expectEqual(@as(i32, 1), x);
+    stroke = Stroke.init(-1, -1, 5, 6);
+    try std.testing.expectEqual([2]i32{ 5, 6 }, stroke.next().?);
+    try std.testing.expect(stroke.next() == null);
+}

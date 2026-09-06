@@ -63,17 +63,21 @@ var viewFitted: bool = false;
 var selectedId: upgrade_tree.NodeId = 20;
 var pendingFocus: ?upgrade_tree.NodeId = null;
 var pressedNode: ?upgrade_tree.NodeId = null;
+var lastClickNode: ?upgrade_tree.NodeId = null;
+var lastClickTime: f64 = 0;
 var dragging: bool = false;
 var dragMoved: f32 = 0;
 var lastMouse: rl.Vector2 = .{ .x = 0, .y = 0 };
 
 /// End a gesture when reopening; retain the player's view and selection.
 pub fn resetView() void {
+    lastClickNode = null;
     dragging = false;
     pressedNode = null;
 }
 
 pub fn focusNode(id: upgrade_tree.NodeId) void {
+    lastClickNode = null;
     selectedId = id;
     pendingFocus = id;
     dragging = false;
@@ -334,6 +338,7 @@ pub fn draw(ctx: TreeContext) TreeAction {
             path.draw(2 * s, if (node.id == selectedId) C.peach else if (ctx.state.prereqMet(prereq)) C.sapphire else C.surface1);
         }
     }
+    var doublePurchase: ?upgrade_tree.NodeId = null;
     const cheapest = ctx.state.cheapestBuyable(ctx.prestigeCostMul, ctx.ascensions);
     for (&upgrade_tree.NODES) |*node| {
         const pos = nodePos(node, tl, s);
@@ -343,7 +348,19 @@ pub fn draw(ctx: TreeContext) TreeAction {
         if (fullyVisible) input.registerHotspot(rect); // Locked nodes are inspectable, too.
         const hovered = inContent and rl.checkCollisionPointRec(mouse, rect);
         if (hovered and input.confirmPressed()) pressedNode = node.id;
-        if (hovered and dragging and dragMoved < 8 and pressedNode == node.id and input.confirmReleased()) selectedId = node.id;
+        if (hovered and dragging and dragMoved < 8 and pressedNode == node.id and input.confirmReleased()) {
+            selectedId = node.id;
+            if (rl.isMouseButtonReleased(.left)) {
+                const now = rl.getTime();
+                if (lastClickNode == node.id and now - lastClickTime <= 0.35) {
+                    if (ctx.state.canBuy(node, ctx.ascensions) and ctx.resources.honey >= ctx.state.nextCost(node, ctx.prestigeCostMul)) doublePurchase = node.id;
+                    lastClickNode = null;
+                } else {
+                    lastClickNode = node.id;
+                    lastClickTime = now;
+                }
+            }
+        }
         const lvl = ctx.state.level(node.id);
         const maxed = node.isMaxed(lvl, ctx.ascensions);
         const unlocked = ctx.state.isUnlocked(node);
@@ -392,10 +409,12 @@ pub fn draw(ctx: TreeContext) TreeAction {
     }
     ui_scale.endScissor();
     if (input.confirmReleased()) {
+        if (dragMoved >= 8 or pressedNode == null) lastClickNode = null;
         dragging = false;
         pressedNode = null;
     }
     var action = drawDetails(ctx, details);
+    if (doublePurchase) |id| action = .{ .purchase = id };
     const footerY = H - 52;
     if (widgets.button(rl.Rectangle.init(W - 138, footerY, 120, 38), locale.tr("Close", "Fechar"))) action = .close;
     if (widgets.buttonEx(rl.Rectangle.init(W - 248, footerY, 100, 38), locale.tr("Fit", "Ajustar"), .{ .face = C.surface2, .textColor = C.text })) fitView(content.width, content.height);
@@ -403,7 +422,7 @@ pub fn draw(ctx: TreeContext) TreeAction {
         zoom = 1;
         focusNode(selectedId);
     }
-    text.draw(if (input.gamepadActive()) locale.tr("Stick: pan · A: select", "Stick: mover · A: selecionar") else locale.tr("Drag: pan · click: select", "Arraste: mover · clique: selecionar"), 18, @intFromFloat(footerY + 12), 14, C.subtext0);
+    text.draw(if (input.gamepadActive()) locale.tr("Stick: pan · A: select", "Stick: mover · A: selecionar") else locale.tr("Drag: pan · double-click: buy", "Arraste: mover · clique duplo: comprar"), 18, @intFromFloat(footerY + 12), 14, C.subtext0);
     return action;
 }
 
@@ -480,7 +499,11 @@ fn drawDetails(ctx: TreeContext, rect: rl.Rectangle) TreeAction {
     }
     const buttonRect = rl.Rectangle.init(ax, rect.y + rect.height - 50, aw, 38);
     if (ctx.resources.needsStorage(cost) and unlocked and !maxed) {
-        if (widgets.button(buttonRect, locale.tr("Increase storage", "Aumentar armazém"))) focusNode(upgrade_tree.STORAGE_ID);
+        const storage = upgrade_tree.findNode(upgrade_tree.STORAGE_ID).?;
+        const storageCost = ctx.state.nextCost(storage, ctx.prestigeCostMul);
+        var storageBuf: [32]u8 = undefined;
+        const label = rl.textFormat(locale.tr("Storage + · %s Honey", "Armazém + · %s Mel"), .{format.formatShort(storageCost, &storageBuf).ptr});
+        if (widgets.buttonEx(buttonRect, label, .{ .enabled = ctx.state.canBuy(storage, ctx.ascensions) and ctx.resources.honey >= storageCost, .fontSize = 18 })) return .{ .purchase = upgrade_tree.STORAGE_ID };
     } else {
         var cb: [32]u8 = undefined;
         const label = if (maxed) locale.tr("Owned / Max", "Obtido / Máx.") else if (!unlocked) locale.tr("Locked", "Bloqueado") else rl.textFormat(locale.tr("Buy · %s Honey", "Comprar · %s Mel"), .{format.formatShort(cost, &cb).ptr});
@@ -584,6 +607,11 @@ fn drawNodeIcon(ctx: TreeContext, node: *const upgrade_tree.Node, cx: f32, cy: f
             rl.drawCircle(@intFromFloat(cx - 6 * s), @intFromFloat(cy + 2 * s), 3 * s, col1);
             rl.drawCircle(@intFromFloat(cx), @intFromFloat(cy - 3 * s), 3.5 * s, col2);
             rl.drawCircle(@intFromFloat(cx + 6 * s), @intFromFloat(cy + 2 * s), 3 * s, col1);
+        },
+        .flower_removal_unlock => {
+            const col = if (unlocked) C.peach else dim;
+            icons.drawSprout(cx, cy + 7 * s, 14 * s, col);
+            rl.drawLineEx(rl.Vector2.init(cx - 8 * s, cy + 8 * s), rl.Vector2.init(cx + 8 * s, cy - 8 * s), 2 * s, if (unlocked) C.red else dim);
         },
         .super_flower_unlock => {
             // Bloomed rose frame (state 4 of the 5-frame sheet).
