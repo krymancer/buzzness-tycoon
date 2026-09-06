@@ -5,14 +5,10 @@ const assets = @import("assets.zig");
 
 const components = @import("ecs/components.zig");
 
-pub const Flowers = enum { rose, tulip, dandelion };
+pub const Flowers = components.FlowerType;
 
 pub fn flowersToFlowerType(flower: Flowers) components.FlowerType {
-    return switch (flower) {
-        .rose => .rose,
-        .tulip => .tulip,
-        .dandelion => .dandelion,
-    };
+    return flower;
 }
 
 pub const Textures = struct {
@@ -28,6 +24,9 @@ pub const Textures = struct {
     roseGray: rl.Texture,
     dandelionGray: rl.Texture,
     tulipGray: rl.Texture,
+    extra: [5]rl.Texture = @splat(dummy),
+    extraGray: [5]rl.Texture = @splat(dummy),
+    const dummy: rl.Texture = .{ .id = 0, .width = 160, .height = 32, .mipmaps = 1, .format = .uncompressed_r8g8b8a8 };
 
     pub fn init() !@This() {
         return .{
@@ -38,6 +37,8 @@ pub const Textures = struct {
             .beehive = try assets.loadTextureFromMemory(assets.beehive_png),
             .roseGray = try loadGrayscale(assets.rose_png),
             .tulipGray = try loadGrayscale(assets.tulip_png),
+            .extra = .{ try assets.loadTextureFromMemory(assets.pink_tulip_png), try assets.loadTextureFromMemory(assets.poppy_png), try assets.loadTextureFromMemory(assets.hyacinth_png), try assets.loadTextureFromMemory(assets.red_tulip_png), try assets.loadTextureFromMemory(assets.iris_png) },
+            .extraGray = .{ try loadGrayscale(assets.pink_tulip_png), try loadGrayscale(assets.poppy_png), try loadGrayscale(assets.hyacinth_png), try loadGrayscale(assets.red_tulip_png), try loadGrayscale(assets.iris_png) },
             .dandelionGray = try loadGrayscale(assets.dandelion_png),
         };
     }
@@ -68,6 +69,8 @@ pub const Textures = struct {
         rl.unloadTexture(self.roseGray);
         rl.unloadTexture(self.dandelionGray);
         rl.unloadTexture(self.tulipGray);
+        for (self.extra) |t| rl.unloadTexture(t);
+        for (self.extraGray) |t| rl.unloadTexture(t);
     }
 
     /// Withered look-up for a flower type (same sheet layout as the colour one).
@@ -75,6 +78,7 @@ pub const Textures = struct {
         return switch (flower) {
             .rose => self.roseGray,
             .tulip => self.tulipGray,
+            else => self.extraGray[@intFromEnum(flower) - 3],
             .dandelion => self.dandelionGray,
         };
     }
@@ -83,6 +87,7 @@ pub const Textures = struct {
         return switch (flower) {
             .rose => self.rose,
             .tulip => self.tulip,
+            else => self.extra[@intFromEnum(flower) - 3],
             .dandelion => self.dandelion,
         };
     }

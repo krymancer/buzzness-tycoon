@@ -75,7 +75,7 @@ pub fn nodeDesc(id: u16) [:0]const u8 {
         16 => tr("Flowers near the hive yield +25% pollen per level.", "Flores perto da colmeia rendem +25% de pólen por nível."),
         25 => tr("Widens the aura by one tile ring per level.", "Amplia a aura em um anel de células por nível."),
         19 => tr("Unlocks Prestige: reset the run for Royal Jelly and a permanent multiplier.", "Libera o Prestígio: reinicie a partida por Geleia Real e um multiplicador permanente."),
-        20 => tr("Unlocks Instant Grow: click a growing flower to bloom it instantly.", "Libera o Crescer Instantâneo: clique numa flor crescendo para desabrochá-la na hora."),
+        20 => tr("Unlocks Instant Grow: every few seconds a growing flower blooms on the spot.", "Libera o Crescer Instantâneo: a cada poucos segundos uma flor crescendo desabrocha na hora."),
         21 => tr("2x2 blocks of the same flower merge into an 8x SUPER flower.", "Blocos 2x2 da mesma flor se fundem numa SUPERflor de 8x."),
         33 => tr("Bees make half honey and fly slower at night; each level removes a quarter of the penalty.", "Abelhas produzem metade do mel e voam mais devagar à noite; cada nível remove um quarto da penalidade."),
         34 => tr("All bees fly 15% faster per level.", "Todas as abelhas voam 15% mais rápido por nível."),

@@ -50,20 +50,12 @@ pub const BEE_TYPE_COSTS = struct {
 
 /// Convert texture Flowers enum to component FlowerType
 pub fn flowersToFlowerType(flower: Flowers) components.FlowerType {
-    return switch (flower) {
-        .rose => .rose,
-        .tulip => .tulip,
-        .dandelion => .dandelion,
-    };
+    return flower;
 }
 
 /// Convert component FlowerType to texture Flowers enum
 pub fn flowerTypeToFlowers(flowerType: components.FlowerType) Flowers {
-    return switch (flowerType) {
-        .rose => .rose,
-        .tulip => .tulip,
-        .dandelion => .dandelion,
-    };
+    return flowerType;
 }
 
 /// Bee Vitality node: multiplies the lifespan of newly spawned bees.
@@ -251,13 +243,7 @@ pub fn spawnRandomFlower(
     gridX: i32,
     gridY: i32,
 ) !u32 {
-    const x = rl.getRandomValue(1, 3);
-    const flowerType: Flowers = switch (x) {
-        1 => .rose,
-        2 => .dandelion,
-        3 => .tulip,
-        else => .rose,
-    };
+    const flowerType: Flowers = @enumFromInt(rl.getRandomValue(0, Flowers.count - 1));
 
     const entity = try spawnFlower(world, textures, flowerType, gridX, gridY);
     _ = try tryMergeSuperFlower(world, gridX, gridY);

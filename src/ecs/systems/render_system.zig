@@ -9,6 +9,8 @@ const input = @import("../../input.zig");
 const grid_mod = @import("../../grid.zig");
 const Textures = @import("../../textures.zig").Textures;
 const bees_mod = @import("../../bees.zig");
+const meadow_plan = @import("../../meadow_plan.zig");
+const golden_flower = @import("../../golden_flower.zig");
 
 const FlowerRenderData = struct {
     entity: u32,
@@ -17,7 +19,7 @@ const FlowerRenderData = struct {
     sortKey: f32,
     isSuper: bool,
     /// Component slots, resolved once per rebuild. World component arrays
-    /// only ever append (removal drops the map entry, never compacts), so a
+    /// reuse freed slots without moving live components, so a
     /// slot stays valid for as long as the entity lives — and any spawn or
     /// removal bumps the world's flower generation, which rebuilds the list.
     growthIdx: usize,
@@ -202,6 +204,27 @@ pub fn draw(world: *World, gridOffset: rl.Vector2, gridScale: f32, worldTint: rl
     const hoverX: f32 = @floor(mouseIso.x);
     const hoverY: f32 = @floor(mouseIso.y);
 
+    // Plan ghosts: the planned type, translucent, on every empty planned
+    // cell — the blueprint the meadow is growing into.
+    if (meadow_plan.count() > 0) {
+        const ghostMargin: f32 = 64.0 * gridScale;
+        var ghost = worldTint;
+        ghost.a = 105;
+        for (0..@min(meadow_plan.height, meadow_plan.MAX)) |j| {
+            for (0..@min(meadow_plan.width, meadow_plan.MAX)) |i| {
+                const planned = meadow_plan.get(@intCast(i), @intCast(j)) orelse continue;
+                if (world.hasFlowerAtGrid(@intCast(i), @intCast(j))) continue;
+                const gx: f32 = @floatFromInt(i);
+                const gy: f32 = @floatFromInt(j);
+                const tilePos = utils.isoToXY(gx, gy, 32, 32, gridOffset.x, gridOffset.y, gridScale);
+                if (tilePos.x < -ghostMargin or tilePos.x > cachedScreenWidth + ghostMargin or
+                    tilePos.y < -ghostMargin or tilePos.y > cachedScreenHeight + ghostMargin) continue;
+                const tex = textures.getFlowerTexture(planned);
+                drawSpriteAtGridPosition(tex, gx, gy, rl.Rectangle.init(128, 0, 32, 32), 1.8, ghost, gridOffset, gridScale, 0);
+            }
+        }
+    }
+
     // Ground shadows first as one same-texture pass (scaled with how grown the
     // flower is, and with the whole block for SUPER flowers). Keeping them out
     // of the sprite loop avoids a texture switch per flower.
@@ -251,6 +274,28 @@ pub fn draw(world: *World, gridOffset: rl.Vector2, gridScale: f32, worldTint: rl
         }
 
         drawSpriteAtGridPosition(sprite.texture, flowerData.gridX, flowerData.gridY, source, sprite.scale, worldTint, gridOffset, gridScale, sway);
+    }
+
+    // The golden flower: a glowing gold rose that pulses while its timer
+    // ring runs down, drawn over the flowers so it can't hide behind one.
+    if (golden_flower.active) {
+        const gx: f32 = @floatFromInt(golden_flower.x);
+        const gy: f32 = @floatFromInt(golden_flower.y);
+        const tilePos = utils.isoToXY(gx, gy, 32, 32, gridOffset.x, gridOffset.y, gridScale);
+        const cx = tilePos.x + 16 * gridScale;
+        const cy = tilePos.y + 8 * gridScale;
+        const pulse = 0.5 + 0.5 * @sin(time * 5.0);
+        if (discTexture(&glowDiscTex, GLOW_DENSITY)) |disc| {
+            const r = (26 + 8 * pulse) * gridScale / 3.0 * 2.0;
+            drawDisc(disc, cx, cy - 10 * gridScale / 3.0, r, r * 0.7, rl.Color.init(255, 226, 120, @intFromFloat(120 + 80 * pulse)));
+        }
+        const bob = @sin(time * 4.0) * 3.0 * gridScale / 3.0;
+        const gold = rl.Color.init(255, 222, 96, 255);
+        drawSpriteAtGridPosition(textures.rose, gx, gy, rl.Rectangle.init(128, 0, 32, 32), 2.4 + 0.2 * pulse, gold, gridOffset, gridScale, bob);
+        // Timer ring.
+        const frac = std.math.clamp(golden_flower.lifeLeft / golden_flower.LIFETIME, 0, 1);
+        const rr = 22 * gridScale / 3.0 * 2.0;
+        rl.drawRing(rl.Vector2.init(cx, cy - 20 * gridScale / 3.0), rr - 2.5, rr, -90, -90 + 360 * frac, 40, rl.Color.init(255, 240, 180, 230));
     }
 
     buildBeeRenderList(world);

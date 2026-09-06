@@ -42,6 +42,13 @@ pub const Flower = struct {
     is_rotten: bool = false,
 };
 
+/// One planned cell (`plan x y type` line; type indexes components.FlowerType).
+pub const PlanCell = struct {
+    x: i32,
+    y: i32,
+    flower_type: u8,
+};
+
 pub const Data = struct {
     language: u8 = 0,
     ui_scale: f32 = 1,
@@ -88,6 +95,8 @@ pub const Data = struct {
     /// persisted (loaders fall back to bee_counts).
     bee_cells: std.ArrayList(BeeCell) = .empty,
     flowers: std.ArrayList(Flower) = .empty,
+    /// Planting plan cells (absent in older saves).
+    plans: std.ArrayList(PlanCell) = .empty,
     /// Lifetime counters (`stat <api> <value>` lines) and unlocked
     /// achievements (`achievement <api>` lines). Both are profile-level:
     /// they survive prestige and New Game. Absent in older saves.
@@ -97,6 +106,7 @@ pub const Data = struct {
     pub fn deinit(self: *@This(), allocator: std.mem.Allocator) void {
         self.bee_cells.deinit(allocator);
         self.flowers.deinit(allocator);
+        self.plans.deinit(allocator);
     }
 };
 
@@ -181,6 +191,9 @@ pub fn write(io: std.Io, save_path: []const u8, data: *const Data) !void {
     }
     for (data.bee_cells.items) |cell| {
         try writer.print("bee {d} {d} {d} {d}\n", .{ cell.bee_type, cell.x, cell.y, cell.count });
+    }
+    for (data.plans.items) |cell| {
+        try writer.print("plan {d} {d} {d}\n", .{ cell.x, cell.y, cell.flower_type });
     }
     for (data.flowers.items) |flower| {
         try writer.print("flower {d} {d} {d} {d} {d} {d} {d} {d} {d} {d} {d} {d} {d} {d} {d}\n", .{
@@ -319,6 +332,13 @@ pub fn read(allocator: std.mem.Allocator, io: std.Io, save_path: []const u8) !Da
             const bee_type = try parse(usize, tokens.next());
             const count = try parse(u32, tokens.next());
             if (bee_type < data.bee_counts.len and count <= MAX_BEES_PER_TYPE) data.bee_counts[bee_type] = count;
+        } else if (std.mem.eql(u8, key, "plan")) {
+            if (data.plans.items.len >= MAX_FLOWERS) return error.SaveTooLarge;
+            try data.plans.append(allocator, .{
+                .x = try parse(i32, tokens.next()),
+                .y = try parse(i32, tokens.next()),
+                .flower_type = try parse(u8, tokens.next()),
+            });
         } else if (std.mem.eql(u8, key, "flower")) {
             if (data.flowers.items.len >= MAX_FLOWERS) return error.SaveTooLarge;
             try data.flowers.append(allocator, .{

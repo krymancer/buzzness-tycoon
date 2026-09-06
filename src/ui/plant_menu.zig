@@ -1,6 +1,10 @@
 //! Compact "plant a flower" chooser that opens when the player clicks an
 //! empty meadow tile. Three rows (one per flower type) with sprite, name and
-//! cost; clicking outside or pressing Esc closes it.
+//! cost, plus "Clear plan"; clicking outside or pressing Esc closes it.
+//!
+//! Picking a type plants it on the tile and arms it as a brush: dragging
+//! across the meadow then paints the plan (and plants where honey allows)
+//! until a right-click / Esc / B drops the brush.
 
 const rl = @import("raylib");
 const text = @import("../text.zig");
@@ -19,17 +23,36 @@ pub const Action = union(enum) {
     none,
     close,
     plant: Flowers,
+    /// Arm the eraser: dragging clears planned cells.
+    erase,
 };
 
 pub const State = struct {
     open: bool = false,
     tileX: i32 = 0,
     tileY: i32 = 0,
+    /// Armed flower brush (paint the plan / plant on drag).
+    brush: ?Flowers = null,
+    eraser: bool = false,
+    /// Last tile painted this drag, so holding still doesn't re-paint.
+    lastPaintX: i32 = -1,
+    lastPaintY: i32 = -1,
 
     pub fn openAt(self: *@This(), x: i32, y: i32) void {
         self.open = true;
         self.tileX = x;
         self.tileY = y;
+    }
+
+    pub fn brushActive(self: *const @This()) bool {
+        return self.brush != null or self.eraser;
+    }
+
+    pub fn dropBrush(self: *@This()) void {
+        self.brush = null;
+        self.eraser = false;
+        self.lastPaintX = -1;
+        self.lastPaintY = -1;
     }
 };
 
@@ -43,21 +66,33 @@ pub const Context = struct {
 };
 
 const ROW_H: f32 = 44;
-const PANEL_W: f32 = 190;
+const PANEL_W: f32 = 280;
 const PAD: f32 = 8;
+/// Enabled only by the garden-planning prototype.
+pub var planningEnabled: bool = false;
 
 const Entry = struct { flower: Flowers, cost: f32 };
 const ENTRIES = [_]Entry{
     .{ .flower = .dandelion, .cost = spawners.FLOWER_COSTS.dandelion },
     .{ .flower = .rose, .cost = spawners.FLOWER_COSTS.rose },
     .{ .flower = .tulip, .cost = spawners.FLOWER_COSTS.tulip },
+    .{ .flower = .pink_tulip, .cost = Flowers.pink_tulip.stats().plantCost },
+    .{ .flower = .poppy, .cost = Flowers.poppy.stats().plantCost },
+    .{ .flower = .hyacinth, .cost = Flowers.hyacinth.stats().plantCost },
+    .{ .flower = .red_tulip, .cost = Flowers.red_tulip.stats().plantCost },
+    .{ .flower = .iris, .cost = Flowers.iris.stats().plantCost },
 };
 
-fn flowerName(f: Flowers) [:0]const u8 {
+pub fn flowerName(f: Flowers) [:0]const u8 {
     return switch (f) {
         .rose => locale.tr("Rose", "Rosa"),
         .tulip => locale.tr("Tulip", "Tulipa"),
         .dandelion => locale.tr("Dandelion", "Dente-de-leão"),
+        .pink_tulip => locale.tr("Pink Tulip", "Tulipa Rosa"),
+        .poppy => locale.tr("Poppy", "Papoula"),
+        .hyacinth => locale.tr("Hyacinth", "Jacinto"),
+        .red_tulip => locale.tr("Red Tulip", "Tulipa Vermelha"),
+        .iris => locale.tr("Iris", "Íris"),
     };
 }
 
@@ -68,13 +103,20 @@ fn flowerHint(f: Flowers) [:0]const u8 {
         .rose => locale.tr("balanced", "equilibrada"),
         .tulip => locale.tr("rich pollen · slow · lasting", "muito pólen · lenta · duradoura"),
         .dandelion => locale.tr("light pollen · quick · brief", "pouco pólen · rápida · breve"),
+        .pink_tulip => locale.tr("quick · light pollen", "rápida · pouco pólen"),
+        .poppy => locale.tr("rich pollen · brief", "muito pólen · breve"),
+        .hyacinth => locale.tr("steady pollen · lasting", "pólen constante · duradoura"),
+        .red_tulip => locale.tr("rich pollen · slow", "muito pólen · lenta"),
+        .iris => locale.tr("richest pollen · slowest", "mais pólen · mais lenta"),
     };
 }
 
 /// Draw the menu anchored under its tile and return what the player did.
 pub fn draw(state: *const State, ctx: Context) Action {
     const C = theme.CatppuccinMocha.Color;
-    const panelH: f32 = PAD * 2 + 24 + ROW_H * ENTRIES.len;
+    const ERASE_H: f32 = 30;
+    const HINT_H: f32 = 16;
+    const panelH: f32 = PAD * 2 + 24 + ROW_H * ENTRIES.len + (if (planningEnabled) ERASE_H + HINT_H else 0);
 
     // Anchor just below the tile's diamond, clamped to the screen.
     const tilePos = utils.isoToXY(@floatFromInt(state.tileX), @floatFromInt(state.tileY), 32, 32, ctx.gridOffset.x, ctx.gridOffset.y, ctx.gridScale);
@@ -122,6 +164,23 @@ pub fn draw(state: *const State, ctx: Context) Action {
         text.draw(costLabel, @intFromFloat(cx), @intFromFloat(row.y + 12), 15, if (afford) C.yellow else C.overlay0);
 
         if (clicked and hovered and afford) action = .{ .plant = entry.flower };
+    }
+
+    if (planningEnabled) {
+        // "Clear plan" eraser row.
+        const ey = py + PAD + 24 + ROW_H * ENTRIES.len;
+        const erow = rl.Rectangle.init(px + PAD, ey, PANEL_W - PAD * 2, ERASE_H - 4);
+        input.registerHotspot(erow);
+        const ehov = rl.checkCollisionPointRec(mouse, erow);
+        rl.drawRectangleRounded(erow, 0.25, 4, if (ehov) C.surface1 else C.surface0);
+        rl.drawRectangleRoundedLinesEx(erow, 0.25, 4, 1, if (ehov) C.red else C.surface2);
+        const elabel = locale.tr("Clear plan (eraser)", "Limpar plano (borracha)");
+        text.draw(elabel, @intFromFloat(erow.x + 10), @intFromFloat(erow.y + 5), 14, if (ehov) C.red else C.subtext1);
+        if (clicked and ehov) action = .erase;
+
+        // Brush hint.
+        const hint = locale.tr("then drag to paint · right-click stops", "depois arraste para pintar · botão direito para parar");
+        text.draw(hint, @intFromFloat(px + PAD + 2), @intFromFloat(ey + ERASE_H - 2), 11, C.overlay1);
     }
 
     // Click anywhere outside the panel closes it.

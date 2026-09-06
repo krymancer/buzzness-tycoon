@@ -31,3 +31,9 @@ pub const ui_key_3_png = @embedFile("ui/key_3.png");
 pub const ui_key_4_png = @embedFile("ui/key_4.png");
 pub const ui_key_t_png = @embedFile("ui/key_t.png");
 pub const ui_key_tab_png = @embedFile("ui/key_tab.png");
+
+pub const pink_tulip_png = @embedFile("pink_tulip.png");
+pub const poppy_png = @embedFile("poppy.png");
+pub const hyacinth_png = @embedFile("hyacinth.png");
+pub const red_tulip_png = @embedFile("red_tulip.png");
+pub const iris_png = @embedFile("iris.png");

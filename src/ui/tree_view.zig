@@ -34,10 +34,10 @@ pub const TreeAction = union(enum) {
     purchase: upgrade_tree.NodeId,
 };
 
-const NODE_W: f32 = 148;
-const NODE_H: f32 = 54;
-const COL_SPACING: f32 = 160;
-const ROW_SPACING: f32 = 72;
+const NODE_W: f32 = 208;
+const NODE_H: f32 = 84;
+const COL_SPACING: f32 = 228;
+const ROW_SPACING: f32 = 108;
 // Layout extents (cols -4..4, rows 0..6) at scale 1.
 const MIN_COL: f32 = -4;
 const MAX_COL: f32 = 4;
@@ -46,10 +46,10 @@ const TREE_W: f32 = (MAX_COL - MIN_COL) * COL_SPACING + NODE_W;
 const TREE_H: f32 = MAX_ROW * ROW_SPACING + NODE_H;
 // The tree is a map: drag (or right stick / WASD) to pan, wheel (or
 // triggers / +-) to zoom about the cursor, "Fit" or Home to reset. It never
-// shrinks text to fit; opening fits the whole tree once, then it's yours.
+// opens at a readable scale; Fit provides an optional overview.
 const ZOOM_MIN: f32 = 0.45;
 const ZOOM_MAX: f32 = 2.2;
-/// Opening leaves this much of the content area as margin around the tree.
+/// Fit leaves this much of the content area as margin around the tree.
 const FIT_MARGIN: f32 = 0.92;
 /// Panning can't push the tree further than this many px from the edge, so
 /// it can always be dragged back.
@@ -60,13 +60,22 @@ var zoom: f32 = 1;
 var panX: f32 = 0;
 var panY: f32 = 0;
 var viewFitted: bool = false;
+var selectedId: upgrade_tree.NodeId = 20;
+var pendingFocus: ?upgrade_tree.NodeId = null;
+var pressedNode: ?upgrade_tree.NodeId = null;
 var dragging: bool = false;
 var dragMoved: f32 = 0;
 var lastMouse: rl.Vector2 = .{ .x = 0, .y = 0 };
 
-/// Refit the view on the next draw (called when the tree opens).
+/// End a gesture when reopening; retain the player's view and selection.
 pub fn resetView() void {
-    viewFitted = false;
+    dragging = false;
+    pressedNode = null;
+}
+
+pub fn focusNode(id: upgrade_tree.NodeId) void {
+    selectedId = id;
+    pendingFocus = id;
     dragging = false;
 }
 
@@ -249,317 +258,230 @@ fn routeFor(parent: *const upgrade_tree.Node, child: *const upgrade_tree.Node, t
 
 pub fn draw(ctx: TreeContext) TreeAction {
     const C = theme.CatppuccinMocha.Color;
-    const now: f32 = @floatCast(clock.time());
     const dt = rl.getFrameTime();
     for (&nodeFlash) |*f| f.* = @max(0, f.* - dt);
-
-    const panelW: f32 = ctx.screenWidth;
-    const panelH: f32 = ctx.screenHeight;
-    const panelX: f32 = 0;
-    const panelY: f32 = 0;
-    input.registerBlock(rl.Rectangle.init(panelX, panelY, panelW, panelH));
-
-    // Deep solid bg so surface0 nodes read clearly on top; a thin accent
-    // strip along the top breathes between blue and mauve like the
-    // prestige screen's.
-    rl.drawRectangle(0, 0, @intFromFloat(panelW), @intFromFloat(panelH), C.mantle);
-    const breathe = 0.5 + 0.5 * @sin(now * 1.6);
-    rl.drawRectangle(0, 0, @intFromFloat(panelW), 3, lerpColor(C.sapphire, C.mauve, breathe));
-
-    const title = locale.tr("Upgrade Tree", "Árvore de Melhorias");
-    const titleX = @as(i32, @intFromFloat(panelX + panelW / 2)) - @divFloor(text.measure(title, 32), 2);
-    text.draw(title, titleX, @as(i32, @intFromFloat(panelY + 10)), 32, C.mauve);
-
-    // Honey stash pill (helps gauge affordability), top-left.
-    var hbuf: [32]u8 = undefined;
-    const hstr = format.formatShort(ctx.resources.honey, &hbuf);
-    const honeyLabel = rl.textFormat(locale.tr("%s honey", "%s de mel"), .{hstr.ptr});
-    const honeyW: f32 = @floatFromInt(text.measure(honeyLabel, 19));
-    const pill = rl.Rectangle.init(panelX + 16, panelY + 14, honeyW + 46, 36);
-    rl.drawRectangleRounded(pill, 0.5, 8, C.surface0);
-    rl.drawRectangleRoundedLinesEx(pill, 0.5, 8, 1, C.surface2);
-    icons.drawHoneyDrop(pill.x + 18, pill.y + 22, 5.5, C.yellow);
-    text.draw(honeyLabel, @intFromFloat(pill.x + 32), @intFromFloat(pill.y + 8), 19, C.yellow);
-
-    // Progress pill ("14/27 owned"), top-right.
-    const ownedLabel = rl.textFormat(locale.tr("%d/%d owned", "%d/%d obtidos"), .{ @as(c_int, @intCast(ctx.state.ownedCount())), @as(c_int, @intCast(upgrade_tree.NODE_COUNT)) });
-    const ownedW: f32 = @floatFromInt(text.measure(ownedLabel, 19));
-    const opill = rl.Rectangle.init(panelX + panelW - 16 - (ownedW + 28), panelY + 14, ownedW + 28, 36);
-    rl.drawRectangleRounded(opill, 0.5, 8, C.surface0);
-    rl.drawRectangleRoundedLinesEx(opill, 0.5, 8, 1, C.surface2);
-    text.draw(ownedLabel, @intFromFloat(opill.x + 14), @intFromFloat(opill.y + 8), 19, C.subtext1);
-
-    // Content area between the title row and the legend/close row.
-    const contentX = panelX + 20;
-    const contentY = panelY + 60;
-    const contentW = panelW - 40;
-    const contentH = panelH - 60 - 78;
-
-    const ccx = contentX + contentW / 2;
-    const ccy = contentY + contentH / 2;
-    if (!viewFitted) fitView(contentW, contentH);
-
+    const W = ctx.screenWidth;
+    const H = ctx.screenHeight;
     const mouse = input.pointerPos();
-    const inContent = rl.checkCollisionPointRec(mouse, rl.Rectangle.init(contentX, contentY, contentW, contentH));
+    input.registerBlock(rl.Rectangle.init(0, 0, W, H));
+    rl.drawRectangle(0, 0, @intFromFloat(W), @intFromFloat(H), C.mantle);
+    text.draw(locale.tr("Upgrade Tree", "Árvore de Melhorias"), 18, 12, 28, C.mauve);
+    var hb: [32]u8 = undefined;
+    const honey = format.formatShort(ctx.resources.honey, &hb);
+    const summary = rl.textFormat(locale.tr("%s honey · %d/%d owned", "%s mel · %d/%d obtidos"), .{ honey.ptr, @as(c_int, @intCast(ctx.state.ownedCount())), @as(c_int, @intCast(upgrade_tree.NODE_COUNT)) });
+    text.draw(summary, @intFromFloat(W - @as(f32, @floatFromInt(text.measure(summary, 17))) - 18), 19, 17, C.yellow);
 
-    // Zoom: wheel about the cursor; triggers / +- about the centre.
+    // Named shortcuts pan to a branch without hiding dependencies.
+    const branches = [_][:0]const u8{ locale.tr("Bees", "Abelhas"), locale.tr("Honey", "Mel"), locale.tr("Meadow", "Campina"), locale.tr("Colony", "Colônia"), locale.tr("Labs", "Labs") };
+    const targets = [_]upgrade_tree.NodeId{ 4, 1, 13, 30, upgrade_tree.AURA_ID };
+    const bw = @min(132, (W - 36) / 5);
+    for (branches, targets, 0..) |label, id, i| {
+        if (widgets.segment(rl.Rectangle.init(18 + @as(f32, @floatFromInt(i)) * bw, 52, bw - 6, 34), label, selectedId == id)) focusNode(id);
+    }
+
+    const side = W >= 1100;
+    const detailsW: f32 = if (side) 320 else W - 36;
+    const detailsH: f32 = if (side) H - 164 else 202;
+    const content = rl.Rectangle.init(18, 102, W - 36 - (if (side) @as(f32, 338) else 0), H - 164 - (if (side) @as(f32, 0) else detailsH + 12));
+    const details = rl.Rectangle.init(if (side) W - detailsW - 18 else 18, if (side) 102 else content.y + content.height + 12, detailsW, detailsH);
+    const ccx = content.x + content.width / 2;
+    const ccy = content.y + content.height / 2;
+    if (!viewFitted) {
+        zoom = devOpenZoom orelse 1.1;
+        devOpenZoom = null;
+        viewFitted = true;
+        if (pendingFocus == null) pendingFocus = selectedId;
+    }
+    if (pendingFocus) |id| {
+        const node = upgrade_tree.findNode(id) orelse &upgrade_tree.NODES[0];
+        zoom = @max(1.0, zoom);
+        panX = TREE_W * zoom / 2 - ((@as(f32, @floatFromInt(node.col)) - MIN_COL) * COL_SPACING + NODE_W / 2) * zoom;
+        panY = TREE_H * zoom / 2 - (@as(f32, @floatFromInt(node.row)) * ROW_SPACING + NODE_H / 2) * zoom;
+        pendingFocus = null;
+    }
+    const inContent = rl.checkCollisionPointRec(mouse, content);
     const wheel = rl.getMouseWheelMoveV().y;
     if (inContent and wheel != 0) zoomAt(mouse, zoom * std.math.pow(f32, 1.12, wheel), ccx, ccy);
     const zaxis = input.zoomAxis();
     if (zaxis != 0) zoomAt(rl.Vector2.init(ccx, ccy), zoom * std.math.pow(f32, 2.0, zaxis * dt), ccx, ccy);
-
-    // Pan: left-drag, right stick, WASD / arrows.
     if (inContent and input.confirmPressed()) {
         dragging = true;
         dragMoved = 0;
         lastMouse = mouse;
+        pressedNode = null;
     }
-    if (dragging) {
-        if (input.confirmDown()) {
-            const dx = mouse.x - lastMouse.x;
-            const dy = mouse.y - lastMouse.y;
-            dragMoved += @abs(dx) + @abs(dy);
-            panX += dx;
-            panY += dy;
-            lastMouse = mouse;
-        } else dragging = false;
+    if (dragging and input.confirmDown()) {
+        const dx = mouse.x - lastMouse.x;
+        const dy = mouse.y - lastMouse.y;
+        dragMoved += @abs(dx) + @abs(dy);
+        panX += dx;
+        panY += dy;
+        lastMouse = mouse;
     }
     const keyPan = input.cameraPan();
     panX -= keyPan.x;
     panY -= keyPan.y;
-    if (rl.isKeyPressed(rl.KeyboardKey.home)) fitView(contentW, contentH);
-
+    if (rl.isKeyPressed(.home)) fitView(content.width, content.height);
     const s = zoom;
-    const treeW = TREE_W * s;
-    const treeH = TREE_H * s;
-    // Keep some of the tree on screen so it can't be lost off an edge.
-    const limX = @max(0, treeW / 2 + contentW / 2 - KEEP_VISIBLE);
-    const limY = @max(0, treeH / 2 + contentH / 2 - KEEP_VISIBLE);
-    panX = std.math.clamp(panX, -limX, limX);
-    panY = std.math.clamp(panY, -limY, limY);
-
-    const tl = rl.Vector2.init(ccx + panX - treeW / 2, ccy + panY - treeH / 2);
-    const nodeW = NODE_W * s;
-    const nodeH = NODE_H * s;
-
-    // Hovered node first, so a locked node's missing prerequisites can be
-    // highlighted while its own body draws.
-    var hoveredNode: ?*const upgrade_tree.Node = null;
-    if (inContent) {
-        for (&upgrade_tree.NODES) |*node| {
-            const p = nodePos(node, tl, s);
-            if (rl.checkCollisionPointRec(mouse, rl.Rectangle.init(p.x, p.y, nodeW, nodeH))) hoveredNode = node;
+    panX = std.math.clamp(panX, -@max(0, TREE_W * s / 2 + content.width / 2 - KEEP_VISIBLE), @max(0, TREE_W * s / 2 + content.width / 2 - KEEP_VISIBLE));
+    panY = std.math.clamp(panY, -@max(0, TREE_H * s / 2 + content.height / 2 - KEEP_VISIBLE), @max(0, TREE_H * s / 2 + content.height / 2 - KEEP_VISIBLE));
+    const tl = rl.Vector2.init(ccx + panX - TREE_W * s / 2, ccy + panY - TREE_H * s / 2);
+    ui_scale.beginScissor(content.x, content.y, content.width, content.height);
+    for (&upgrade_tree.NODES) |*node| {
+        for (node.prereqs) |prereq| {
+            const parent = upgrade_tree.findNode(prereq.id) orelse continue;
+            const path = routeFor(parent, node, tl, s);
+            path.draw(2 * s, if (node.id == selectedId) C.peach else if (ctx.state.prereqMet(prereq)) C.sapphire else C.surface1);
         }
     }
     const cheapest = ctx.state.cheapestBuyable(ctx.prestigeCostMul, ctx.ascensions);
-
-    ui_scale.beginScissor(contentX, contentY, contentW, contentH);
-
-    // Prereq connectors first (behind nodes), in three passes so a shared
-    // trunk segment shows its most advanced state on top: dormant links,
-    // then open (parent owned) links, then owned links.
-    for (0..3) |pass| {
-        for (&upgrade_tree.NODES) |*node| {
-            const childOwned = ctx.state.isPurchased(node.id);
-            for (node.prereqs) |p| {
-                const pnode = upgrade_tree.findNode(p.id) orelse continue;
-                const parentMet = ctx.state.prereqMet(p);
-                const cls: usize = if (childOwned) 2 else if (parentMet) 1 else 0;
-                if (cls != pass) continue;
-                const path = routeFor(pnode, node, tl, s);
-                const thick: f32 = (if (childOwned) @as(f32, 3) else 2) * s;
-                const color = if (childOwned) C.green else if (parentMet) C.sapphire else C.surface1;
-                path.draw(thick, color);
-
-                // Sap flowing toward a reachable-but-unbought node: two motes
-                // travel the line so open branches read as alive.
-                if (parentMet and !childOwned and ctx.state.isUnlocked(node)) {
-                    for (0..2) |k| {
-                        const frac = @mod(now * 0.35 + @as(f32, @floatFromInt(k)) * 0.5 + @as(f32, @floatFromInt(node.id)) * 0.13, 1.0);
-                        const pt = path.at(frac);
-                        rl.drawCircleV(pt, 4 * s, withAlpha(C.sky, 70));
-                        rl.drawCircleV(pt, 2.2 * s, C.sky);
-                    }
-                }
-            }
-        }
-    }
-
-    var action: TreeAction = .none;
-    // A click that was really a pan shouldn't buy the node under the cursor.
-    const clickOk = inContent and dragMoved < 8;
-
     for (&upgrade_tree.NODES) |*node| {
-        const basePos = nodePos(node, tl, s);
-        const hitRect = rl.Rectangle.init(basePos.x, basePos.y, nodeW, nodeH);
+        const pos = nodePos(node, tl, s);
+        const rect = rl.Rectangle.init(pos.x, pos.y, NODE_W * s, NODE_H * s);
+        if (!rl.checkCollisionRecs(rect, content)) continue;
+        const fullyVisible = rect.x >= content.x and rect.y >= content.y and rect.x + rect.width <= content.x + content.width and rect.y + rect.height <= content.y + content.height;
+        if (fullyVisible) input.registerHotspot(rect); // Locked nodes are inspectable, too.
+        const hovered = inContent and rl.checkCollisionPointRec(mouse, rect);
+        if (hovered and input.confirmPressed()) pressedNode = node.id;
+        if (hovered and dragging and dragMoved < 8 and pressedNode == node.id and input.confirmReleased()) selectedId = node.id;
         const lvl = ctx.state.level(node.id);
-        const purchased = lvl > 0;
         const maxed = node.isMaxed(lvl, ctx.ascensions);
         const unlocked = ctx.state.isUnlocked(node);
         const cost = ctx.state.nextCost(node, ctx.prestigeCostMul);
         const afford = ctx.resources.honey >= cost;
-        const buyable = !maxed and unlocked;
-        var style = styleFor(purchased, maxed, unlocked, afford);
-
-        // Hovering a locked node points at what it's waiting on.
-        if (hoveredNode) |h| {
-            if (h != node and !ctx.state.isUnlocked(h)) {
-                for (h.prereqs) |p| {
-                    if (p.id == node.id and !ctx.state.prereqMet(p)) {
-                        style.border = C.peach;
-                        style.borderThick = 3;
-                    }
-                }
+        var style = styleFor(lvl > 0, maxed, unlocked, afford);
+        if (node.id == selectedId) {
+            style.border = C.peach;
+            style.borderThick = 3;
+        }
+        const selected = upgrade_tree.findNode(selectedId).?;
+        for (selected.prereqs) |pr| {
+            if (pr.id == node.id and !ctx.state.prereqMet(pr)) {
+                style.border = C.peach;
             }
         }
-
-        // Actionable nodes lift slightly under the cursor.
-        const hovered = hoveredNode == node;
-        const lift: f32 = if (hovered and buyable) 2 * s else 0;
-        const pos = rl.Vector2.init(basePos.x, basePos.y - lift);
-        const rect = rl.Rectangle.init(pos.x, pos.y, nodeW, nodeH);
-        if (buyable) input.registerHotspot(hitRect);
-
-        // Affordable nodes carry a soft pulsing halo so "you can buy this"
-        // reads without hunting for blue borders.
-        if (buyable and afford) {
-            const pulse = 0.5 + 0.5 * @sin(now * 3.0 + @as(f32, @floatFromInt(node.id)) * 0.7);
-            const spread = (2 + 3 * pulse) * s;
-            const halo = rl.Rectangle.init(rect.x - spread, rect.y - spread, rect.width + 2 * spread, rect.height + 2 * spread);
-            rl.drawRectangleRounded(halo, 0.3, 6, withAlpha(if (purchased) C.teal else C.blue, @intFromFloat(18 + 30 * pulse)));
-        }
-
-        rl.drawRectangleRounded(rect, 0.2, 6, style.fill);
-        rl.drawRectangleRoundedLinesEx(rect, 0.2, 6, style.borderThick * s, style.border);
-
-        if (buyable and afford and hovered) {
-            rl.drawRectangleRounded(rect, 0.2, 6, withAlpha(C.blue, 40));
-        }
-
-        // Purchase glow: a green ring bursts outward and fades.
-        const flash = if (node.id < nodeFlash.len) nodeFlash[node.id] else 0;
-        if (flash > 0) {
-            const t = flash / FLASH_TIME;
-            const spread = (14 * (1 - t) + 2) * s;
-            const ring = rl.Rectangle.init(rect.x - spread, rect.y - spread, rect.width + 2 * spread, rect.height + 2 * spread);
-            rl.drawRectangleRounded(rect, 0.2, 6, withAlpha(C.green, @intFromFloat(90 * t)));
-            rl.drawRectangleRoundedLinesEx(ring, 0.3, 6, 2 * s, withAlpha(C.green, @intFromFloat(220 * t)));
-        }
-
-        // Body: effect icon on the left; row 1 the name, row 2 the price
-        // (or Owned / Max), an "in 12s" countdown when it's out of reach,
-        // and the level on the right for repeatables.
-        drawNodeIcon(ctx, node, pos.x + 16 * s, pos.y + nodeH / 2 - 2 * s, s, unlocked);
-
-        const textX: i32 = @intFromFloat(pos.x + 30 * s);
-        const rightX: i32 = @intFromFloat(pos.x + nodeW - 8 * s);
-        const availW: i32 = rightX - textX;
-
-        var nameBuf: [64]u8 = undefined;
-        const nameZ = std.fmt.bufPrintZ(&nameBuf, "{s}", .{locale.nodeName(node.id, node.name)}) catch continue;
-        var nameSize = fs(15, s);
-        if (text.measure(nameZ, nameSize) > availW) nameSize = fs(12, s);
-        text.draw(nameZ, textX, @intFromFloat(pos.y + 7 * s), nameSize, style.nameColor);
-
-        const row2Y: i32 = @intFromFloat(pos.y + 29 * s);
-        const smallSize = fs(13, s);
-        var cx: i32 = textX;
-        if (style.showOwned) {
-            const owned = if (node.isRepeatable()) locale.tr("Max", "Máx.") else locale.tr("Owned", "Obtido");
-            text.draw(owned, cx, row2Y, smallSize, C.green);
-            cx += text.measure(owned, smallSize);
-        } else {
-            var cbuf: [32]u8 = undefined;
-            const cstr = format.formatShort(cost, &cbuf);
-            text.draw(cstr, cx, row2Y, smallSize, style.costColor);
-            cx += text.measure(cstr, smallSize);
-            if (unlocked and !afford) {
-                if (format.secondsUntil(cost, ctx.resources.honey, ctx.resources.honeyPerSec)) |secs| {
-                    var ebuf: [16]u8 = undefined;
-                    if (format.formatEta(secs, &ebuf)) |eta| {
-                        var lbuf: [32]u8 = undefined;
-                        const etaLabel = std.fmt.bufPrintZ(&lbuf, "{s} {s}", .{ locale.tr("in", "em"), eta }) catch eta;
-                        cx += @intFromFloat(6 * s);
-                        text.draw(etaLabel, cx, row2Y, smallSize, C.peach);
-                        cx += text.measure(etaLabel, smallSize);
-                    }
-                }
+        rl.drawRectangleRounded(rect, 0.12, 6, style.fill);
+        rl.drawRectangleRoundedLinesEx(rect, 0.12, 6, style.borderThick * s, style.border);
+        if (nodeFlash[node.id] > 0) rl.drawRectangleRounded(rect, 0.12, 6, withAlpha(C.green, @intFromFloat(70 * nodeFlash[node.id] / FLASH_TIME)));
+        drawNodeIcon(ctx, node, pos.x + 17 * s, pos.y + 22 * s, s, unlocked);
+        var nameBuf: [96]u8 = undefined;
+        const name = std.fmt.bufPrintZ(&nameBuf, "{s}", .{locale.nodeName(node.id, node.name)}) catch "";
+        _ = wrapped(name, pos.x + 34 * s, pos.y + 7 * s, NODE_W * s - 42 * s, fs(17, s), style.nameColor, 2);
+        if (s >= 0.75) {
+            var labelBuf: [40]u8 = undefined;
+            const label = if (maxed) (if (node.isRepeatable()) locale.tr("Max", "Máx.") else locale.tr("Owned", "Obtido")) else if (!unlocked) locale.tr("Locked", "Bloqueado") else format.formatShort(cost, &labelBuf);
+            text.draw(label, @intFromFloat(pos.x + 12 * s), @intFromFloat(pos.y + 53 * s), fs(16, s), style.costColor);
+            if (node.repeat) |r| {
+                var lb: [32]u8 = undefined;
+                const level = std.fmt.bufPrintZ(&lb, "{s} {d}/{d}", .{ locale.tr("Lv", "Nv"), lvl, r.capAt(ctx.ascensions) }) catch "";
+                text.draw(level, @as(i32, @intFromFloat(pos.x + (NODE_W - 10) * s)) - text.measure(level, fs(14, s)), @intFromFloat(pos.y + 55 * s), fs(14, s), C.subtext0);
             }
         }
-
-        if (node.repeat) |r| {
-            if (unlocked or purchased) {
-                const cap = r.capAt(ctx.ascensions);
-                var lbuf: [24]u8 = undefined;
-                const lvlLabel = std.fmt.bufPrintZ(&lbuf, "{s} {d}/{d}", .{ locale.tr("Lv", "Nv"), lvl, cap }) catch "";
-                const lw = text.measure(lvlLabel, smallSize);
-                // Only if it doesn't collide with the price/countdown.
-                if (rightX - lw > cx + @as(i32, @intFromFloat(6 * s))) {
-                    text.draw(lvlLabel, rightX - lw, row2Y, smallSize, if (maxed) C.green else C.subtext0);
-                }
-                // Level strip along the bottom edge.
-                const stripX = pos.x + 6 * s;
-                const stripW = nodeW - 12 * s;
-                const stripY = pos.y + nodeH - 6 * s;
-                rl.drawRectangleRounded(rl.Rectangle.init(stripX, stripY, stripW, 3 * s), 0.5, 4, C.surface1);
-                const frac = if (cap > 0) @as(f32, @floatFromInt(@min(lvl, cap))) / @as(f32, @floatFromInt(cap)) else 0;
-                if (frac > 0) {
-                    rl.drawRectangleRounded(rl.Rectangle.init(stripX, stripY, stripW * frac, 3 * s), 0.5, 4, if (maxed) C.green else C.teal);
-                }
-            }
-        }
-
-        // "next" tag on the cheapest buyable node: the natural next step
-        // when nothing glows yet.
-        if (cheapest == node.id and buyable) {
-            const tagLabel = locale.tr("next", "próx.");
-            const tagSize = fs(11, s);
-            const tw: f32 = @floatFromInt(text.measure(tagLabel, tagSize));
-            const tag = rl.Rectangle.init(rect.x + rect.width - tw - 18 * s, rect.y - 8 * s, tw + 12 * s, 16 * s);
-            rl.drawRectangleRounded(tag, 0.5, 6, C.yellow);
-            text.draw(tagLabel, @intFromFloat(tag.x + 6 * s), @intFromFloat(tag.y + 1.5 * s), tagSize, C.base);
-        }
-
-        if (buyable and afford and hovered and clickOk and input.confirmReleased()) {
-            action = .{ .purchase = node.id };
+        if (cheapest == node.id and !maxed and unlocked) {
+            const label = locale.tr("Cheapest", "Mais barato");
+            const size = fs(12, s);
+            const tagW: f32 = @floatFromInt(text.measure(label, size));
+            rl.drawRectangleRec(rl.Rectangle.init(pos.x + rect.width - tagW - 12, pos.y - 12 * s, tagW + 8, 18 * s), C.yellow);
+            text.draw(label, @intFromFloat(pos.x + rect.width - tagW - 8), @intFromFloat(pos.y - 12 * s), size, C.base);
         }
     }
-
     ui_scale.endScissor();
-
-    // Description tooltip for the hovered node, above everything else.
-    if (hoveredNode) |node| {
-        const desc = locale.nodeDesc(node.id);
-        var statusBuf: [96]u8 = undefined;
-        const status = nodeStatus(ctx, node, ctx.state.level(node.id), &statusBuf);
-        var needsBuf: [128]u8 = undefined;
-        const needs = missingPrereqs(ctx, node, &needsBuf);
-        if (desc.len > 0) drawTooltip(desc, status, needs, mouse, ctx.screenWidth, ctx.screenHeight);
+    if (input.confirmReleased()) {
+        dragging = false;
+        pressedNode = null;
     }
-
-    // Close and Fit buttons, bottom-right.
-    const closeW: f32 = 140;
-    const closeH: f32 = 44;
-    const closeX = panelX + panelW - closeW - 14;
-    const closeY = panelY + panelH - closeH - 14;
-    if (widgets.button(rl.Rectangle.init(closeX, closeY, closeW, closeH), locale.tr("Close", "Fechar"))) {
-        action = .close;
+    var action = drawDetails(ctx, details);
+    const footerY = H - 52;
+    if (widgets.button(rl.Rectangle.init(W - 138, footerY, 120, 38), locale.tr("Close", "Fechar"))) action = .close;
+    if (widgets.buttonEx(rl.Rectangle.init(W - 248, footerY, 100, 38), locale.tr("Fit", "Ajustar"), .{ .face = C.surface2, .textColor = C.text })) fitView(content.width, content.height);
+    if (widgets.buttonEx(rl.Rectangle.init(W - 358, footerY, 100, 38), "100%", .{ .face = C.surface2, .textColor = C.text })) {
+        zoom = 1;
+        focusNode(selectedId);
     }
-    const fitW: f32 = 110;
-    if (widgets.buttonEx(rl.Rectangle.init(closeX - fitW - 10, closeY, fitW, closeH), locale.tr("Fit", "Ajustar"), .{ .face = C.surface2, .textColor = C.text })) {
-        fitView(contentW, contentH);
-    }
-
-    // Map controls hint and zoom level, bottom-left, level with the buttons.
-    const hint = if (input.gamepadActive())
-        locale.tr("right stick pans · triggers zoom", "direito move · gatilhos ampliam")
-    else
-        locale.tr("drag to pan · wheel to zoom · Home fits", "arraste para mover · role para ampliar · Home ajusta");
-    text.draw(hint, @intFromFloat(panelX + 18), @intFromFloat(closeY + 14), 14, C.overlay1);
-    const zoomLabel = rl.textFormat("%d%%", .{@as(c_int, @intFromFloat(@round(zoom * 100)))});
-    text.draw(zoomLabel, @as(i32, @intFromFloat(panelX + 18)) + text.measure(hint, 14) + 14, @intFromFloat(closeY + 14), 14, C.subtext0);
-
+    text.draw(if (input.gamepadActive()) locale.tr("Stick: pan · A: select", "Stick: mover · A: selecionar") else locale.tr("Drag: pan · click: select", "Arraste: mover · clique: selecionar"), 18, @intFromFloat(footerY + 12), 14, C.subtext0);
     return action;
+}
+
+// Shared wrapping for cards and the fixed inspector. Never shrink readable
+// detail text to make room for a long translation.
+fn wrapped(value: []const u8, x: f32, y: f32, width: f32, size: i32, color: rl.Color, maxLines: usize) f32 {
+    var words = std.mem.tokenizeScalar(u8, value, ' ');
+    var line: [384]u8 = undefined;
+    var len: usize = 0;
+    var row: usize = 0;
+    const lineH: f32 = @floatFromInt(size + 5);
+    while (words.next()) |word| {
+        var candidate: [384]u8 = undefined;
+        const joined = std.fmt.bufPrintZ(&candidate, "{s}{s}{s}", .{ line[0..len], if (len > 0) " " else "", word }) catch break;
+        if (len > 0 and @as(f32, @floatFromInt(text.measure(joined, size))) > width) {
+            line[len] = 0;
+            text.draw(line[0..len :0], @intFromFloat(x), @intFromFloat(y + @as(f32, @floatFromInt(row)) * lineH), size, color);
+            row += 1;
+            if (row >= maxLines) return @as(f32, @floatFromInt(row)) * lineH;
+            len = 0;
+        }
+        if (len > 0) {
+            line[len] = ' ';
+            len += 1;
+        }
+        if (len + word.len >= line.len) break;
+        @memcpy(line[len..][0..word.len], word);
+        len += word.len;
+    }
+    if (len > 0 and row < maxLines) {
+        line[len] = 0;
+        text.draw(line[0..len :0], @intFromFloat(x), @intFromFloat(y + @as(f32, @floatFromInt(row)) * lineH), size, color);
+        row += 1;
+    }
+    return @as(f32, @floatFromInt(row)) * lineH;
+}
+
+fn drawDetails(ctx: TreeContext, rect: rl.Rectangle) TreeAction {
+    const C = theme.CatppuccinMocha.Color;
+    const node = upgrade_tree.findNode(selectedId) orelse &upgrade_tree.NODES[0];
+    const lvl = ctx.state.level(node.id);
+    const maxed = node.isMaxed(lvl, ctx.ascensions);
+    const unlocked = ctx.state.isUnlocked(node);
+    const cost = ctx.state.nextCost(node, ctx.prestigeCostMul);
+    const wide = rect.width > 500;
+    const x = rect.x + 16;
+    const infoW = if (wide) rect.width * 0.56 - 24 else rect.width - 32;
+    input.registerBlock(rect);
+    rl.drawRectangleRounded(rect, 0.08, 6, C.base);
+    var y = rect.y + 12;
+    y += wrapped(locale.nodeName(node.id, node.name), x, y, infoW, 23, C.peach, 2);
+    y += wrapped(locale.nodeDesc(node.id), x, y + 5, infoW, 17, C.text, if (wide) 3 else 5) + 10;
+    var sb: [256]u8 = undefined;
+    if (nodeStatus(ctx, node, lvl, &sb)) |status| _ = wrapped(status, x, y, infoW, 16, C.teal, 3);
+    const ax = if (wide) rect.x + rect.width * 0.56 else x;
+    const aw = if (wide) rect.width * 0.44 - 16 else infoW;
+    var ay = if (wide) rect.y + 16 else rect.y + rect.height - 182;
+    if (node.repeat) |r| {
+        var lb: [64]u8 = undefined;
+        const label = std.fmt.bufPrintZ(&lb, "{s} {d}/{d}", .{ locale.tr("Level", "Nível"), lvl, r.capAt(ctx.ascensions) }) catch "";
+        text.draw(label, @intFromFloat(ax), @intFromFloat(ay), 20, C.teal);
+        ay += 28;
+    }
+    var nb: [256]u8 = undefined;
+    if (missingPrereqs(ctx, node, &nb)) |needs| {
+        _ = wrapped(needs, ax, ay, aw, 16, C.peach, 4);
+    } else if (ctx.resources.needsStorage(cost) and !maxed) {
+        _ = wrapped(locale.tr("This price exceeds your storage capacity.", "Este preço excede seu armazém."), ax, ay, aw, 16, C.peach, 3);
+    } else if (!maxed and ctx.resources.honey < cost) {
+        if (ctx.resources.purchaseWait(cost)) |secs| {
+            var eb: [16]u8 = undefined;
+            if (format.formatEta(secs, &eb)) |eta| _ = wrapped(rl.textFormat(locale.tr("About %s at current production", "Cerca de %s na produção atual"), .{eta.ptr}), ax, ay, aw, 16, C.subtext1, 3);
+        } else _ = wrapped(locale.tr("Waiting for honey production", "Aguardando produção de mel"), ax, ay, aw, 16, C.subtext1, 3);
+    }
+    const buttonRect = rl.Rectangle.init(ax, rect.y + rect.height - 50, aw, 38);
+    if (ctx.resources.needsStorage(cost) and unlocked and !maxed) {
+        if (widgets.button(buttonRect, locale.tr("Increase storage", "Aumentar armazém"))) focusNode(upgrade_tree.STORAGE_ID);
+    } else {
+        var cb: [32]u8 = undefined;
+        const label = if (maxed) locale.tr("Owned / Max", "Obtido / Máx.") else if (!unlocked) locale.tr("Locked", "Bloqueado") else rl.textFormat(locale.tr("Buy · %s honey", "Comprar · %s mel"), .{format.formatShort(cost, &cb).ptr});
+        if (widgets.buttonEx(buttonRect, label, .{ .enabled = unlocked and !maxed and ctx.resources.honey >= cost, .fontSize = 18 })) return .{ .purchase = node.id };
+    }
+    return .none;
 }
 
 /// "Needs: Honey Doubler Lv3, Gardener Bee" for a locked node; null when

@@ -39,3 +39,9 @@ pub fn loadTextureFromMemory(fileData: []const u8) !rl.Texture {
     defer rl.unloadImage(image);
     return rl.loadTextureFromImage(image);
 }
+
+pub const pink_tulip_png = sprites.pink_tulip_png;
+pub const poppy_png = sprites.poppy_png;
+pub const hyacinth_png = sprites.hyacinth_png;
+pub const red_tulip_png = sprites.red_tulip_png;
+pub const iris_png = sprites.iris_png;

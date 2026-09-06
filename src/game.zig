@@ -96,6 +96,7 @@ pub const Game = struct {
     upgradeTree: upgrade_tree.State,
     showTree: bool,
     showOptions: bool,
+    showDiscoveries: bool = false,
     plantMenu: ui.plant_menu.State,
     labs: labs.LabState,
     prestige: prestige_mod.PrestigeState,
@@ -139,6 +140,7 @@ pub const Game = struct {
     /// True when a save was loaded at startup (title shows Continue/New Game).
     hasSavedGame: bool,
     autosaveTimer: f32,
+    saveQueue: @import("save_queue.zig").Queue = .{},
 
     pub fn init(allocator: std.mem.Allocator, io: std.Io, env: *std.process.Environ.Map) !@This() {
         locale.detectFromEnvironment(env);
@@ -318,6 +320,7 @@ pub const Game = struct {
             error.FileNotFound => {},
             else => std.debug.print("Could not load save '{s}': {}\n", .{ savePath, err }),
         }
+        if (env.get("BT_LANG") != null) locale.detectFromEnvironment(env);
         if (useSavedWindowMode) settings.apply(settings.windowMode);
 
         // Steam comes up after the save so offline unlocks can be re-asserted.
@@ -335,6 +338,7 @@ pub const Game = struct {
     }
 
     pub fn deinit(self: *@This()) void {
+        self.saveQueue.finish(self.allocator, self.io) catch |err| std.debug.print("Could not finish autosave: {}\n", .{err});
         render_system.deinit();
         self.grid.deinit();
         self.textures.deinit();
@@ -406,7 +410,7 @@ pub const Game = struct {
     /// stick scrolls instead of driving world shortcuts and the camera.
     fn inMenuContext(self: *const @This()) bool {
         return self.state == .title_screen or self.showOptions or self.showPauseMenu or
-            self.showTree or self.showPrestigeDialog or self.plantMenu.open;
+            self.showTree or self.showPrestigeDialog or self.showDiscoveries or self.plantMenu.open;
     }
 
     /// Handle input common to all game states (fullscreen, window resize)
@@ -518,6 +522,9 @@ pub const Game = struct {
             if (self.showOptions) {
                 self.showOptions = false;
                 return;
+            } else if (self.showDiscoveries) {
+                self.showDiscoveries = false;
+                return;
             } else if (self.showPrestigeDialog) {
                 self.showPrestigeDialog = false;
                 return;
@@ -566,8 +573,12 @@ pub const Game = struct {
             }
         }
 
+        if (rl.isKeyPressed(.b) and !self.inMenuContext()) {
+            self.showDiscoveries = true;
+            return;
+        }
         // Block input when popup, pause menu, tree, or prestige dialog is open
-        if (self.showPauseMenu or self.showTree or self.showPrestigeDialog) {
+        if (self.showPauseMenu or self.showTree or self.showPrestigeDialog or self.showDiscoveries) {
             return;
         }
         // The plant chooser owns the mouse while open (draw() handles it).
@@ -852,13 +863,14 @@ pub const Game = struct {
         });
         switch (action) {
             .none => {},
+            .erase => {
+                self.plantMenu.eraser = true;
+                self.plantMenu.brush = null;
+                self.plantMenu.open = false;
+            },
             .close => self.plantMenu.open = false,
             .plant => |flower| {
-                const cost = switch (flower) {
-                    .rose => spawners.FLOWER_COSTS.rose,
-                    .tulip => spawners.FLOWER_COSTS.tulip,
-                    .dandelion => spawners.FLOWER_COSTS.dandelion,
-                };
+                const cost = flower.stats().plantCost;
                 const x = self.plantMenu.tileX;
                 const y = self.plantMenu.tileY;
                 if (!self.world.hasFlowerAtGrid(x, y) and self.resources.spendHoney(cost)) {
@@ -882,8 +894,8 @@ pub const Game = struct {
         const deltaTime = clock.frameTime();
 
         self.autosaveTimer += deltaTime;
-        if (self.autosaveTimer >= 10.0) {
-            self.saveProgress() catch |err| std.debug.print("Could not autosave progress: {}\n", .{err});
+        if (self.autosaveTimer >= 10.0 and !self.saveQueue.busy()) {
+            self.autosaveProgress() catch |err| std.debug.print("Could not autosave progress: {}\n", .{err});
             self.autosaveTimer = 0;
             steam.pushStats(&self.stats);
         }
@@ -974,7 +986,7 @@ pub const Game = struct {
         // The tree and prestige views cover the whole window, so the meadow
         // and HUD underneath would be drawn for nothing (the meadow keeps
         // simulating in update() regardless).
-        const fullScreenView = self.showTree or self.showPrestigeDialog;
+        const fullScreenView = self.showTree or self.showPrestigeDialog or self.showDiscoveries;
         if (!fullScreenView) {
             // Cozy animated sky behind everything.
             self.sky.drawBackground(self.width, self.height);
@@ -997,7 +1009,10 @@ pub const Game = struct {
             // Draw HUD (reuses this frame's cached factor)
             const honeyFactor = self.cachedHoneyFactor;
             const night = self.sky.nightFactor();
-            self.hud.draw(&self.resources, honeyFactor, night, bee_ai_system.nightHoneyMul(night));
+            if (self.hud.draw(&self.resources, honeyFactor, night, bee_ai_system.nightHoneyMul(night), self.width, !self.inMenuContext())) {
+                self.showTree = true;
+                ui.tree_view.focusNode(upgrade_tree.STORAGE_ID);
+            }
 
             // Draw the floating action HUD (bee cross, tree button, passives)
             const sideCtx = ui.ActionHudContext{
@@ -1005,6 +1020,8 @@ pub const Game = struct {
                 .screenHeight = self.height,
                 .resources = &self.resources,
                 .beeTypeCounts = self.cachedBeeTypeCounts,
+                .discoveries = self.achievementTracker.unlockedCount(),
+                .discoveriesTotal = achievements.COUNT,
                 .treeState = &self.upgradeTree,
                 .prestige = &self.prestige,
                 .labs = &self.labs,
@@ -1021,6 +1038,11 @@ pub const Game = struct {
                     ui.tree_view.resetView();
                 },
                 .open_prestige => self.showPrestigeDialog = true,
+                .open_discoveries => self.showDiscoveries = true,
+                .open_storage => {
+                    self.showTree = true;
+                    ui.tree_view.focusNode(upgrade_tree.STORAGE_ID);
+                },
                 .buy => |b| {
                     var handler = self.createActionHandler();
                     const honeyBefore = self.resources.honey;
@@ -1045,6 +1067,9 @@ pub const Game = struct {
             }
         }
 
+        if (self.showDiscoveries) {
+            if (ui.discoveries_view.draw(.{ .screenWidth = self.width, .screenHeight = self.height, .tracker = &self.achievementTracker, .stats = &self.stats }) == .close) self.showDiscoveries = false;
+        }
         if (self.showPrestigeDialog) {
             try self.drawAndHandlePrestigeDialog();
         }
@@ -1380,7 +1405,8 @@ pub const Game = struct {
             const growth = self.world.getFlowerGrowth(entity) orelse continue;
             if (!growth.isSuper or growth.isRotten) continue;
             superAlive += 1;
-            superTypes[@intFromEnum(growth.flowerType)] = true;
+            const flowerIndex = @intFromEnum(growth.flowerType);
+            if (flowerIndex < superTypes.len) superTypes[flowerIndex] = true;
         }
         var beeTypes: [4]u32 = undefined;
         for (self.cachedBeeTypeCounts, 0..) |n, i| beeTypes[i] = @intCast(@min(n, std.math.maxInt(u32)));
@@ -1549,7 +1575,22 @@ pub const Game = struct {
         try self.upgradeTree.markPurchased(nodeId);
     }
 
+    fn autosaveProgress(self: *@This()) !void {
+        try self.saveQueue.finish(self.allocator, self.io);
+        const data = try self.captureProgress();
+        try self.saveQueue.submit(self.allocator, self.io, self.savePath, data);
+    }
+
     fn saveProgress(self: *@This()) !void {
+        // An explicit save supersedes any older background snapshot, even if
+        // that older write failed. Always attempt the latest state.
+        self.saveQueue.finish(self.allocator, self.io) catch |err| std.debug.print("Earlier autosave failed: {}\n", .{err});
+        var data = try self.captureProgress();
+        defer data.deinit(self.allocator);
+        try save.write(self.io, self.savePath, &data);
+    }
+
+    fn captureProgress(self: *@This()) !save.Data {
         var data = save.Data{
             .language = @intFromEnum(locale.current()),
             .ui_scale = ui_scale.user(),
@@ -1576,7 +1617,7 @@ pub const Game = struct {
             .stats = self.stats,
             .achievements = self.achievementTracker.unlocked,
         };
-        defer data.deinit(self.allocator);
+        errdefer data.deinit(self.allocator);
         for (self.prestige.shopLevels, 0..) |lvl, i| data.shop_levels[i] = lvl;
 
         var upgrade_it = self.upgradeTree.levels.iterator();
@@ -1648,7 +1689,7 @@ pub const Game = struct {
             });
         }
 
-        try save.write(self.io, self.savePath, &data);
+        return data;
     }
 
     fn loadProgress(self: *@This()) !void {
@@ -1694,12 +1735,8 @@ pub const Game = struct {
         for (data.flowers.items) |flower| {
             if (flower.x < 0 or flower.y < 0 or
                 flower.x >= @as(i32, @intCast(self.gridWidth)) or flower.y >= @as(i32, @intCast(self.gridHeight))) continue;
-            const flower_type: components.FlowerType = switch (flower.flower_type) {
-                0 => .rose,
-                1 => .tulip,
-                2 => .dandelion,
-                else => continue,
-            };
+            if (flower.flower_type >= components.FlowerType.count) continue;
+            const flower_type: components.FlowerType = @enumFromInt(flower.flower_type);
             const entity = try spawners.spawnFlower(&self.world, &self.textures, spawners.flowerTypeToFlowers(flower_type), flower.x, flower.y);
             if (self.world.getFlowerGrowth(entity)) |growth| {
                 growth.state = finiteInRange(flower.state, 0, 4, 0);

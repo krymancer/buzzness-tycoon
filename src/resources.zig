@@ -80,6 +80,15 @@ pub const Resources = struct {
         return false;
     }
 
+    pub fn needsStorage(self: *const @This(), cost: f32) bool {
+        return config.honey_cap_enabled and cost > self.honeyCapacity and cost > self.honey;
+    }
+
+    pub fn purchaseWait(self: *const @This(), cost: f32) ?f64 {
+        if (self.needsStorage(cost)) return null;
+        return @import("format.zig").secondsUntil(cost, self.honey, self.honeyPerSec);
+    }
+
     pub fn getCapacityPercent(self: *const @This()) f32 {
         if (!config.honey_cap_enabled) return 0;
         return self.honey / self.honeyCapacity;
@@ -114,3 +123,16 @@ pub const Resources = struct {
         return self.growthBoostCooldown / self.growthBoostMaxCooldown;
     }
 };
+
+test "purchase waits distinguish storage blockers from income" {
+    var r = Resources.init();
+    r.honey = 100;
+    r.honeyCapacity = 500;
+    r.honeyPerSec = 20;
+    try std.testing.expect(r.needsStorage(600));
+    try std.testing.expectEqual(@as(?f64, null), r.purchaseWait(600));
+    try std.testing.expectEqual(@as(?f64, 5), r.purchaseWait(200));
+    r.honey = 500;
+    try std.testing.expectEqual(@as(?f64, null), r.purchaseWait(600));
+    try std.testing.expectEqual(@as(?f64, 0), r.purchaseWait(500));
+}

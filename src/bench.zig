@@ -44,7 +44,7 @@ pub fn main(init: std.process.Init) !void {
     world.bees.meadow = .{ .offset = offset, .scale = scale, .width = gridSize, .height = gridSize };
 
     const dummy = rl.Texture{ .id = 0, .width = 32, .height = 32, .mipmaps = 1, .format = .uncompressed_r8g8b8a8 };
-    const textures = Textures{ .bee = dummy, .rose = dummy, .dandelion = dummy, .tulip = dummy, .beehive = dummy };
+    const textures = Textures{ .bee = dummy, .rose = dummy, .dandelion = dummy, .tulip = dummy, .beehive = dummy, .roseGray = dummy, .dandelionGray = dummy, .tulipGray = dummy };
 
     const center: f32 = @floatFromInt((gridSize - 1) / 2);
     const hive = try world.createEntity();
