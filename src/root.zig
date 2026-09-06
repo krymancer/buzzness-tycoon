@@ -12,6 +12,7 @@ test {
     _ = @import("prestige.zig");
     _ = @import("achievements.zig");
     _ = @import("meadow_plan.zig");
+    _ = @import("garden_tools.zig");
     _ = @import("adjacency.zig");
     _ = @import("golden_flower.zig");
 }

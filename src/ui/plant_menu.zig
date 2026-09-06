@@ -1,5 +1,5 @@
 //! Compact "plant a flower" chooser that opens when the player clicks an
-//! empty meadow tile. Three rows (one per flower type) with sprite, name and
+//! meadow tile. Eight rows (one per flower type) with sprite, name and
 //! cost, plus "Clear plan"; clicking outside or pressing Esc closes it.
 //!
 //! Picking a type plants it on the tile and arms it as a brush: dragging
@@ -25,6 +25,7 @@ pub const Action = union(enum) {
     plant: Flowers,
     /// Arm the eraser: dragging clears planned cells.
     erase,
+    remove_flowers,
 };
 
 pub const State = struct {
@@ -34,23 +35,29 @@ pub const State = struct {
     /// Armed flower brush (paint the plan / plant on drag).
     brush: ?Flowers = null,
     eraser: bool = false,
+    remover: bool = false,
+    waitForRelease: bool = false,
     /// Last tile painted this drag, so holding still doesn't re-paint.
     lastPaintX: i32 = -1,
     lastPaintY: i32 = -1,
 
     pub fn openAt(self: *@This(), x: i32, y: i32) void {
         self.open = true;
+        self.lastPaintX = -1;
+        self.lastPaintY = -1;
         self.tileX = x;
         self.tileY = y;
     }
 
     pub fn brushActive(self: *const @This()) bool {
-        return self.brush != null or self.eraser;
+        return self.brush != null or self.eraser or self.remover;
     }
 
     pub fn dropBrush(self: *@This()) void {
         self.brush = null;
         self.eraser = false;
+        self.remover = false;
+        self.waitForRelease = false;
         self.lastPaintX = -1;
         self.lastPaintY = -1;
     }
@@ -63,13 +70,14 @@ pub const Context = struct {
     gridScale: f32,
     resources: *const Resources,
     textures: *const Textures,
+    removalUnlocked: bool = false,
 };
 
 const ROW_H: f32 = 44;
 const PANEL_W: f32 = 280;
 const PAD: f32 = 8;
-/// Enabled only by the garden-planning prototype.
-pub var planningEnabled: bool = false;
+/// Garden planning is available in normal play.
+pub var planningEnabled: bool = true;
 
 const Entry = struct { flower: Flowers, cost: f32 };
 const ENTRIES = [_]Entry{
@@ -116,7 +124,7 @@ pub fn draw(state: *const State, ctx: Context) Action {
     const C = theme.CatppuccinMocha.Color;
     const ERASE_H: f32 = 30;
     const HINT_H: f32 = 16;
-    const panelH: f32 = PAD * 2 + 24 + ROW_H * ENTRIES.len + (if (planningEnabled) ERASE_H + HINT_H else 0);
+    const panelH: f32 = PAD * 2 + 24 + ROW_H * ENTRIES.len + (if (planningEnabled) ERASE_H * 2 + HINT_H else 0);
 
     // Anchor just below the tile's diamond, clamped to the screen.
     const tilePos = utils.isoToXY(@floatFromInt(state.tileX), @floatFromInt(state.tileY), 32, 32, ctx.gridOffset.x, ctx.gridOffset.y, ctx.gridScale);
@@ -163,7 +171,7 @@ pub fn draw(state: *const State, ctx: Context) Action {
         icons.drawHoneyDrop(cx - dropR - 5, row.y + row.height / 2 + dropR * 0.65, dropR, if (afford) C.yellow else C.overlay0);
         text.draw(costLabel, @intFromFloat(cx), @intFromFloat(row.y + 12), 15, if (afford) C.yellow else C.overlay0);
 
-        if (clicked and hovered and afford) action = .{ .plant = entry.flower };
+        if (clicked and hovered and (afford or planningEnabled)) action = .{ .plant = entry.flower };
     }
 
     if (planningEnabled) {
@@ -178,9 +186,18 @@ pub fn draw(state: *const State, ctx: Context) Action {
         text.draw(elabel, @intFromFloat(erow.x + 10), @intFromFloat(erow.y + 5), 14, if (ehov) C.red else C.subtext1);
         if (clicked and ehov) action = .erase;
 
+        const removeRow = rl.Rectangle.init(px + PAD, ey + ERASE_H, PANEL_W - PAD * 2, ERASE_H - 4);
+        if (ctx.removalUnlocked) input.registerHotspot(removeRow);
+        const removeHover = ctx.removalUnlocked and rl.checkCollisionPointRec(mouse, removeRow);
+        rl.drawRectangleRounded(removeRow, 0.25, 4, if (removeHover) C.surface1 else C.surface0);
+        rl.drawRectangleRoundedLinesEx(removeRow, 0.25, 4, 1, if (removeHover) C.red else C.surface2);
+        const removalLabel = if (ctx.removalUnlocked) locale.tr("Remove flowers + plans", "Remover flores + planos") else locale.tr("Removal Brush · unlock in tree", "Pincel de Remoção · na árvore");
+        text.draw(removalLabel, @intFromFloat(removeRow.x + 10), @intFromFloat(removeRow.y + 5), 14, if (removeHover) C.red else if (ctx.removalUnlocked) C.peach else C.overlay0);
+        if (clicked and removeHover) action = .remove_flowers;
+
         // Brush hint.
-        const hint = locale.tr("then drag to paint · right-click stops", "depois arraste para pintar · botão direito para parar");
-        text.draw(hint, @intFromFloat(px + PAD + 2), @intFromFloat(ey + ERASE_H - 2), 11, C.overlay1);
+        const hint = if (input.gamepadActive()) locale.tr("Hold A: use brush · B: stop", "Segure A: usar pincel · B: sair") else locale.tr("Drag: use brush · Esc: stop", "Arraste: usar pincel · Esc: sair");
+        text.draw(hint, @intFromFloat(px + PAD + 2), @intFromFloat(ey + ERASE_H * 2 - 2), 11, C.overlay1);
     }
 
     // Click anywhere outside the panel closes it.

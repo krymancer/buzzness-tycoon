@@ -6,6 +6,7 @@ const config = @import("../config.zig");
 const format = @import("../format.zig");
 const Resources = @import("../resources.zig").Resources;
 const locale = @import("../localization.zig");
+const upgrade_tree = @import("../upgrade_tree.zig");
 const input = @import("../input.zig");
 
 pub const OUTLINE = rl.Color.init(24, 24, 37, 235);
@@ -19,9 +20,12 @@ pub const Hud = struct {
 
     /// Keep the meadow visible: one thin resource strip, with secondary
     /// multipliers on hover (also reachable by the controller cursor).
-    /// The strip links to Storage; a full hive replaces income with a warning.
-    pub fn draw(_: @This(), resources: *const Resources, beehiveFactor: f32, nightFactor: f32, nightMul: f32, width: f32, enabled: bool) bool {
+    /// The strip buys the next storage level; hover shows its price.
+    pub fn draw(_: @This(), resources: *const Resources, beehiveFactor: f32, nightFactor: f32, nightMul: f32, width: f32, enabled: bool, tree: *const upgrade_tree.State, costMul: f32, ascensions: u32) bool {
         const C = theme.CatppuccinMocha.Color;
+        const storage = upgrade_tree.findNode(upgrade_tree.STORAGE_ID).?;
+        const storageCost = tree.nextCost(storage, costMul);
+        const canUpgrade = tree.canBuy(storage, ascensions) and resources.honey >= storageCost;
         const w = @min(440, @max(260, width * 0.48 - 20));
         const full = config.honey_cap_enabled and resources.isAtCapacity();
         const rect = rl.Rectangle.init(12, 12, w, 48);
@@ -58,9 +62,10 @@ pub const Hud = struct {
             const factor = if (beehiveFactor < 1000) (std.fmt.bufPrintZ(&fb, "{d:.1}", .{beehiveFactor}) catch "?") else format.formatShort(beehiveFactor, &fb);
             const chips = if (nightFactor > 0.01) rl.textFormat(locale.tr("Hive x%s · Night x%.2f", "Colmeia x%s · Noite x%.2f"), .{ factor.ptr, nightMul }) else rl.textFormat(locale.tr("Hive x%s", "Colmeia x%s"), .{factor.ptr});
             text.draw(chips, 24, 103, 16, C.subtext1);
-            text.draw(locale.tr("Select to inspect Storage", "Selecione para ver Armazém"), 24, 128, 14, C.subtext0);
+            var sb: [32]u8 = undefined;
+            text.draw(rl.textFormat(locale.tr("Click: storage + · %s honey", "Clique: armazém + · %s mel"), .{format.formatShort(storageCost, &sb).ptr}), 24, 128, 14, if (canUpgrade) C.yellow else C.subtext0);
         }
-        if (hovered and input.confirmPressed()) {
+        if (hovered and canUpgrade and input.confirmPressed()) {
             input.consumeConfirm();
             return true;
         }

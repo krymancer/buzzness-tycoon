@@ -404,6 +404,8 @@ test "save data survives an atomic round trip" {
         .grid_height = 23,
     };
     defer original.deinit(std.testing.allocator);
+    try original.plans.append(std.testing.allocator, .{ .x = 4, .y = 8, .flower_type = 7 });
+    try original.plans.append(std.testing.allocator, .{ .x = 5, .y = 8, .flower_type = 3 });
     original.shop_levels[2] = 3;
     original.stats.lifetimeHoney = 2.5e12;
     original.stats.prestigeCount = 6;
@@ -437,6 +439,7 @@ test "save data survives an atomic round trip" {
     var restored = try read(std.testing.allocator, std.testing.io, save_path);
     defer restored.deinit(std.testing.allocator);
 
+    try std.testing.expectEqualSlices(PlanCell, original.plans.items, restored.plans.items);
     try std.testing.expectEqual(@as(f32, 0.9), restored.music_volume);
     try std.testing.expectEqual(@as(f32, 0.25), restored.fx_volume);
     try std.testing.expectEqual(@as(f32, 9_000_000), restored.honey);
