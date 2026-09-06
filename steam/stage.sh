@@ -8,7 +8,9 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 DEST=steam/content/all
-mkdir -p "$DEST"
+mkdir -p "$DEST/licenses"
+cp CREDITS.md "$DEST/CREDITS.md"
+cp licenses/BoldPixels.txt "$DEST/licenses/BoldPixels.txt"
 
 echo "==> Building Linux (native) ..."
 zig build -Doptimize=ReleaseFast

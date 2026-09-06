@@ -5,6 +5,7 @@ pub const tulip_png = @embedFile("tulip.png");
 pub const grass_cube_png = @embedFile("grass-cube.png");
 pub const beehive_png = @embedFile("beehive.png");
 
+pub const boldpixels_ttf = @embedFile("boldpixels.ttf");
 pub const baloo2_ttf = @embedFile("baloo2.ttf");
 
 // UI prompt icons from Kenney's "Input Prompts Pixel" pack (CC0,
