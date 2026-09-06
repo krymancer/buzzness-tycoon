@@ -42,6 +42,27 @@ RAMPS = {
 }
 
 
+# Choose a distinct Mocha accent per species rather than inheriting the
+# source pack's concentration of pink/purple hues. Foliage stays shared.
+FLOWER_ACCENTS = {
+    'rose': 'yellow', 'tulip': 'blue', 'dandelion': 'text',
+    'pink_tulip': 'pink', 'poppy': 'peach', 'hyacinth': 'mauve',
+    'red_tulip': 'red', 'iris': 'teal',
+}
+ROW_RAMPS = {
+    0: {'red': ['overlay1', 'yellow', 'yellow', 'yellow', 'yellow']},
+    1: {'blue': ['surface2', 'blue', 'blue']},
+    2: {'purple': ['overlay1', 'pink', 'pink']},
+    3: {'red': ['surface2', 'peach', 'peach', 'peach'],
+        'gold': ['peach', 'yellow', 'yellow']},
+    4: {'purple': ['surface2', 'mauve', 'mauve', 'mauve']},
+    5: {'red': ['surface2', 'red', 'red', 'maroon']},
+    6: {'pink': ['overlay1', 'subtext1', 'text', 'text', 'text'],
+        'gold': ['peach', 'yellow', 'yellow', 'yellow']},
+    7: {'purple': ['surface2', 'teal', 'teal']},
+}
+
+
 def remap(source):
     mapping = {}
     result = source.copy()
@@ -52,6 +73,7 @@ def remap(source):
         visible = {p[:3] for p in live.get_flattened_data() if p[3]}
         rowmap = {}
         for name, ramp in RAMPS.items():
+            ramp = ROW_RAMPS.get(row, {}).get(name, ramp)
             colors = sorted((rgb for rgb in visible if family(rgb) == name), key=lambda c: .2126*c[0]+.7152*c[1]+.0722*c[2])
             for i, rgb in enumerate(colors):
                 rowmap[rgb] = MOCHA[ramp[round(i*(len(ramp)-1)/max(1,len(colors)-1))]]
