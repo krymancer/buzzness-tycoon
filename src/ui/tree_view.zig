@@ -34,10 +34,10 @@ pub const TreeAction = union(enum) {
     purchase: upgrade_tree.NodeId,
 };
 
-const NODE_W: f32 = 208;
-const NODE_H: f32 = 84;
-const COL_SPACING: f32 = 228;
-const ROW_SPACING: f32 = 108;
+const NODE_W: f32 = 240;
+const NODE_H: f32 = 60;
+const COL_SPACING: f32 = 260;
+const ROW_SPACING: f32 = 84;
 // Layout extents (cols -4..4, rows 0..6) at scale 1.
 const MIN_COL: f32 = -4;
 const MAX_COL: f32 = 4;
@@ -363,18 +363,23 @@ pub fn draw(ctx: TreeContext) TreeAction {
         rl.drawRectangleRounded(rect, 0.12, 6, style.fill);
         rl.drawRectangleRoundedLinesEx(rect, 0.12, 6, style.borderThick * s, style.border);
         if (nodeFlash[node.id] > 0) rl.drawRectangleRounded(rect, 0.12, 6, withAlpha(C.green, @intFromFloat(70 * nodeFlash[node.id] / FLASH_TIME)));
-        drawNodeIcon(ctx, node, pos.x + 17 * s, pos.y + 22 * s, s, unlocked);
+        drawNodeIcon(ctx, node, pos.x + 23 * s, pos.y + 30 * s, 1.5 * s, unlocked);
         var nameBuf: [96]u8 = undefined;
         const name = std.fmt.bufPrintZ(&nameBuf, "{s}", .{locale.nodeName(node.id, node.name)}) catch "";
-        _ = wrapped(name, pos.x + 34 * s, pos.y + 7 * s, NODE_W * s - 42 * s, fs(17, s), style.nameColor, 2);
+        // One name row and one cost/level row, with the icon spanning both.
+        // Keep long translations intact; only their headings scale down.
+        var nameSize = fs(20, s);
+        const nameWidth = (NODE_W - 54) * s;
+        while (nameSize > fs(14, s) and @as(f32, @floatFromInt(text.measure(name, nameSize))) > nameWidth) nameSize -= 1;
+        text.draw(name, @intFromFloat(pos.x + 46 * s), @intFromFloat(pos.y + 8 * s), nameSize, style.nameColor);
         if (s >= 0.75) {
             var labelBuf: [40]u8 = undefined;
             const label = if (maxed) (if (node.isRepeatable()) locale.tr("Max", "Máx.") else locale.tr("Owned", "Obtido")) else if (!unlocked) locale.tr("Locked", "Bloqueado") else format.formatShort(cost, &labelBuf);
-            text.draw(label, @intFromFloat(pos.x + 12 * s), @intFromFloat(pos.y + 53 * s), fs(16, s), style.costColor);
+            text.draw(label, @intFromFloat(pos.x + 46 * s), @intFromFloat(pos.y + 35 * s), fs(18, s), style.costColor);
             if (node.repeat) |r| {
                 var lb: [32]u8 = undefined;
                 const level = std.fmt.bufPrintZ(&lb, "{s} {d}/{d}", .{ locale.tr("Lv", "Nv"), lvl, r.capAt(ctx.ascensions) }) catch "";
-                text.draw(level, @as(i32, @intFromFloat(pos.x + (NODE_W - 10) * s)) - text.measure(level, fs(14, s)), @intFromFloat(pos.y + 55 * s), fs(14, s), C.subtext0);
+                text.draw(level, @as(i32, @intFromFloat(pos.x + (NODE_W - 10) * s)) - text.measure(level, fs(16, s)), @intFromFloat(pos.y + 36 * s), fs(16, s), C.subtext0);
             }
         }
         if (cheapest == node.id and !maxed and unlocked) {
@@ -478,7 +483,7 @@ fn drawDetails(ctx: TreeContext, rect: rl.Rectangle) TreeAction {
         if (widgets.button(buttonRect, locale.tr("Increase storage", "Aumentar armazém"))) focusNode(upgrade_tree.STORAGE_ID);
     } else {
         var cb: [32]u8 = undefined;
-        const label = if (maxed) locale.tr("Owned / Max", "Obtido / Máx.") else if (!unlocked) locale.tr("Locked", "Bloqueado") else rl.textFormat(locale.tr("Buy · %s honey", "Comprar · %s mel"), .{format.formatShort(cost, &cb).ptr});
+        const label = if (maxed) locale.tr("Owned / Max", "Obtido / Máx.") else if (!unlocked) locale.tr("Locked", "Bloqueado") else rl.textFormat(locale.tr("Buy · %s Honey", "Comprar · %s Mel"), .{format.formatShort(cost, &cb).ptr});
         if (widgets.buttonEx(buttonRect, label, .{ .enabled = unlocked and !maxed and ctx.resources.honey >= cost, .fontSize = 18 })) return .{ .purchase = node.id };
     }
     return .none;
