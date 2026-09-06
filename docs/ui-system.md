@@ -25,3 +25,5 @@ The simulation continues while full-screen views are open; the covered meadow is
 Use throwaway `BT_SAVE_PATH` files. Check English and Portuguese at 1280x800, 1920x1080, and increased UI scale; inspect unaffordable, storage-blocked, locked, purchased, and capped nodes. `zig build check`, `zig build test`, and the headless `zig build bench -Doptimize=ReleaseFast` cover compile, behavior, and simulation checks. Rendering captures require a display or Xvfb.
 
 BoldPixels is loaded unchanged with point filtering and no extra letter spacing. The badge uses a 16px label; other UI sizes still follow the existing scale setting, so arbitrary window/UI scales are not guaranteed to be pixel-integer multiples. Attribution and the font notice ship with Steam staging and release archives.
+
+Tree cards use a 240×60 layout (previously 208×84), with two text rows and 50% larger effect icons. Standard headings are 20px and prices 18px; long localized headings scale down to preserve the full name. Row spacing is 84px instead of 108px. Buy-button currency is “Honey” in English and “Mel” in Portuguese.
