@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.4.0 — unreleased
+## 0.3.4 — 2026-09-06
 
 - Reduced base bee lifespan from 8–16 minutes to 1–2 minutes. Bee Vitality and pollen-based life extensions still apply.
 
